@@ -535,6 +535,19 @@ else:
             all_rows.sort(key=lambda x: x['Rating'], reverse=True)
             st.session_state['lineup_rows'] = all_rows
 
+            # Auto-save 60+ rated predictions to tracker
+            from tracker import add_predictions
+            qualified = [r for r in all_rows if r['Rating'] >= 60]
+            if qualified:
+                add_predictions([{
+                    'player':     r['Player'],
+                    'team':       r['_team'],
+                    'rating':     r['Rating'],
+                    'grade':      r['Grade'],
+                    'projected':  r['Projected'],
+                    'vs_pitcher': r['vs Pitcher'],
+                } for r in qualified])
+
     if 'lineup_rows' in st.session_state and st.session_state['lineup_rows']:
         rows = st.session_state['lineup_rows']
         st.caption(f'{len(rows)} batters · highest to lowest rating · refresh sidebar to update')
