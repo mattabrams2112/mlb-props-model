@@ -98,7 +98,7 @@ def run_prediction(player_id: int, pitcher_id, is_home: bool, park_team: str,
     if df.empty or len(df) < 25:
         return None
 
-    df_feat = build_features(df, fetch_weather=False, override_pitcher_id=pitcher_id)
+    df_feat = build_features(df, fetch_weather=False, override_pitcher_id=pitcher_id, fast_mode=True)
     idx = df_feat.index[-1]
     df_feat.at[idx, 'is_home']     = int(is_home)
     df_feat.at[idx, 'park_factor'] = get_park_factor(park_team)

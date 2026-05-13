@@ -17,10 +17,35 @@ PITCHER_FEATURE_COLS = ['opp_era', 'opp_whip', 'opp_k_pct', 'opp_bb_pct', 'opp_h
 BVP_FEATURE_COLS = ['bvp_avg', 'bvp_ab', 'bvp_sample']
 
 
-def _add_pitcher_features(df: pd.DataFrame, override_pitcher_id: int = None) -> pd.DataFrame:
-    if 'game_pk' not in df.columns:
-        for col in PITCHER_FEATURE_COLS + BVP_FEATURE_COLS + PITCHER_STATCAST_COLS:
-            df[col] = LEAGUE_AVG.get(col, PITCHER_DEFAULTS.get(col, 0.0))
+def _add_pitcher_features(df: pd.DataFrame, override_pitcher_id: int = None,
+                          fast_mode: bool = False) -> pd.DataFrame:
+    """
+    fast_mode=True skips the 300+ API calls to look up historical starting pitchers.
+    Uses league averages for all training rows, only fetching the override pitcher.
+    Use this for the Game View page where speed matters.
+    """
+    if 'game_pk' not in df.columns or fast_mode:
+        # Fill all rows with league averages
+        for col in PITCHER_FEATURE_COLS:
+            df[col] = LEAGUE_AVG.get(col, 0.0)
+        for col in BVP_FEATURE_COLS:
+            df[col] = 0.0
+        for col in PITCHER_STATCAST_COLS:
+            df[col] = PITCHER_DEFAULTS.get(col, 0.0)
+        # Still apply override pitcher to most recent row
+        if override_pitcher_id is not None:
+            batter_id = int(df['player_id'].iloc[0]) if 'player_id' in df.columns else None
+            season    = int(df['season'].iloc[-1])
+            ov_stats  = get_pitcher_season_stats(override_pitcher_id, season)
+            ov_sc     = get_pitcher_statcast(override_pitcher_id, season)
+            ov_bvp    = get_bvp(batter_id, override_pitcher_id) if batter_id else {}
+            idx = df.index[-1]
+            for col in PITCHER_FEATURE_COLS:
+                df.at[idx, col] = ov_stats.get(col, LEAGUE_AVG.get(col, 0.0))
+            for col in PITCHER_STATCAST_COLS:
+                df.at[idx, col] = ov_sc.get(col, PITCHER_DEFAULTS[col])
+            for col in BVP_FEATURE_COLS:
+                df.at[idx, col] = ov_bvp.get(col, 0.0)
         return df
 
     valid_pks = df['game_pk'].dropna()
@@ -102,7 +127,7 @@ def _add_batter_statcast(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def build_features(df: pd.DataFrame, fetch_weather: bool = True,
-                   override_pitcher_id: int = None) -> pd.DataFrame:
+                   override_pitcher_id: int = None, fast_mode: bool = False) -> pd.DataFrame:
     df = df.copy().reset_index(drop=True)
 
     df['total'] = df['h'] + df['r'] + df['rbi']
@@ -148,7 +173,7 @@ def build_features(df: pd.DataFrame, fetch_weather: bool = True,
     df = _add_batter_statcast(df)
 
     # Pitcher season stats + Statcast (barrel rates + pitch-mix thrown) + BvP
-    df = _add_pitcher_features(df, override_pitcher_id=override_pitcher_id)
+    df = _add_pitcher_features(df, override_pitcher_id=override_pitcher_id, fast_mode=fast_mode)
 
     return df
 
