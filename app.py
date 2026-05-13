@@ -107,7 +107,6 @@ def fetch_game_logs(player_id: int):
         if not all_rows:
             return pd.DataFrame(), ' | '.join(errors)
 
-        import pandas as pd
         df = pd.DataFrame(all_rows)
         df['date'] = pd.to_datetime(df['date'], errors='coerce')
         df = df.dropna(subset=['date'])
