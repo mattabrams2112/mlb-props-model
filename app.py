@@ -428,16 +428,56 @@ if 'search_player' in st.session_state:
 st.markdown(f"### Today's Batters — Sorted by Rating")
 
 if 'lineup_rows' not in st.session_state:
-    with st.spinner('Loading today\'s lineups... this may take a moment on first load.'):
+    with st.spinner('Fetching today\'s games...'):
         games = get_todays_lineups()
-        all_rows = []
+        st.session_state['lineup_games'] = games
 
-        if not games:
-            st.warning('No games found for today.')
-        else:
-            total = sum(len(g.get('home_batters',[])) + len(g.get('away_batters',[])) for g in games)
-            prog  = st.progress(0, text='Building predictions...')
-            done  = 0
+games = st.session_state.get('lineup_games', [])
+
+if not games:
+    st.warning('No MLB games found for today.')
+else:
+    total_batters = sum(
+        len(g.get('home_batters', [])) + len(g.get('away_batters', []))
+        for g in games
+    )
+
+    # Show today's schedule regardless of whether lineups are posted
+    st.caption(f"{len(games)} games today · {total_batters} batters confirmed in lineups")
+
+    # Game matchup cards
+    cols = st.columns(min(len(games), 4))
+    for i, game in enumerate(games):
+        with cols[i % 4]:
+            away = game.get('away_team', '?')
+            home = game.get('home_team', '?')
+            status = game.get('status', '')
+            official = game.get('lineups_official', False)
+            away_p = get_pitcher_name(game.get('away_pitcher_id')) if game.get('away_pitcher_id') else 'TBD'
+            home_p = get_pitcher_name(game.get('home_pitcher_id')) if game.get('home_pitcher_id') else 'TBD'
+            st.markdown(
+                f'<div style="border:1px solid #e2e8f0;border-radius:8px;padding:10px;text-align:center;">'
+                f'<div style="font-size:13px;font-weight:700;">'
+                f'{logo_img_tag(away,22)}{away} @ {logo_img_tag(home,22)}{home}'
+                f'</div>'
+                f'<div style="font-size:11px;color:#888;margin-top:4px;">{away_p} vs {home_p}</div>'
+                f'<div style="font-size:11px;margin-top:2px;">{"✅ Lineup official" if official else "⏳ Lineup pending"}</div>'
+                f'</div>',
+                unsafe_allow_html=True
+            )
+
+    st.markdown('<br>', unsafe_allow_html=True)
+
+    if total_batters == 0:
+        st.info(
+            '**Lineups not yet posted.** MLB teams typically release lineups 2–3 hours before first pitch. '
+            'Click **Refresh Lineup** in the sidebar to check again.'
+        )
+    elif 'lineup_rows' not in st.session_state:
+        with st.spinner(f'Building predictions for {total_batters} batters...'):
+            all_rows = []
+            prog = st.progress(0)
+            done = 0
 
             for game in games:
                 home_team    = game.get('home_team', '')
@@ -467,30 +507,27 @@ if 'lineup_rows' not in st.session_state:
                         r_data, p_std, _, _, _ = build_rating(res, pid, opp_pid, park_team)
                         opp_p = away_p_name if is_home else home_p_name
                         all_rows.append({
-                            '_team':    pteam,
-                            '_color':   r_data['color'],
-                            'Player':   pname,
-                            'Team':     pteam,
-                            'Venue':    '🏠 Home' if is_home else '✈ Away',
+                            '_team':      pteam,
+                            '_color':     r_data['color'],
+                            'Player':     pname,
+                            'Team':       pteam,
+                            'Venue':      '🏠 Home' if is_home else '✈ Away',
                             'vs Pitcher': opp_p,
-                            'Rating':   r_data['total'],
-                            'Grade':    r_data['grade'],
-                            'Projected': res['projection'],
-                            '7g Avg':   res['recent_7g'],
-                            'Opp ERA':  p_std.get('opp_era', '—'),
+                            'Rating':     r_data['total'],
+                            'Grade':      r_data['grade'],
+                            'Projected':  res['projection'],
+                            '7g Avg':     res['recent_7g'],
+                            'Opp ERA':    p_std.get('opp_era', '—'),
                         })
 
                     done += 1
-                    prog.progress(done / max(total, 1), text=f'Processing {done}/{total} batters...')
+                    prog.progress(done / max(total_batters, 1))
 
             prog.empty()
             all_rows.sort(key=lambda x: x['Rating'], reverse=True)
             st.session_state['lineup_rows'] = all_rows
 
-if 'lineup_rows' in st.session_state:
-    rows = st.session_state['lineup_rows']
-    if rows:
-        st.caption(f'{len(rows)} batters · sorted highest to lowest rating · click **Refresh Lineup** in sidebar to update')
+    if 'lineup_rows' in st.session_state and st.session_state['lineup_rows']:
+        rows = st.session_state['lineup_rows']
+        st.caption(f'{len(rows)} batters · highest to lowest rating · refresh sidebar to update')
         st.markdown(render_lineup_table(rows), unsafe_allow_html=True)
-    else:
-        st.info('Lineups not yet posted for today\'s games. Check back closer to game time.')
