@@ -155,9 +155,10 @@ def build_features(df: pd.DataFrame, fetch_weather: bool = True,
     # Home/away splits — rolling avg HRR at home vs away (no leakage)
     df['home_hrr_avg'] = (
         df.groupby(['season', 'is_home'])['total']
-        .transform(lambda x: x.shift(1).expanding(min_periods=3).mean())
+        .transform(lambda x: x.shift(1).expanding(min_periods=5).mean())
     )
-    df['home_hrr_avg'] = df['home_hrr_avg'].fillna(df['total_season_avg'])
+    # Fall back to overall season avg if not enough home/away games
+    df['home_hrr_avg'] = df['home_hrr_avg'].fillna(df['total_season_avg']).fillna(df['total_avg_7g'])
 
     # Weather
     if fetch_weather and 'game_pk' in df.columns:

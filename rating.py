@@ -132,7 +132,18 @@ def compute_rating(
         heat_score = 0.0
     scores['Hot/Cold Streak'] = (round(heat_score, 1), 10)
 
-    total = round(min(100, max(0, sum(v[0] for v in scores.values()))))
+    raw_total = sum(v[0] for v in scores.values())
+
+    # Hard cap based on projection — prevents high ratings with garbage projections
+    if projection is not None:
+        if projection < 0.75:
+            raw_total = min(raw_total, 35)
+        elif projection < 1.25:
+            raw_total = min(raw_total, 50)
+        elif projection < 1.75:
+            raw_total = min(raw_total, 65)
+
+    total = round(min(100, max(0, raw_total)))
 
     grade = (
         'A+' if total >= 90 else 'A'  if total >= 85 else 'A-' if total >= 80 else
