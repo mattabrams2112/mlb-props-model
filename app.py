@@ -30,6 +30,30 @@ st.markdown("""
   .player-header { display:flex; align-items:center; gap:10px; }
   .proj-number   { font-size:52px; font-weight:800; line-height:1; }
   .grade-label   { font-size:24px; font-weight:600; }
+
+  /* Dark theme overrides */
+  h1, h2, h3, h4, h5, h6 { color: #38bdf8 !important; }
+  .stMarkdown p, .stMarkdown li { color: #7dd3fc; }
+  label, .stSelectbox label, .stSlider label,
+  .stRadio label, .stTextInput label { color: #7dd3fc !important; }
+  .stMetric label { color: #38bdf8 !important; }
+  .stMetric [data-testid="metric-container"] > div { color: #e0f2fe !important; }
+  .stCaption { color: #7dd3fc !important; }
+  div[data-testid="stSidebar"] { background-color: #0f172a; }
+  div[data-testid="stSidebar"] * { color: #7dd3fc; }
+
+  /* Lineup table */
+  table { background-color: #0f172a; color: #7dd3fc; }
+  th { color: #38bdf8 !important; border-bottom: 2px solid #1e40af !important; }
+  tr:nth-child(even) { background-color: #1e293b; }
+  tr:nth-child(odd)  { background-color: #0f172a; }
+
+  /* Game cards */
+  div[style*="border:1px solid"] {
+    border-color: #1e40af !important;
+    background-color: #1e293b;
+    color: #7dd3fc;
+  }
 </style>
 """, unsafe_allow_html=True)
 

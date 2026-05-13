@@ -13,6 +13,15 @@ from tracker import load, save, recalc_results, add_predictions
 
 st.set_page_config(page_title="Tracker | MLB Props", page_icon="📊", layout="wide")
 
+st.markdown("""
+<style>
+  h1, h2, h3 { color: #38bdf8 !important; }
+  .stMarkdown p, label, .stCaption { color: #7dd3fc !important; }
+  .stMetric label { color: #38bdf8 !important; }
+  .stMetric [data-testid="metric-container"] > div { color: #e0f2fe !important; }
+</style>
+""", unsafe_allow_html=True)
+
 # Auto-import any 60+ rated players from today's lineup
 if 'lineup_rows' in st.session_state:
     qualified = [r for r in st.session_state['lineup_rows'] if r['Rating'] >= 60]
