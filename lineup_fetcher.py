@@ -56,15 +56,17 @@ def get_todays_games(date_str: str = None) -> list:
 def get_game_context(game_pk: int, status: str = '',
                      home_name: str = '', away_name: str = '') -> dict:
     result = {
-        'game_pk':          game_pk,
-        'home_team':        name_to_abbr(home_name),
-        'away_team':        name_to_abbr(away_name),
-        'home_batters':     [],
-        'away_batters':     [],
-        'home_pitcher_id':  None,
-        'away_pitcher_id':  None,
-        'lineups_official': False,
-        'status':           status,
+        'game_pk':            game_pk,
+        'home_team':          name_to_abbr(home_name),
+        'away_team':          name_to_abbr(away_name),
+        'home_batters':       [],   # ordered list of player IDs
+        'away_batters':       [],
+        'home_batter_codes':  {},   # player_id -> batting order code (100=starter spot 1, 601=sub for spot 6)
+        'away_batter_codes':  {},
+        'home_pitcher_id':    None,
+        'away_pitcher_id':    None,
+        'lineups_official':   False,
+        'status':             status,
     }
 
     game_is_live_or_final = any(s in status for s in COMPLETED)
@@ -84,7 +86,17 @@ def get_game_context(game_pk: int, status: str = '',
             if ab:
                 result['away_batters'] = ab
 
-            # Try to get abbreviation from boxscore team object as well
+            # Extract batting order codes from player data
+            for side, key in [(home, 'home_batter_codes'), (away, 'away_batter_codes')]:
+                for player_key, pdata in side.get('players', {}).items():
+                    pid   = pdata.get('person', {}).get('id')
+                    ocode = pdata.get('battingOrder', '')
+                    if pid and ocode:
+                        try:
+                            result[key][int(pid)] = int(ocode)
+                        except (ValueError, TypeError):
+                            pass
+
             if not result['home_team']:
                 result['home_team'] = (home.get('team', {}).get('abbreviation', '')
                                        or name_to_abbr(home.get('team', {}).get('name', '')))
@@ -129,8 +141,12 @@ def get_game_context(game_pk: int, status: str = '',
         if home_players:
             result['home_batters']    = [p['id'] for p in home_players]
             result['lineups_official'] = True
+            for i, p in enumerate(home_players):
+                result['home_batter_codes'][p['id']] = (i + 1) * 100
         if away_players:
             result['away_batters'] = [p['id'] for p in away_players]
+            for i, p in enumerate(away_players):
+                result['away_batter_codes'][p['id']] = (i + 1) * 100
     except Exception:
         pass
 
