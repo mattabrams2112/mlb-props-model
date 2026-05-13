@@ -279,10 +279,6 @@ with st.sidebar:
     wind_speed = st.slider('Wind Speed (mph)', 0, 30, 0)
     wind_dir   = st.selectbox('Wind Direction', list(WIND_OPTIONS.keys()))
     run_btn    = st.button('Search Player ⚾', type='primary', use_container_width=True)
-    st.markdown('---')
-    if st.button('Refresh Lineup', use_container_width=True):
-        st.session_state.pop('lineup_rows', None)
-        st.session_state.pop('lineup_loaded', None)
     st.caption('Data: MLB Stats API · Baseball Savant · Statcast')
 
 
@@ -425,7 +421,14 @@ if 'search_player' in st.session_state:
 
 # ── Today's lineup (auto-loads) ───────────────────────────────────────────────
 
-st.markdown(f"### Today's Batters — Sorted by Rating")
+col_title, col_refresh = st.columns([6, 1])
+with col_title:
+    st.markdown(f"### Today's Batters — Sorted by Rating")
+with col_refresh:
+    if st.button('🔄 Refresh', use_container_width=True):
+        st.session_state.pop('lineup_rows', None)
+        st.session_state.pop('lineup_games', None)
+        st.rerun()
 
 if 'lineup_rows' not in st.session_state:
     with st.spinner('Fetching today\'s games...'):
