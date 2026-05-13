@@ -284,6 +284,9 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
     )
 
     # ── Parallel fetch ────────────────────────────────────────────────────────
+    game_started = status in ('In Progress', 'Manager Challenge', 'Final',
+                              'Game Over', 'Completed Early')
+
     def fetch(args):
         idx, pid = args
         pname, pteam = get_player_info(pid)
@@ -294,8 +297,9 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
         res        = run_prediction(pid, opp_pitcher_id, is_home, park_team,
                                     weather['temp_f'], weather['wind_speed'],
                                     weather['wind_dir_code'], game_date=game_date)
-        # Fetch odds if API key available
-        odds_data = get_player_line(pname, event_id) if ODDS_API_KEY and event_id else None
+        # Only fetch live odds for pre-game — once started, odds are frozen out
+        odds_data = (get_player_line(pname, event_id)
+                     if ODDS_API_KEY and event_id and not game_started else None)
         return idx, pid, pname, pteam, res, is_starter, spot, sub_idx, odds_data
 
     with ThreadPoolExecutor(max_workers=2) as exe:
