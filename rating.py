@@ -74,7 +74,7 @@ def compute_rating(
         batter_bk_seen * (batter_bk_barrel - pitcher_bk_barrel) +
         batter_os_seen * (batter_os_barrel - pitcher_os_barrel)
     )
-    scores['Barrel Edge'] = (round(max(0.0, min(10.0, 5.0 + barrel_edge * 100)), 1), 10)
+    scores['Barrel Edge'] = (round(max(0.0, min(15.0, 7.5 + barrel_edge * 150)), 1), 15)
 
     # ── Park & Weather (0-12) ────────────────────────────────────────────────
     park_score = max(0.0, min(7.0, (park_factor - 0.90) / (1.15 - 0.90) * 7.0))
