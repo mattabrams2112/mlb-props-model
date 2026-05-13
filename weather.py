@@ -4,7 +4,8 @@ import time
 import statsapi
 import pandas as pd
 
-CACHE_FILE = 'weather_cache.csv'
+from data_dir import data_path
+CACHE_FILE = data_path('weather_cache.csv')
 
 # Park factors by team (runs, normalized: 1.00 = neutral)
 PARK_FACTORS = {

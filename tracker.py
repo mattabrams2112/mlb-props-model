@@ -3,7 +3,8 @@ import os
 import pandas as pd
 from datetime import datetime
 
-TRACKER_FILE = 'tracker_data.csv'
+from data_dir import data_path
+TRACKER_FILE = data_path('tracker_data.csv')
 COLS = ['date', 'player', 'team', 'rating', 'grade', 'projected', 'line', 'actual', 'result', 'vs_pitcher']
 
 

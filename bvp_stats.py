@@ -3,7 +3,8 @@ import os
 import statsapi
 import pandas as pd
 
-CACHE_FILE = 'cache_bvp.csv'
+from data_dir import data_path
+CACHE_FILE = data_path('cache_bvp.csv')
 BVP_DEFAULT = {'bvp_ab': 0, 'bvp_avg': 0.250, 'bvp_hr': 0, 'bvp_sample': 0}
 
 

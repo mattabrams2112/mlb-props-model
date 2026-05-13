@@ -10,8 +10,9 @@ import pandas as pd
 from datetime import datetime
 
 CURRENT_YEAR = datetime.now().year
-PITCHER_STATS_CACHE = 'cache_pitcher_stats.csv'
-GAME_PITCHER_CACHE = 'cache_game_pitchers.csv'
+from data_dir import data_path
+PITCHER_STATS_CACHE = data_path('cache_pitcher_stats.csv')
+GAME_PITCHER_CACHE  = data_path('cache_game_pitchers.csv')
 
 LEAGUE_AVG = {
     'opp_era': 4.30,

@@ -98,11 +98,23 @@ def fetch_logs(player_id: int) -> pd.DataFrame:
     return df[df['ab'] > 0].reset_index(drop=True)
 
 
-@st.cache_data(show_spinner=False, ttl=3600)
+@st.cache_data(show_spinner=False, ttl=86400)
 def run_prediction(player_id: int, pitcher_id, is_home: bool, park_team: str,
-                   temp_f: float, wind_speed: float, wind_dir: int):
+                   temp_f: float, wind_speed: float, wind_dir: int,
+                   game_date: str = ''):
     df = fetch_logs(player_id)
     if df.empty or len(df) < 25:
+        return None
+
+    # Freeze ratings at pre-game state — exclude game day and later
+    if game_date:
+        try:
+            cutoff = pd.Timestamp(game_date).normalize()
+            df = df[df['date'] < cutoff].copy()
+        except Exception:
+            pass
+
+    if len(df) < 25:
         return None
 
     df_feat = build_features(df, fetch_weather=False,
@@ -195,7 +207,7 @@ def cv(v, high, med):
 
 def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
                   opp_team, park_team, weather, game_label, opp_p_name,
-                  date_key: str, batter_team: str = ''):
+                  date_key: str, batter_team: str = '', game_date: str = ''):
 
     season  = datetime.now().year
     p_std   = get_pitcher_season_stats(opp_pitcher_id) if opp_pitcher_id else {}
@@ -256,7 +268,7 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
         sub_idx    = ocode % 100
         res        = run_prediction(pid, opp_pitcher_id, is_home, park_team,
                                     weather['temp_f'], weather['wind_speed'],
-                                    weather['wind_dir_code'])
+                                    weather['wind_dir_code'], game_date=game_date)
         return idx, pid, pname, pteam, res, is_starter, spot, sub_idx
 
     with ThreadPoolExecutor(max_workers=2) as exe:
@@ -522,7 +534,8 @@ for game in games:
         if ab_ids:
             render_lineup(ac, ab_ids, a_codes, False, home_pid,
                           home, home, weather, away + ' @ ' + home,
-                          home_p, date_key, batter_team=away)
+                          home_p, date_key, batter_team=away,
+                          game_date=date_str.replace('/', '-') if date_str else '')
         else:
             st.info('Lineup pending.')
 
@@ -531,7 +544,8 @@ for game in games:
         if hb_ids:
             render_lineup(hc, hb_ids, h_codes, True, away_pid,
                           away, home, weather, away + ' @ ' + home,
-                          away_p, date_key, batter_team=home)
+                          away_p, date_key, batter_team=home,
+                          game_date=date_str.replace('/', '-') if date_str else '')
         else:
             st.info('Lineup pending.')
 

@@ -21,7 +21,8 @@ from datetime import datetime
 from pybaseball import statcast_batter as _sc_batter, statcast_pitcher as _sc_pitcher
 
 CURRENT_YEAR = datetime.now().year
-CACHE_FILE = 'cache_statcast.csv'
+from data_dir import data_path
+CACHE_FILE = data_path('cache_statcast.csv')
 
 PITCH_GROUPS = {
     'fb': ['FF', 'SI', 'FC', 'FT', 'FA'],
