@@ -62,15 +62,23 @@ def get_player_team(player_id: int) -> str:
 
 @st.cache_data(show_spinner=False, ttl=3600)
 def fetch_game_logs(player_id: int):
-    return get_game_logs(player_id)
+    try:
+        df = get_game_logs(player_id)
+        return df, None
+    except Exception as e:
+        return pd.DataFrame(), str(e)
 
 
 @st.cache_data(show_spinner=False, ttl=3600)
 def run_model(player_id: int, pitcher_id, is_home: bool,
               park_override: str, temp: float, wind_speed: float, wind_dir_code: int):
-    df = fetch_game_logs(player_id)
-    if df.empty or len(df) < 25:
-        return None
+    df, fetch_error = fetch_game_logs(player_id)
+    if fetch_error:
+        return {'error': f'Data fetch failed: {fetch_error}'}
+    if df.empty:
+        return {'error': 'No game log data returned from MLB API. The player may be inactive or the API is unavailable.'}
+    if len(df) < 25:
+        return {'error': f'Only {len(df)} games found — need at least 25 to run a prediction.'}
 
     df_feat = build_features(df, fetch_weather=True, override_pitcher_id=pitcher_id)
 
@@ -86,7 +94,7 @@ def run_model(player_id: int, pitcher_id, is_home: bool,
     feature_cols = get_feature_cols()
     df_clean = df_feat.dropna(subset=feature_cols).reset_index(drop=True)
     if len(df_clean) < 20:
-        return None
+        return {'error': f'Not enough clean feature rows ({len(df_clean)}) after feature engineering. Need at least 20.'}
 
     X = df_clean[feature_cols]
     y = df_clean[TARGET_COL]
@@ -256,8 +264,9 @@ with tab_player:
             result = run_model(player_id, pitcher_id, is_home,
                                park_override, temp, wind_speed, wind_code)
 
-        if result is None:
-            st.error('Not enough game data to run a prediction for this player.')
+        if result is None or 'error' in result:
+            msg = result['error'] if result and 'error' in result else 'Unknown error.'
+            st.error(msg)
             st.stop()
 
         season = int(result['df']['season'].iloc[-1])
