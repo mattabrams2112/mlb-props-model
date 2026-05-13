@@ -212,7 +212,8 @@ def render_side(batter_ids, is_home, opp_pitcher_id, park_team, weather):
     html += '<table style="width:100%;border-collapse:collapse;font-size:12px;">'
     html += '<tr style="background:#0f172a;color:#38bdf8;font-size:11px;font-weight:700;">'
     for h in ['#', '', 'Player', 'Ord', 'Rating', 'Proj', '30g BA', '7g HRR', '30g HRR', 'Barrels']:
-        html += f'<th style="padding:5px 7px;text-align:{"left" if h in ["","Player"] else "center"};border-bottom:1px solid #1e40af;">{h}</th>'
+        align = 'left' if h in ('', 'Player') else 'center'
+        html += f'<th style="padding:5px 7px;text-align:{align};border-bottom:1px solid #1e40af;">{h}</th>'
     html += '</tr>'
 
     totals = []
@@ -352,7 +353,7 @@ for game in games:
         + ('&nbsp;·&nbsp;<span style="color:#22c55e;font-size:12px;">✅ Official lineup</span>'
            if game.get('lineups_official') else
            '&nbsp;·&nbsp;<span style="color:#eab308;font-size:12px;">⏳ Probable pitchers</span>')
-        f'</div>',
+        + '</div>',
         unsafe_allow_html=True
     )
 
