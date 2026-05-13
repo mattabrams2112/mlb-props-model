@@ -184,7 +184,7 @@ def run_prediction(player_id: int, pitcher_id, is_home: bool, park_team: str,
 
 def get_rating(res, player_id, pitcher_id, park_team, batting_order,
                temp_f, wind_speed, wind_dir, bp_era=4.20, bp_whip=1.30,
-               line=None, is_home=True):
+               line=None, over_odds=None, is_home=True):
     season = int(res['df']['season'].iloc[-1])
     b_sc   = get_batter_statcast(player_id, season)
     p_sc   = get_pitcher_statcast(pitcher_id, season) if pitcher_id else {}
@@ -217,6 +217,7 @@ def get_rating(res, player_id, pitcher_id, park_team, batting_order,
         bp_era            = bp_era,
         bp_whip           = bp_whip,
         line              = line,
+        over_odds         = over_odds,
         home_hrr          = res.get('home_hrr'),
         away_hrr          = res.get('away_hrr'),
         is_home           = is_home,
