@@ -195,7 +195,7 @@ def cv(v, high, med):
 
 def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
                   opp_team, park_team, weather, game_label, opp_p_name,
-                  date_key: str):
+                  date_key: str, batter_team: str = ''):
 
     season  = datetime.now().year
     p_std   = get_pitcher_season_stats(opp_pitcher_id) if opp_pitcher_id else {}
@@ -276,7 +276,7 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
         if not is_starter:
             bg = '#111827'
 
-        logo        = logo_img_tag(pteam or park_team, 24)
+        logo        = logo_img_tag(pteam or batter_team, 24)
         order_color = ('#22c55e' if spot <= 2 and is_starter else
                        '#38bdf8' if spot <= 5 and is_starter else '#475569')
 
@@ -522,7 +522,7 @@ for game in games:
         if ab_ids:
             render_lineup(ac, ab_ids, a_codes, False, home_pid,
                           home, home, weather, away + ' @ ' + home,
-                          home_p, date_key)
+                          home_p, date_key, batter_team=away)
         else:
             st.info('Lineup pending.')
 
@@ -531,7 +531,7 @@ for game in games:
         if hb_ids:
             render_lineup(hc, hb_ids, h_codes, True, away_pid,
                           away, home, weather, away + ' @ ' + home,
-                          away_p, date_key)
+                          away_p, date_key, batter_team=home)
         else:
             st.info('Lineup pending.')
 
