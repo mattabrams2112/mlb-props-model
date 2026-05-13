@@ -48,8 +48,13 @@ def parse_wind(wind_str: str) -> tuple:
 def _load_cache() -> dict:
     if not os.path.exists(CACHE_FILE):
         return {}
-    df = pd.read_csv(CACHE_FILE, dtype={'game_pk': str})
-    return df.set_index('game_pk').to_dict('index')
+    try:
+        df = pd.read_csv(CACHE_FILE, dtype={'game_pk': str})
+        if df.empty or 'game_pk' not in df.columns:
+            return {}
+        return df.set_index('game_pk').to_dict('index')
+    except Exception:
+        return {}
 
 
 def _save_cache(cache: dict):

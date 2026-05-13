@@ -35,7 +35,13 @@ def _parse_float(val, default: float) -> float:
 def _load_pitcher_cache() -> dict:
     if not os.path.exists(PITCHER_STATS_CACHE):
         return {}
-    return pd.read_csv(PITCHER_STATS_CACHE, dtype={'key': str}).set_index('key').to_dict('index')
+    try:
+        df = pd.read_csv(PITCHER_STATS_CACHE, dtype={'key': str})
+        if df.empty or 'key' not in df.columns:
+            return {}
+        return df.set_index('key').to_dict('index')
+    except Exception:
+        return {}
 
 
 def _save_pitcher_cache(cache: dict):
@@ -92,8 +98,13 @@ def get_pitcher_name(pitcher_id: int) -> str:
 def _load_game_pitcher_cache() -> dict:
     if not os.path.exists(GAME_PITCHER_CACHE):
         return {}
-    df = pd.read_csv(GAME_PITCHER_CACHE, dtype={'game_pk': str})
-    return df.set_index('game_pk').to_dict('index')
+    try:
+        df = pd.read_csv(GAME_PITCHER_CACHE, dtype={'game_pk': str})
+        if df.empty or 'game_pk' not in df.columns:
+            return {}
+        return df.set_index('game_pk').to_dict('index')
+    except Exception:
+        return {}
 
 
 def _save_game_pitcher_cache(cache: dict):

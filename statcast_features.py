@@ -49,7 +49,13 @@ def _season_range(season: int) -> tuple:
 def _load_cache() -> dict:
     if not os.path.exists(CACHE_FILE):
         return {}
-    return pd.read_csv(CACHE_FILE, dtype={'key': str}).set_index('key').to_dict('index')
+    try:
+        df = pd.read_csv(CACHE_FILE, dtype={'key': str})
+        if df.empty or 'key' not in df.columns:
+            return {}
+        return df.set_index('key').to_dict('index')
+    except Exception:
+        return {}
 
 
 def _save_cache(cache: dict):
