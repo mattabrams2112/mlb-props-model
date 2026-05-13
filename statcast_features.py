@@ -34,11 +34,18 @@ BATTER_DEFAULTS = {
     'batter_fb_barrel_pct': 0.080, 'batter_fb_seen_pct': 0.55,
     'batter_bk_barrel_pct': 0.040, 'batter_bk_seen_pct': 0.25,
     'batter_os_barrel_pct': 0.050, 'batter_os_seen_pct': 0.20,
+    'batter_xba':           0.250,
+    'batter_xwoba':         0.320,
+    'batter_hard_hit_pct':  0.360,
+    'batter_avg_ev':        88.0,
 }
 PITCHER_DEFAULTS = {
     'pitcher_fb_barrel_pct': 0.080, 'pitcher_fb_thrown_pct': 0.55,
     'pitcher_bk_barrel_pct': 0.040, 'pitcher_bk_thrown_pct': 0.25,
     'pitcher_os_barrel_pct': 0.050, 'pitcher_os_thrown_pct': 0.20,
+    'pitcher_xba_allowed':   0.250,
+    'pitcher_hard_hit_pct':  0.360,
+    'pitcher_avg_ev':        88.0,
 }
 
 
@@ -81,24 +88,46 @@ def _compute_features(df: pd.DataFrame, role: str) -> dict:
 
     result = {}
     mix_label = 'seen_pct' if role == 'batter' else 'thrown_pct'
+    defaults  = BATTER_DEFAULTS if role == 'batter' else PITCHER_DEFAULTS
 
     for group, pitch_types in PITCH_GROUPS.items():
-        prefix = f'{role}_{group}'
-
+        prefix       = f'{role}_{group}'
         group_all    = df[df['pitch_type'].isin(pitch_types)]
         group_batted = batted[batted['pitch_type'].isin(pitch_types)]
-
-        # Pitch mix %
         result[f'{prefix}_{mix_label}'] = round(len(group_all) / total_pitches, 4)
-
-        # Barrel rate (barrels / batted ball events for this pitch group)
         n_batted = len(group_batted)
         if n_batted >= 10:
             barrels = (group_batted['launch_speed_angle'] == 6).sum()
             result[f'{prefix}_barrel_pct'] = round(int(barrels) / n_batted, 4)
         else:
-            defaults = BATTER_DEFAULTS if role == 'batter' else PITCHER_DEFAULTS
             result[f'{prefix}_barrel_pct'] = defaults[f'{prefix}_barrel_pct']
+
+    # ── Advanced Statcast metrics ─────────────────────────────────────────────
+    if len(batted) >= 10:
+        # xBA / xwOBA — expected stats from exit velo + launch angle
+        if 'estimated_ba_using_speedangle' in batted.columns:
+            xba = batted['estimated_ba_using_speedangle'].dropna()
+            if len(xba) >= 5:
+                result[f'{role}_xba' if role == 'batter' else 'pitcher_xba_allowed'] = round(float(xba.mean()), 4)
+
+        if role == 'batter' and 'estimated_woba_using_speedangle' in batted.columns:
+            xwoba = batted['estimated_woba_using_speedangle'].dropna()
+            if len(xwoba) >= 5:
+                result['batter_xwoba'] = round(float(xwoba.mean()), 4)
+
+        # Hard hit rate — exit velo >= 95 mph
+        if 'launch_speed' in batted.columns:
+            ev = batted['launch_speed'].dropna()
+            if len(ev) >= 10:
+                hard_hit = (ev >= 95).sum() / len(ev)
+                avg_ev   = float(ev.mean())
+                result[f'{role}_hard_hit_pct'] = round(hard_hit, 4)
+                result[f'{role}_avg_ev']        = round(avg_ev, 2)
+
+    # Fill any missing advanced metrics with defaults
+    for k, v in defaults.items():
+        if k not in result:
+            result[k] = v
 
     return result
 

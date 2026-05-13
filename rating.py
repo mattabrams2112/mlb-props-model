@@ -39,9 +39,15 @@ def compute_rating(
     bp_whip: float       = 1.30,
     line: float          = None,
     over_odds: int       = None,   # sportsbook over odds (American)
-    home_hrr: float      = None,
-    away_hrr: float      = None,
-    is_home: bool        = True,
+    home_hrr: float          = None,
+    away_hrr: float          = None,
+    is_home: bool            = True,
+    batter_hard_hit_pct: float = 0.360,
+    pitcher_hard_hit_pct: float = 0.360,
+    batter_xba: float        = 0.250,
+    pitcher_xba_allowed: float = 0.250,
+    batter_avg_ev: float     = 88.0,
+    pitcher_avg_ev: float    = 88.0,
 ) -> dict:
     scores = {}
 
@@ -76,6 +82,13 @@ def compute_rating(
         batter_os_seen * (batter_os_barrel - pitcher_os_barrel)
     )
     scores['Barrel Edge'] = (round(max(0.0, min(15.0, 7.5 + barrel_edge * 150)), 1), 15)
+
+    # ── Contact Quality — xBA + Hard Hit Rate (0-8) ──────────────────────────
+    hard_hit_edge = batter_hard_hit_pct - pitcher_hard_hit_pct
+    xba_edge      = batter_xba - pitcher_xba_allowed
+    ev_edge       = (batter_avg_ev - pitcher_avg_ev) / 10.0
+    contact_score = max(0.0, min(8.0, 4.0 + hard_hit_edge * 30 + xba_edge * 20 + ev_edge * 2))
+    scores['Contact Quality'] = (round(contact_score, 1), 8)
 
     # ── Park & Weather (0-12) ────────────────────────────────────────────────
     park_score = max(0.0, min(7.0, (park_factor - 0.90) / (1.15 - 0.90) * 7.0))

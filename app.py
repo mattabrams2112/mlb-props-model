@@ -226,8 +226,14 @@ def build_rating(result, player_id, pitcher_id, park_team, wind_speed=0, wind_di
         wind_speed        = wind_speed,
         wind_dir          = wind_dir,
         bvp_avg           = bvp.get('bvp_avg', 0.250),
-        bvp_sample        = bvp.get('bvp_sample', 0),
-        projection        = result.get('projection'),
+        bvp_sample           = bvp.get('bvp_sample', 0),
+        projection           = result.get('projection'),
+        batter_hard_hit_pct  = b_sc.get('batter_hard_hit_pct', 0.360),
+        pitcher_hard_hit_pct = p_sc.get('pitcher_hard_hit_pct', 0.360),
+        batter_xba           = b_sc.get('batter_xba', 0.250),
+        pitcher_xba_allowed  = p_sc.get('pitcher_xba_allowed', 0.250),
+        batter_avg_ev        = b_sc.get('batter_avg_ev', 88.0),
+        pitcher_avg_ev       = p_sc.get('pitcher_avg_ev', 88.0),
     ), p_std, b_sc, p_sc, bvp
 
 
