@@ -27,6 +27,7 @@ from team_logos import get_logo, logo_img_tag
 from bvp_stats import get_bvp
 from stadium_weather import get_stadium_weather
 from bullpen_data import get_bullpen_stats
+from ratings_cache import get_cached_rating, save_rating
 
 st.set_page_config(page_title="Game View | MLB Props", page_icon="🎯", layout="wide")
 st.markdown("""
@@ -297,10 +298,22 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
         line_val = st.session_state.get(line_key)
 
         if is_starter and res:
-            r_data = get_rating(res, pid, opp_pitcher_id, park_team, batting_order,
-                                weather['temp_f'], weather['wind_speed'],
-                                weather['wind_dir_code'],
-                                bp_era=bp_era, bp_whip=bp_whip, line=line_val)
+            # Check if we have a locked pre-game rating
+            cached = get_cached_rating(game_date, pid) if game_date else None
+            if cached:
+                locked_rating, locked_grade, locked_proj = cached
+                r_data = {'total': locked_rating, 'grade': locked_grade,
+                          'color': '#22c55e' if locked_rating >= 75 else '#eab308' if locked_rating >= 55 else '#ef4444',
+                          'components': {}, 'line_label': None}
+                res = dict(res); res['proj'] = locked_proj
+            else:
+                r_data = get_rating(res, pid, opp_pitcher_id, park_team, batting_order,
+                                    weather['temp_f'], weather['wind_speed'],
+                                    weather['wind_dir_code'],
+                                    bp_era=bp_era, bp_whip=bp_whip, line=line_val)
+                # Save for future — locked forever
+                if game_date:
+                    save_rating(game_date, pid, r_data['total'], r_data['grade'], res['proj'])
 
             batter_sc = get_batter_statcast(pid, int(res['df']['season'].iloc[-1]))
             fb_b = batter_sc.get('batter_fb_barrel_pct', 0)
