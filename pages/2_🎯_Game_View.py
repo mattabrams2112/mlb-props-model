@@ -146,7 +146,7 @@ def run_prediction(player_id: int, pitcher_id, is_home: bool, park_team: str,
     }
 
 
-def get_rating(res, player_id, pitcher_id, park_team, batting_order, temp_f, wind_speed, wind_dir):
+def get_rating(res, player_id, pitcher_id, park_team, batting_order, temp_f, wind_speed, wind_dir, projection=None):
     season = int(res['df']['season'].iloc[-1])
     b_sc  = get_batter_statcast(player_id, season)
     p_sc  = get_pitcher_statcast(pitcher_id, season) if pitcher_id else {}
@@ -175,6 +175,7 @@ def get_rating(res, player_id, pitcher_id, park_team, batting_order, temp_f, win
         batting_order     = batting_order,
         recent_ba         = res['ba30'],
         temp_f            = temp_f,
+        projection        = projection,
     )
 
 
@@ -302,7 +303,8 @@ def render_lineup(container, batter_ids, is_home, opp_pitcher_id, park_team,
         if res:
             r_data = get_rating(res, pid, opp_pitcher_id, park_team,
                                 batting_order, weather['temp_f'],
-                                weather['wind_speed'], weather['wind_dir_code'])
+                                weather['wind_speed'], weather['wind_dir_code'],
+                                projection=res['proj'])
             season = int(res['df']['season'].iloc[-1])
             b_sc   = get_batter_statcast(pid, season)
             row    = batter_row_html(idx, pname, pteam, batting_order, order_color,

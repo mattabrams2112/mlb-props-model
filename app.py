@@ -222,6 +222,7 @@ def build_rating(result, player_id, pitcher_id, park_team, wind_speed=0, wind_di
         wind_dir          = wind_dir,
         bvp_avg           = bvp.get('bvp_avg', 0.250),
         bvp_sample        = bvp.get('bvp_sample', 0),
+        projection        = result.get('projection'),
     ), p_std, b_sc, p_sc, bvp
 
 
