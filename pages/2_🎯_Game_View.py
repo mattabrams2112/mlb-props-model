@@ -313,7 +313,7 @@ if not has_lineups:
         with cols[i % 4]:
             away_p = get_pitcher_name(g.get('away_pitcher_id')) if g.get('away_pitcher_id') else 'TBD'
             home_p = get_pitcher_name(g.get('home_pitcher_id')) if g.get('home_pitcher_id') else 'TBD'
-            w = get_stadium_weather(g.get('home_team', ''))
+            w = get_stadium_weather(g.get('home_team', ''), g.get('start_time', ''))
             st.markdown(
                 f'<div style="background:#1e293b;border:1px solid #1e40af;border-radius:8px;padding:12px;text-align:center;">'
                 f'{logo_img_tag(g.get("away_team",""),28)} <b style="color:#38bdf8;">{g.get("away_team","?")} @ {g.get("home_team","?")}</b> {logo_img_tag(g.get("home_team",""),28)}<br>'
@@ -332,13 +332,15 @@ for game in games:
     if not ab_ids and not hb_ids:
         continue
 
-    # Fetch live weather for this stadium
-    weather = get_stadium_weather(home)
+    # Fetch weather forecast at game start time
+    game_time_utc = game.get('start_time', '')
+    weather = get_stadium_weather(home, game_time_utc)
 
     # Game header
     pf = get_park_factor(home)
+    time_tag = f" at first pitch" if weather.get('game_time_local') and weather['game_time_local'] != 'Now' else ''
     w_str = '🏟️ Dome — weather neutral' if weather['is_dome'] else (
-        f"🌡 {weather['temp_f']}°F · 💨 {weather['wind_label']} · {weather['condition']}")
+        f"🌡 {weather['temp_f']}°F · 💨 {weather['wind_label']} · {weather['condition']}{time_tag}")
     pf_str = f"Park Factor: {pf:.2f}x"
 
     st.markdown(
