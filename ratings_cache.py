@@ -63,18 +63,40 @@ def get_cached_rating(game_date: str, player_id: int):
     return int(r['rating']), str(r['grade']), float(r['projected'])
 
 
-def save_rating(game_date: str, player_id: int, rating: int, grade: str, projected: float):
-    """Save a rating — only if not already saved for this date+player."""
+def save_rating(game_date: str, player_id: int, rating: int, grade: str,
+                projected: float, player_name: str = '', team: str = '',
+                vs_pitcher: str = ''):
+    """Save a rating — only if not already saved for this date+player.
+    Also auto-adds 60+ rated players to the tracker."""
     df = _load()
     key = (df['date'] == game_date) & (df['player_id'] == str(player_id))
     if not df.empty and key.any():
         return  # already saved, don't overwrite
+
     new_row = pd.DataFrame([{
-        'date':      game_date,
-        'player_id': str(player_id),
-        'rating':    rating,
-        'grade':     grade,
-        'projected': projected,
+        'date':        game_date,
+        'player_id':   str(player_id),
+        'rating':      rating,
+        'grade':       grade,
+        'projected':   projected,
+        'player_name': player_name,
+        'team':        team,
+        'vs_pitcher':  vs_pitcher,
     }])
     df = pd.concat([df, new_row], ignore_index=True)
     _save(df)
+
+    # Auto-add to tracker if rating is 60+
+    if rating >= 60 and player_name:
+        try:
+            from tracker import add_predictions
+            add_predictions([{
+                'player':     player_name,
+                'team':       team,
+                'rating':     rating,
+                'grade':      grade,
+                'projected':  projected,
+                'vs_pitcher': vs_pitcher,
+            }])
+        except Exception:
+            pass

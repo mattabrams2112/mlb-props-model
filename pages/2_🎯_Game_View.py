@@ -323,9 +323,11 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
                                     weather['wind_dir_code'],
                                     bp_era=bp_era, bp_whip=bp_whip, line=line_val,
                                     is_home=is_home)
-                # Save for future — locked forever
+                # Save for future — locked forever, also auto-adds 60+ to tracker
                 if game_date:
-                    save_rating(game_date, pid, r_data['total'], r_data['grade'], res['proj'])
+                    save_rating(game_date, pid, r_data['total'], r_data['grade'],
+                                res['proj'], player_name=pname, team=batter_team,
+                                vs_pitcher=opp_p_name)
 
             batter_sc = get_batter_statcast(pid, int(res['df']['season'].iloc[-1]))
             fb_b = batter_sc.get('batter_fb_barrel_pct', 0)
