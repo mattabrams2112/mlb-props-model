@@ -152,6 +152,13 @@ def build_features(df: pd.DataFrame, fetch_weather: bool = True,
     df['day_of_week'] = df['date'].dt.dayofweek
     df['park_factor'] = df['home_team'].apply(get_park_factor)
 
+    # Home/away splits — rolling avg HRR at home vs away (no leakage)
+    df['home_hrr_avg'] = (
+        df.groupby(['season', 'is_home'])['total']
+        .transform(lambda x: x.shift(1).expanding(min_periods=3).mean())
+    )
+    df['home_hrr_avg'] = df['home_hrr_avg'].fillna(df['total_season_avg'])
+
     # Weather
     if fetch_weather and 'game_pk' in df.columns:
         valid_pks = df['game_pk'].dropna()
@@ -186,7 +193,7 @@ def get_feature_cols() -> list:
     for w in WINDOWS:
         cols += [f'ba_{w}g', f'slg_{w}g']
     cols.append('total_season_avg')
-    cols += ['is_home', 'month', 'day_of_week', 'park_factor', 'temp_f', 'wind_speed', 'wind_dir']
+    cols += ['is_home', 'month', 'day_of_week', 'park_factor', 'temp_f', 'wind_speed', 'wind_dir', 'home_hrr_avg']
     cols += PITCHER_FEATURE_COLS + BVP_FEATURE_COLS
     cols += BATTER_STATCAST_COLS + PITCHER_STATCAST_COLS
     return cols

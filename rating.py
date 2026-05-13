@@ -35,9 +35,12 @@ def compute_rating(
     recent_ba: float     = 0.250,
     temp_f: float        = 72.0,
     projection: float    = None,
-    bp_era: float        = 4.20,   # opposing bullpen ERA
-    bp_whip: float       = 1.30,   # opposing bullpen WHIP
-    line: float          = None,   # sportsbook H+R+RBI line
+    bp_era: float        = 4.20,
+    bp_whip: float       = 1.30,
+    line: float          = None,
+    home_hrr: float      = None,   # player's avg HRR in home games
+    away_hrr: float      = None,   # player's avg HRR in away games
+    is_home: bool        = True,
 ) -> dict:
     scores = {}
 
@@ -109,6 +112,16 @@ def compute_rating(
             line_score = -8.0
             line_label = f'{edge:.2f} UNDER'
         scores['Line Edge'] = (round(line_score, 1), 10)
+
+    # ── Home/Away Split (0-8, can go negative) ───────────────────────────────
+    # Boost if player performs significantly better in this venue
+    split_score = 0.0
+    if home_hrr is not None and away_hrr is not None and (home_hrr + away_hrr) > 0:
+        venue_avg   = home_hrr if is_home else away_hrr
+        overall_avg = (home_hrr + away_hrr) / 2
+        split_diff  = (venue_avg - overall_avg) / max(overall_avg, 0.1)
+        split_score = max(-6.0, min(8.0, split_diff * 15))
+    scores['Home/Away Split'] = (round(split_score, 1), 8)
 
     # ── Hot/Cold Streak (0-10, can go negative) ──────────────────────────────
     # Compares last 7 games vs last 30 games — recent trend matters

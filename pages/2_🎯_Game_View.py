@@ -154,20 +154,28 @@ def run_prediction(player_id: int, pitcher_id, is_home: bool, park_team: str,
     r30 = df.tail(30); hrr30 = (r30['h'] + r30['r'] + r30['rbi']).mean()
     ab30 = r30['ab'].sum(); h30 = r30['h'].sum()
 
+    # Home/away splits
+    home_games = df[df['is_home'] == 1]
+    away_games = df[df['is_home'] == 0]
+    home_hrr = (home_games['h'] + home_games['r'] + home_games['rbi']).mean() if len(home_games) >= 5 else None
+    away_hrr = (away_games['h'] + away_games['r'] + away_games['rbi']).mean() if len(away_games) >= 5 else None
+
     return {
-        'proj': round(proj, 2),
-        'r7g':  round(float(hrr7), 2),
-        'r30g': round(float(hrr30), 2),
-        'savg': round(float(dc['total_season_avg'].iloc[-1]), 2)
-                if not np.isnan(dc['total_season_avg'].iloc[-1]) else 0.0,
-        'ba30': round(h30 / ab30, 3) if ab30 > 0 else 0.250,
-        'df':   df,
+        'proj':     round(proj, 2),
+        'r7g':      round(float(hrr7), 2),
+        'r30g':     round(float(hrr30), 2),
+        'savg':     round(float(dc['total_season_avg'].iloc[-1]), 2)
+                    if not np.isnan(dc['total_season_avg'].iloc[-1]) else 0.0,
+        'ba30':     round(h30 / ab30, 3) if ab30 > 0 else 0.250,
+        'home_hrr': round(float(home_hrr), 2) if home_hrr else None,
+        'away_hrr': round(float(away_hrr), 2) if away_hrr else None,
+        'df':       df,
     }
 
 
 def get_rating(res, player_id, pitcher_id, park_team, batting_order,
                temp_f, wind_speed, wind_dir, bp_era=4.20, bp_whip=1.30,
-               line=None):
+               line=None, is_home=True):
     season = int(res['df']['season'].iloc[-1])
     b_sc   = get_batter_statcast(player_id, season)
     p_sc   = get_pitcher_statcast(pitcher_id, season) if pitcher_id else {}
@@ -200,6 +208,9 @@ def get_rating(res, player_id, pitcher_id, park_team, batting_order,
         bp_era            = bp_era,
         bp_whip           = bp_whip,
         line              = line,
+        home_hrr          = res.get('home_hrr'),
+        away_hrr          = res.get('away_hrr'),
+        is_home           = is_home,
     )
 
 
@@ -310,7 +321,8 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
                 r_data = get_rating(res, pid, opp_pitcher_id, park_team, batting_order,
                                     weather['temp_f'], weather['wind_speed'],
                                     weather['wind_dir_code'],
-                                    bp_era=bp_era, bp_whip=bp_whip, line=line_val)
+                                    bp_era=bp_era, bp_whip=bp_whip, line=line_val,
+                                    is_home=is_home)
                 # Save for future — locked forever
                 if game_date:
                     save_rating(game_date, pid, r_data['total'], r_data['grade'], res['proj'])
