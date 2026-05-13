@@ -318,7 +318,7 @@ if not has_lineups:
                 f'<div style="background:#1e293b;border:1px solid #1e40af;border-radius:8px;padding:12px;text-align:center;">'
                 f'{logo_img_tag(g.get("away_team",""),28)} <b style="color:#38bdf8;">{g.get("away_team","?")} @ {g.get("home_team","?")}</b> {logo_img_tag(g.get("home_team",""),28)}<br>'
                 f'<span style="font-size:11px;color:#7dd3fc;">{away_p} vs {home_p}</span><br>'
-                f'<span style="font-size:11px;color:#94a3b8;">{"🏟️ Dome" if w["is_dome"] else f"{w[\"temp_f\"]}°F · {w[\"wind_label\"]} · {w[\"condition\"]}"}</span>'
+                f'<span style="font-size:11px;color:#94a3b8;">{"🏟️ Dome" if w["is_dome"] else str(w["temp_f"]) + "°F · " + w["wind_label"] + " · " + w["condition"]}</span>'
                 f'</div>', unsafe_allow_html=True)
     st.stop()
 
@@ -349,7 +349,9 @@ for game in games:
         f'<span style="color:#475569;font-size:18px;margin:0 10px;">@</span>'
         f'{logo_img_tag(home, 38)}<span style="color:#38bdf8;font-size:22px;font-weight:800;">{home}</span>'
         f'<span style="color:#7dd3fc;font-size:13px;margin-left:20px;">{w_str} &nbsp;·&nbsp; {pf_str}</span>'
-        f'{"&nbsp;·&nbsp;<span style=\"color:#22c55e;font-size:12px;\">✅ Official lineup</span>" if game.get("lineups_official") else "&nbsp;·&nbsp;<span style=\"color:#eab308;font-size:12px;\">⏳ Probable pitchers</span>"}'
+        + ('&nbsp;·&nbsp;<span style="color:#22c55e;font-size:12px;">✅ Official lineup</span>'
+           if game.get('lineups_official') else
+           '&nbsp;·&nbsp;<span style="color:#eab308;font-size:12px;">⏳ Probable pitchers</span>')
         f'</div>',
         unsafe_allow_html=True
     )
