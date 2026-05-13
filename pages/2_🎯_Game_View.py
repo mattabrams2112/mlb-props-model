@@ -12,6 +12,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from xgboost import XGBRegressor
 from sklearn.metrics import mean_absolute_error
 import statsapi
@@ -177,39 +178,62 @@ def get_rating(res, player_id, pitcher_id, park_team, batting_order, temp_f, win
     )
 
 
+@st.cache_data(show_spinner=False, ttl=3600)
+def get_player_info(pid: int) -> tuple:
+    """Cached player name + team lookup."""
+    try:
+        info = statsapi.lookup_player(pid)
+        if info:
+            return info[0]['fullName'], info[0].get('currentTeam', {}).get('abbreviation', '')
+    except Exception:
+        pass
+    return str(pid), ''
+
+
+def _fetch_one(pid, opp_pitcher_id, is_home, park_team, temp_f, wind_speed, wind_dir):
+    """Fetch all data for one batter (runs in thread pool)."""
+    pname, pteam = get_player_info(pid)
+    res = run_prediction(pid, opp_pitcher_id, is_home, park_team, temp_f, wind_speed, wind_dir)
+    return pid, pname, pteam, res
+
+
 def c(v, high, med):
     return '#22c55e' if v >= high else '#eab308' if v >= med else '#ef4444'
 
 
-def batter_row_html(i, pid, pname, pteam, batting_order, order_color,
+def batter_row_html(i, pname, pteam, batting_order, order_color,
                     res, r_data, b_sc, game_label, bg):
-    logo    = logo_img_tag(pteam, 20)
-    rc      = c(r_data['total'], 75, 55)
-    pc      = c(res['proj'], 3.0, 2.0)
-    bc      = c(res['ba30'], 0.280, 0.250)
-    fb_b    = b_sc.get('batter_fb_barrel_pct', 0)
-    bk_b    = b_sc.get('batter_bk_barrel_pct', 0)
-    grade   = r_data['grade']
-    total   = r_data['total']
-    proj    = res['proj']
-    ba      = res['ba30']
-    r7      = res['r7g']
-    r30     = res['r30g']
+    logo  = logo_img_tag(pteam, 20)
+    rc    = c(r_data['total'], 75, 55)
+    pc    = c(res['proj'], 3.0, 2.0)
+    bc    = c(res['ba30'], 0.280, 0.250)
+    fb_b  = b_sc.get('batter_fb_barrel_pct', 0)
+    bk_b  = b_sc.get('batter_bk_barrel_pct', 0)
+    os_b  = b_sc.get('batter_os_barrel_pct', 0)
+    fb_s  = b_sc.get('batter_fb_seen_pct', 0)
+    bk_s  = b_sc.get('batter_bk_seen_pct', 0)
+    os_s  = b_sc.get('batter_os_seen_pct', 0)
+
+    barrel_html = (
+        f'<div style="font-size:10px;line-height:1.6;">'
+        f'FB {fb_b:.1%} <span style="color:#475569;">({fb_s:.0%} seen)</span><br>'
+        f'BK {bk_b:.1%} <span style="color:#475569;">({bk_s:.0%} seen)</span><br>'
+        f'OS {os_b:.1%} <span style="color:#475569;">({os_s:.0%} seen)</span>'
+        f'</div>'
+    )
 
     html  = f'<tr style="background:{bg};border-bottom:1px solid #1e293b;">'
     html += f'<td style="padding:6px 8px;color:#475569;font-size:12px;">{batting_order}</td>'
     html += f'<td style="padding:6px 8px;">{logo}</td>'
     html += (f'<td style="padding:6px 8px;color:#e0f2fe;font-weight:600;white-space:nowrap;">'
-             f'{pname}'
-             f'<div style="font-size:10px;color:#475569;">{game_label}</div></td>')
+             f'{pname}<div style="font-size:10px;color:#475569;">{game_label}</div></td>')
     html += f'<td style="padding:6px 8px;text-align:center;color:{order_color};font-weight:700;font-size:12px;">#{batting_order}</td>'
-    html += (f'<td style="padding:6px 8px;text-align:center;font-weight:800;color:{rc};">'
-             f'{total} <span style="font-size:10px;">{grade}</span></td>')
-    html += f'<td style="padding:6px 8px;text-align:center;font-weight:800;font-size:15px;color:{pc};">{proj}</td>'
-    html += f'<td style="padding:6px 8px;text-align:center;color:{bc};font-size:12px;">.{int(ba*1000):03d}</td>'
-    html += f'<td style="padding:6px 8px;text-align:center;color:#7dd3fc;font-size:12px;">{r7}</td>'
-    html += f'<td style="padding:6px 8px;text-align:center;color:#7dd3fc;font-size:12px;">{r30}</td>'
-    html += f'<td style="padding:6px 8px;text-align:center;color:#94a3b8;font-size:11px;">FB {fb_b:.1%} BK {bk_b:.1%}</td>'
+    html += f'<td style="padding:6px 8px;text-align:center;font-weight:800;color:{rc};">{r_data["total"]} <span style="font-size:10px;">{r_data["grade"]}</span></td>'
+    html += f'<td style="padding:6px 8px;text-align:center;font-weight:800;font-size:15px;color:{pc};">{res["proj"]}</td>'
+    html += f'<td style="padding:6px 8px;text-align:center;color:{bc};font-size:12px;">.{int(res["ba30"]*1000):03d}</td>'
+    html += f'<td style="padding:6px 8px;text-align:center;color:#7dd3fc;font-size:12px;">{res["r7g"]}</td>'
+    html += f'<td style="padding:6px 8px;text-align:center;color:#7dd3fc;font-size:12px;">{res["r30g"]}</td>'
+    html += f'<td style="padding:6px 8px;color:#94a3b8;">{barrel_html}</td>'
     html += '</tr>'
     return html
 
@@ -217,58 +241,72 @@ def batter_row_html(i, pid, pname, pteam, batting_order, order_color,
 def render_lineup(container, batter_ids, is_home, opp_pitcher_id, park_team,
                   weather, game_label, opp_p_name):
     p_std  = get_pitcher_season_stats(opp_pitcher_id) if opp_pitcher_id else {}
+    p_sc   = get_pitcher_statcast(opp_pitcher_id) if opp_pitcher_id else {}
     era    = f"{p_std.get('opp_era',0):.2f}"   if opp_pitcher_id else '—'
     whip   = f"{p_std.get('opp_whip',0):.2f}"  if opp_pitcher_id else '—'
     kpct   = f"{p_std.get('opp_k_pct',0):.1%}" if opp_pitcher_id else '—'
+    fb_t   = p_sc.get('pitcher_fb_thrown_pct', 0)
+    bk_t   = p_sc.get('pitcher_bk_thrown_pct', 0)
+    os_t   = p_sc.get('pitcher_os_thrown_pct', 0)
 
     pitcher_bar = (
-        f'<div style="background:#1e293b;border-radius:6px;padding:7px 12px;'
+        f'<div style="background:#1e293b;border-radius:6px;padding:8px 12px;'
         f'margin-bottom:6px;font-size:12px;color:#7dd3fc;">'
         f'⚾ <b style="color:#38bdf8;">{opp_p_name}</b>'
-        f' &nbsp;ERA {era} &nbsp;WHIP {whip} &nbsp;K% {kpct}</div>'
+        f' &nbsp;ERA {era} &nbsp;WHIP {whip} &nbsp;K% {kpct}'
+        f'<span style="margin-left:16px;color:#94a3b8;">'
+        f'Pitch mix: FB {fb_t:.0%} &nbsp;BK {bk_t:.0%} &nbsp;OS {os_t:.0%}'
+        f'</span></div>'
     )
 
     header = (
         '<table style="width:100%;border-collapse:collapse;font-size:12px;">'
         '<tr style="background:#0f172a;color:#38bdf8;font-size:11px;font-weight:700;">'
     )
-    cols = ['#', '', 'Player', 'Ord', 'Rating', 'Proj', '30g BA', '7g HRR', '30g HRR', 'Barrels']
-    for h in cols:
-        align = 'left' if h in ('', 'Player') else 'center'
+    for h, align in [('#','center'),('','left'),('Player','left'),('Ord','center'),
+                     ('Rating','center'),('Proj','center'),('30g BA','center'),
+                     ('7g HRR','center'),('30g HRR','center'),('Barrel % (seen)','left')]:
         header += f'<th style="padding:5px 7px;text-align:{align};border-bottom:1px solid #1e40af;">{h}</th>'
     header += '</tr>'
 
+    placeholder = container.empty()
+    placeholder.markdown(
+        pitcher_bar + header +
+        '<tr><td colspan="10" style="padding:12px;color:#475569;text-align:center;">'
+        '⏳ Fetching all batters in parallel...</td></tr></table>',
+        unsafe_allow_html=True
+    )
+
+    # ── Parallel fetch all batters ────────────────────────────────────────────
+    def fetch(args):
+        idx, pid = args
+        pname, pteam = get_player_info(pid)
+        res = run_prediction(pid, opp_pitcher_id, is_home, park_team,
+                             weather['temp_f'], weather['wind_speed'], weather['wind_dir_code'])
+        return idx, pid, pname, pteam, res
+
+    with ThreadPoolExecutor(max_workers=min(len(batter_ids), 6)) as exe:
+        fetched = list(exe.map(fetch, enumerate(batter_ids)))
+
+    fetched.sort(key=lambda x: x[0])  # restore batting order
+
+    # ── Build and render table ────────────────────────────────────────────────
     rows_html = []
     totals    = []
 
-    placeholder = container.empty()
-    placeholder.markdown(pitcher_bar + header + '<tr><td colspan="10" style="padding:10px;color:#475569;text-align:center;">Loading batters...</td></tr></table>', unsafe_allow_html=True)
-
-    for i, pid in enumerate(batter_ids):
-        batting_order = i + 1
-        pname, pteam  = str(pid), ''
-        try:
-            info = statsapi.lookup_player(pid)
-            if info:
-                pname = info[0]['fullName']
-                pteam = info[0].get('currentTeam', {}).get('abbreviation', '')
-        except Exception:
-            pass
-
-        res = run_prediction(pid, opp_pitcher_id, is_home, park_team,
-                             weather['temp_f'], weather['wind_speed'], weather['wind_dir_code'])
-
-        bg            = '#0f172a' if i % 2 == 0 else '#1e293b'
+    for idx, pid, pname, pteam, res in fetched:
+        batting_order = idx + 1
+        bg            = '#0f172a' if idx % 2 == 0 else '#1e293b'
         order_color   = '#22c55e' if batting_order <= 2 else '#38bdf8' if batting_order <= 5 else '#475569'
 
         if res:
-            r_data  = get_rating(res, pid, opp_pitcher_id, park_team,
-                                  batting_order, weather['temp_f'],
-                                  weather['wind_speed'], weather['wind_dir_code'])
-            season  = int(res['df']['season'].iloc[-1])
-            b_sc    = get_batter_statcast(pid, season)
-            row     = batter_row_html(i, pid, pname, pteam, batting_order, order_color,
-                                      res, r_data, b_sc, game_label, bg)
+            r_data = get_rating(res, pid, opp_pitcher_id, park_team,
+                                batting_order, weather['temp_f'],
+                                weather['wind_speed'], weather['wind_dir_code'])
+            season = int(res['df']['season'].iloc[-1])
+            b_sc   = get_batter_statcast(pid, season)
+            row    = batter_row_html(idx, pname, pteam, batting_order, order_color,
+                                     res, r_data, b_sc, game_label, bg)
             totals.append((r_data['total'], res['proj']))
         else:
             row = (f'<tr style="background:{bg};">'
@@ -278,16 +316,9 @@ def render_lineup(container, batter_ids, is_home, opp_pitcher_id, park_team,
                    f'<div style="font-size:10px;color:#475569;">{game_label}</div></td>'
                    f'<td colspan="7" style="padding:6px 8px;color:#475569;font-size:11px;">Not enough data</td>'
                    f'</tr>')
-
         rows_html.append(row)
 
-        # Re-render table with all rows so far
-        placeholder.markdown(
-            pitcher_bar + header + ''.join(rows_html) + '</table>',
-            unsafe_allow_html=True
-        )
-
-    # Totals row
+    totals_row = ''
     if totals:
         avg_r = round(sum(t[0] for t in totals) / len(totals))
         tot_p = round(sum(t[1] for t in totals), 2)
@@ -301,10 +332,11 @@ def render_lineup(container, batter_ids, is_home, opp_pitcher_id, park_team,
             f'<td style="padding:7px;text-align:center;font-weight:800;font-size:15px;color:{pc};">{tot_p}</td>'
             f'<td colspan="4"></td></tr>'
         )
-        placeholder.markdown(
-            pitcher_bar + header + ''.join(rows_html) + totals_row + '</table>',
-            unsafe_allow_html=True
-        )
+
+    placeholder.markdown(
+        pitcher_bar + header + ''.join(rows_html) + totals_row + '</table>',
+        unsafe_allow_html=True
+    )
 
 
 # ── Page ──────────────────────────────────────────────────────────────────────
