@@ -450,11 +450,12 @@ if 'search_player' in st.session_state:
 
 # ── Today's lineup (auto-loads) ───────────────────────────────────────────────
 
-col_title, col_refresh = st.columns([6, 1])
+col_title, col_refresh = st.columns([5, 1])
 with col_title:
     st.markdown(f"### Today's Batters — Sorted by Rating")
 with col_refresh:
-    if st.button('🔄 Refresh', use_container_width=True):
+    if st.button('🔄 Refresh Lineups', use_container_width=True,
+                 help='Reloads all lineups — use this after games start to pull actual batting orders from completed games'):
         st.session_state.pop('lineup_rows', None)
         st.session_state.pop('lineup_games', None)
         st.rerun()
@@ -493,7 +494,7 @@ else:
                 f'{logo_img_tag(away,22)}{away} @ {logo_img_tag(home,22)}{home}'
                 f'</div>'
                 f'<div style="font-size:11px;color:#888;margin-top:4px;">{away_p} vs {home_p}</div>'
-                f'<div style="font-size:11px;margin-top:2px;">{"✅ Lineup official" if official else "⏳ Lineup pending"}</div>'
+                f'<div style="font-size:11px;margin-top:2px;">{"🏁 " + status if status in ("Final","Game Over") else "✅ Lineup official" if official else "⏳ Lineup pending"}</div>'
                 f'</div>',
                 unsafe_allow_html=True
             )
