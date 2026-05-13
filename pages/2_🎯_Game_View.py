@@ -109,8 +109,9 @@ def run_prediction(player_id: int, pitcher_id, is_home: bool, park_team: str,
     # Freeze ratings at pre-game state — exclude game day and later
     if game_date:
         try:
-            cutoff = pd.Timestamp(game_date).normalize()
-            df = df[df['date'] < cutoff].copy()
+            from datetime import date as date_type
+            cutoff = pd.Timestamp(game_date).date()
+            df = df[df['date'].dt.date < cutoff].copy()
         except Exception:
             pass
 
