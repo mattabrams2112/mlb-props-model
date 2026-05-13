@@ -153,12 +153,20 @@ def build_features(df: pd.DataFrame, fetch_weather: bool = True,
     df['park_factor'] = df['home_team'].apply(get_park_factor)
 
     # Home/away splits — rolling avg HRR at home vs away (no leakage)
-    df['home_hrr_avg'] = (
-        df.groupby(['season', 'is_home'])['total']
-        .transform(lambda x: x.shift(1).expanding(min_periods=5).mean())
-    )
-    # Fall back to overall season avg if not enough home/away games
-    df['home_hrr_avg'] = df['home_hrr_avg'].fillna(df['total_season_avg']).fillna(df['total_avg_7g'])
+    try:
+        df['home_hrr_avg'] = (
+            df.groupby(['season', 'is_home'])['total']
+            .transform(lambda x: x.shift(1).expanding(min_periods=5).mean())
+        )
+        # Fall back to season avg, then 30g avg, then overall mean
+        overall_mean = df['total'].mean()
+        df['home_hrr_avg'] = (df['home_hrr_avg']
+                              .fillna(df['total_season_avg'])
+                              .fillna(df['total'].shift(1).rolling(30, min_periods=3).mean())
+                              .fillna(overall_mean)
+                              .fillna(0.0))
+    except Exception:
+        df['home_hrr_avg'] = df['total'].shift(1).rolling(30, min_periods=3).mean().fillna(0.0)
 
     # Weather
     if fetch_weather and 'game_pk' in df.columns:
