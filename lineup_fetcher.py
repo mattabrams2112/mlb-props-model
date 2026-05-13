@@ -169,7 +169,9 @@ def get_todays_lineups(date_str: str = None) -> list:
             home_name=game.get('home_name', ''),
             away_name=game.get('away_name', ''),
         )
-        ctx['start_time'] = game.get('game_datetime', '')
-        ctx['status']     = game.get('status', '')
+        ctx['start_time']  = game.get('game_datetime', '')
+        ctx['status']      = game.get('status', '')
+        ctx['away_score']  = game.get('away_score', '')
+        ctx['home_score']  = game.get('home_score', '')
         contexts.append(ctx)
     return contexts

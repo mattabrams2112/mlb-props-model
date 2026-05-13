@@ -387,17 +387,33 @@ for game in games:
     weather       = get_stadium_weather(home, game_time_utc)
     pf            = get_park_factor(home)
     status        = game.get('status', '')
+    away_score    = game.get('away_score', '')
+    home_score    = game.get('home_score', '')
 
     w_txt = ('🏟️ Dome — weather neutral' if weather['is_dome']
               else str(weather['temp_f']) + '°F · 💨 ' + weather['wind_label']
               + ' · ' + weather['condition'])
     pf_txt = f'Park: {pf:.2f}x'
 
+    is_final = status in ('Final', 'Game Over', 'Completed Early')
     official_tag = ('&nbsp;·&nbsp;<span style="color:#22c55e;font-size:12px;">✅ Official</span>'
-                    if game.get('lineups_official') else
+                    if game.get('lineups_official') and not is_final else
                     '&nbsp;·&nbsp;<span style="color:#eab308;font-size:12px;">⏳ Probable</span>')
-    if status in ('Final', 'Game Over'):
+    if is_final:
         official_tag = '&nbsp;·&nbsp;<span style="color:#38bdf8;font-size:12px;">🏁 Final</span>'
+
+    # Score display for completed games
+    if is_final and away_score != '' and home_score != '':
+        a_s, h_s    = int(away_score), int(home_score)
+        away_won    = a_s > h_s
+        score_html  = (
+            f'&nbsp;&nbsp;'
+            f'<span style="font-size:22px;font-weight:900;color:{"#22c55e" if away_won else "#94a3b8"};">{a_s}</span>'
+            f'<span style="color:#475569;font-size:16px;margin:0 6px;">-</span>'
+            f'<span style="font-size:22px;font-weight:900;color:{"#22c55e" if not away_won else "#94a3b8"};">{h_s}</span>'
+        )
+    else:
+        score_html = ''
 
     game_label = away + ' @ ' + home
 
@@ -405,6 +421,7 @@ for game in games:
         f'<div class="game-header">'
         f'{logo_img_tag(away, 36)}'
         f'<span style="color:#38bdf8;font-size:20px;font-weight:800;">{away}</span>'
+        f'{score_html}'
         f'<span style="color:#475569;font-size:16px;margin:0 8px;">@</span>'
         f'{logo_img_tag(home, 36)}'
         f'<span style="color:#38bdf8;font-size:20px;font-weight:800;">{home}</span>'
