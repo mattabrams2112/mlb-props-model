@@ -63,59 +63,58 @@ def get_player_team(player_id: int) -> str:
 @st.cache_data(show_spinner=False, ttl=3600)
 def fetch_game_logs(player_id: int):
     errors = []
-    try:
-        from datetime import datetime
-        current_year = datetime.now().year
-        seasons = [current_year - 2, current_year - 1, current_year]
-        all_rows = []
-        for season in seasons:
-            try:
-                data = statsapi.player_stat_data(
-                    player_id, group='hitting', type='gameLog', season=season
-                )
-                splits = data.get('stats', [])
-                errors.append(f"Season {season}: {len(splits)} splits returned")
-                for split in splits:
-                    stat = split.get('stat', {})
-                    game_info = split.get('game', {})
-                    ab = int(stat.get('atBats', 0))
-                    row = {
-                        'player_id': player_id,
-                        'season': season,
-                        'date': game_info.get('gameDate', split.get('date', '')),
-                        'game_pk': str(game_info.get('gamePk', '')),
-                        'opponent': split.get('opponent', {}).get('abbreviation', ''),
-                        'home_team': (split.get('team', {}).get('abbreviation', '')
-                                      if split.get('isHome', True)
-                                      else split.get('opponent', {}).get('abbreviation', '')),
-                        'is_home': int(split.get('isHome', True)),
-                        'ab': ab,
-                        'h':   int(stat.get('hits', 0)),
-                        'r':   int(stat.get('runs', 0)),
-                        'rbi': int(stat.get('rbi', 0)),
-                        'd':   int(stat.get('doubles', 0)),
-                        't':   int(stat.get('triples', 0)),
-                        'hr':  int(stat.get('homeRuns', 0)),
-                        'bb':  int(stat.get('baseOnBalls', 0)),
-                        'k':   int(stat.get('strikeOuts', 0)),
-                        'sb':  int(stat.get('stolenBases', 0)),
-                    }
-                    all_rows.append(row)
-            except Exception as e:
-                errors.append(f"Season {season} error: {e}")
+    current_year = datetime.now().year
+    seasons = [current_year - 2, current_year - 1, current_year]
+    all_rows = []
 
-        if not all_rows:
-            return pd.DataFrame(), ' | '.join(errors)
+    for season in seasons:
+        season_err = None
+        try:
+            data = statsapi.player_stat_data(
+                player_id, group='hitting', type='gameLog', season=season
+            )
+            splits = data.get('stats', [])
+            errors.append(f"Season {season}: {len(splits)} splits")
+            for split in splits:
+                stat      = split.get('stat', {})
+                game_info = split.get('game', {})
+                all_rows.append({
+                    'player_id': player_id,
+                    'season':    season,
+                    'date':      game_info.get('gameDate', split.get('date', '')),
+                    'game_pk':   str(game_info.get('gamePk', '')),
+                    'opponent':  split.get('opponent', {}).get('abbreviation', ''),
+                    'home_team': (split.get('team', {}).get('abbreviation', '')
+                                  if split.get('isHome', True)
+                                  else split.get('opponent', {}).get('abbreviation', '')),
+                    'is_home':   int(split.get('isHome', True)),
+                    'ab':  int(stat.get('atBats', 0)),
+                    'h':   int(stat.get('hits', 0)),
+                    'r':   int(stat.get('runs', 0)),
+                    'rbi': int(stat.get('rbi', 0)),
+                    'd':   int(stat.get('doubles', 0)),
+                    't':   int(stat.get('triples', 0)),
+                    'hr':  int(stat.get('homeRuns', 0)),
+                    'bb':  int(stat.get('baseOnBalls', 0)),
+                    'k':   int(stat.get('strikeOuts', 0)),
+                    'sb':  int(stat.get('stolenBases', 0)),
+                })
+        except Exception as season_exc:
+            season_err = str(season_exc)
 
-        df = pd.DataFrame(all_rows)
-        df['date'] = pd.to_datetime(df['date'], errors='coerce')
-        df = df.dropna(subset=['date'])
-        df = df.sort_values('date').reset_index(drop=True)
-        df = df[df['ab'] > 0].reset_index(drop=True)
-        errors.append(f"Final rows after filtering: {len(df)}")
-        return df, ' | '.join(errors)
-    except Exception as e:
-        return pd.DataFrame(), f'Unexpected error: {e}'
+        if season_err:
+            errors.append(f"Season {season} error: {season_err}")
+
+    if not all_rows:
+        return pd.DataFrame(), ' | '.join(errors)
+
+    df = pd.DataFrame(all_rows)
+    df['date'] = pd.to_datetime(df['date'], errors='coerce')
+    df = df.dropna(subset=['date'])
+    df = df.sort_values('date').reset_index(drop=True)
+    df = df[df['ab'] > 0].reset_index(drop=True)
+    errors.append(f"Final rows: {len(df)}")
+    return df, ' | '.join(errors)
 
 
 @st.cache_data(show_spinner=False, ttl=3600)
