@@ -41,46 +41,43 @@ def compute_rating(
 ) -> dict:
     scores = {}
 
-    # ── Form & Hit Rate (0-18) ────────────────────────────────────────────────
-    form_raw  = 0.65 * recent_7g + 0.35 * recent_30g
-    hrr_score = min(14.0, (form_raw / 3.5) * 14)
-    ba_bonus  = max(0.0, min(4.0, (recent_ba - 0.200) / (0.350 - 0.200) * 4.0))
-    scores['Form & Hit Rate'] = (round(hrr_score + ba_bonus, 1), 18)
-
-    # ── Model Projection (0-18) ───────────────────────────────────────────────
+    # ── Model Projection (0-30) — primary driver ─────────────────────────────
     if projection is not None:
-        proj_score = min(18.0, (max(0.0, projection) / 3.5) * 18)
+        proj_score = min(30.0, (max(0.0, projection) / 3.5) * 30)
     else:
-        proj_score = min(18.0, (season_avg / 3.0) * 18)
-    scores['Projection'] = (round(proj_score, 1), 18)
+        proj_score = min(30.0, (season_avg / 3.0) * 30)
+    scores['Projection'] = (round(proj_score, 1), 30)
 
-    # ── Starter Matchup (0-18) ────────────────────────────────────────────────
-    era_score = max(0.0, min(18.0, 18.0 * (6.0 - opp_era) / (6.0 - 3.0)))
+    # ── Form & Hit Rate (0-15) ────────────────────────────────────────────────
+    form_raw  = 0.65 * recent_7g + 0.35 * recent_30g
+    hrr_score = min(11.0, (form_raw / 3.5) * 11)
+    ba_bonus  = max(0.0, min(4.0, (recent_ba - 0.200) / (0.350 - 0.200) * 4.0))
+    scores['Form & Hit Rate'] = (round(hrr_score + ba_bonus, 1), 15)
+
+    # ── Starter Matchup (0-15) ───────────────────────────────────────────────
+    era_score = max(0.0, min(15.0, 15.0 * (6.0 - opp_era) / (6.0 - 3.0)))
     if bvp_sample:
-        era_score = max(0.0, min(18.0, era_score + (bvp_avg - 0.250) * 15))
-    scores['Starter Matchup'] = (round(era_score, 1), 18)
+        era_score = max(0.0, min(15.0, era_score + (bvp_avg - 0.250) * 12))
+    scores['Starter Matchup'] = (round(era_score, 1), 15)
 
-    # ── Bullpen (0-10) ───────────────────────────────────────────────────────
-    # Bad bullpen = more opportunity for runs in later innings
-    # ERA scale: 3.50 = 10pts (bad bullpen, good for batter),
-    #            4.20 = 6pts (avg), 5.50+ = 10pts (very bad, great for batter)
-    bp_era_score  = max(0.0, min(7.0, (bp_era - 3.0) / (5.5 - 3.0) * 7.0))
+    # ── Bullpen (0-8) ────────────────────────────────────────────────────────
+    bp_era_score  = max(0.0, min(5.0, (bp_era - 3.0) / (5.5 - 3.0) * 5.0))
     bp_whip_score = max(0.0, min(3.0, (bp_whip - 1.0) / (1.8 - 1.0) * 3.0))
-    scores['Bullpen'] = (round(min(10.0, bp_era_score + bp_whip_score), 1), 10)
+    scores['Bullpen'] = (round(min(8.0, bp_era_score + bp_whip_score), 1), 8)
 
-    # ── Barrel Edge (0-12) ───────────────────────────────────────────────────
+    # ── Barrel Edge (0-10) ───────────────────────────────────────────────────
     barrel_edge = (
         batter_fb_seen * (batter_fb_barrel - pitcher_fb_barrel) +
         batter_bk_seen * (batter_bk_barrel - pitcher_bk_barrel) +
         batter_os_seen * (batter_os_barrel - pitcher_os_barrel)
     )
-    scores['Barrel Edge'] = (round(max(0.0, min(12.0, 6.0 + barrel_edge * 120)), 1), 12)
+    scores['Barrel Edge'] = (round(max(0.0, min(10.0, 5.0 + barrel_edge * 100)), 1), 10)
 
-    # ── Park & Weather (0-14) ────────────────────────────────────────────────
-    park_score = max(0.0, min(8.0, (park_factor - 0.90) / (1.15 - 0.90) * 8.0))
-    wind_score = max(-3.0, min(3.0, wind_dir * min(wind_speed, 20) / 20 * 3.0))
-    temp_score = max(-2.0, min(2.0, (temp_f - 50) / (85 - 50) * 2.0)) if temp_f > 0 else 0
-    scores['Park & Weather'] = (round(max(0.0, min(14.0, park_score + wind_score + temp_score + 1)), 1), 14)
+    # ── Park & Weather (0-12) ────────────────────────────────────────────────
+    park_score = max(0.0, min(7.0, (park_factor - 0.90) / (1.15 - 0.90) * 7.0))
+    wind_score = max(-2.0, min(2.0, wind_dir * min(wind_speed, 20) / 20 * 2.0))
+    temp_score = max(-1.0, min(1.0, (temp_f - 50) / (85 - 50) * 1.0)) if temp_f > 0 else 0
+    scores['Park & Weather'] = (round(max(0.0, min(12.0, park_score + wind_score + temp_score + 1)), 1), 12)
 
     # ── Batting Order (0-10) ─────────────────────────────────────────────────
     bo_score = BATTING_ORDER_SCORES[batting_order - 1] if 1 <= batting_order <= 9 else 4
