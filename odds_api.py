@@ -102,8 +102,14 @@ def get_todays_event_ids() -> dict:
         result = {}
         for event in resp.json():
             if event.get('commence_time', '')[:10] == today:
-                home = event.get('home_team', '')
-                result[home] = event.get('id', '')
+                home_full = event.get('home_team', '')
+                eid       = event.get('id', '')
+                # Store by full name AND abbreviation for flexible matching
+                result[home_full] = eid
+                # Also store by last word (e.g. "Baltimore Orioles" -> "Orioles")
+                words = home_full.split()
+                if words:
+                    result[words[-1]] = eid
         return result
     except Exception:
         return {}

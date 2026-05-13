@@ -469,7 +469,7 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
     )
 
     # ── Line inputs ───────────────────────────────────────────────────────────
-    starters_with_data = [(idx, pid, pname, res) for idx, pid, pname, _, res, is_s, _, _
+    starters_with_data = [(idx, pid, pname, res) for idx, pid, pname, _, res, is_s, _, _, _
                           in fetched if is_s and res]
     if starters_with_data:
         with st.expander('📥 Enter Sportsbook Lines', expanded=False):
@@ -562,8 +562,20 @@ for game in games:
 
     is_past       = selected_date < datetime.now().date()
     weather       = get_stadium_weather(home, '' if is_past else game.get('start_time', ''))
-    # Match event to odds API (keyed by home team full name or abbreviation)
-    event_id      = event_map.get(home, event_map.get(home.upper(), ''))
+    # Match event to odds API — try abbreviation, then team nickname
+    TEAM_NICKNAMES = {
+        'ARI':'Diamondbacks','ATL':'Braves','BAL':'Orioles','BOS':'Red Sox',
+        'CHC':'Cubs','CWS':'White Sox','CIN':'Reds','CLE':'Guardians',
+        'COL':'Rockies','DET':'Tigers','HOU':'Astros','KC':'Royals',
+        'LAA':'Angels','LAD':'Dodgers','MIA':'Marlins','MIL':'Brewers',
+        'MIN':'Twins','NYM':'Mets','NYY':'Yankees','OAK':'Athletics',
+        'PHI':'Phillies','PIT':'Pirates','SD':'Padres','SEA':'Mariners',
+        'SF':'Giants','STL':'Cardinals','TB':'Rays','TEX':'Rangers',
+        'TOR':'Blue Jays','WSH':'Nationals',
+    }
+    nickname = TEAM_NICKNAMES.get(home, '')
+    event_id = (event_map.get(home) or event_map.get(nickname) or
+                event_map.get(home.upper()) or '')
     pf            = get_park_factor(home)
     status        = game.get('status', '')
     away_score    = game.get('away_score', '')
