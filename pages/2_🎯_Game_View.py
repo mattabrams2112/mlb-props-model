@@ -535,7 +535,7 @@ for game in games:
             render_lineup(ac, ab_ids, a_codes, False, home_pid,
                           home, home, weather, away + ' @ ' + home,
                           home_p, date_key, batter_team=away,
-                          game_date=date_str.replace('/', '-') if date_str else '')
+                          game_date=selected_date.strftime('%Y-%m-%d'))
         else:
             st.info('Lineup pending.')
 
@@ -545,7 +545,7 @@ for game in games:
             render_lineup(hc, hb_ids, h_codes, True, away_pid,
                           away, home, weather, away + ' @ ' + home,
                           away_p, date_key, batter_team=home,
-                          game_date=date_str.replace('/', '-') if date_str else '')
+                          game_date=selected_date.strftime('%Y-%m-%d'))
         else:
             st.info('Lineup pending.')
 
