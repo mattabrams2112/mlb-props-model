@@ -1,11 +1,12 @@
 """
 Fetches today's MLB lineups and probable/confirmed starting pitchers.
-For completed or in-progress games, pulls directly from boxscore.
+Team names always come from the schedule API (reliable).
+Batter/pitcher lists come from boxscore for completed/live games.
 """
 import statsapi
 from datetime import datetime
 
-COMPLETED_STATUSES = {'Final', 'Game Over', 'Completed Early', 'In Progress', 'Manager Challenge'}
+COMPLETED = {'Final', 'Game Over', 'Completed Early', 'In Progress', 'Manager Challenge'}
 
 
 def get_todays_games(date_str: str = None) -> list:
@@ -16,39 +17,23 @@ def get_todays_games(date_str: str = None) -> list:
 
 def get_game_context(game_pk: int, status: str = '') -> dict:
     result = {
-        'game_pk':         game_pk,
-        'home_team':       '',
-        'away_team':       '',
-        'home_batters':    [],
-        'away_batters':    [],
-        'home_pitcher_id': None,
-        'away_pitcher_id': None,
-        'lineups_official':False,
-        'status':          status,
+        'game_pk':          game_pk,
+        'home_team':        '',
+        'away_team':        '',
+        'home_batters':     [],
+        'away_batters':     [],
+        'home_pitcher_id':  None,
+        'away_pitcher_id':  None,
+        'lineups_official': False,
+        'status':           status,
     }
 
-    game_is_live_or_final = any(s in status for s in COMPLETED_STATUSES)
-
-    # For completed/in-progress games go straight to boxscore — it has the real lineup
-    if game_is_live_or_final:
-        try:
-            box  = statsapi.boxscore_data(game_pk)
-            home = box.get('home', {}); away = box.get('away', {})
-            result['home_team']    = home.get('team', {}).get('abbreviation', '')
-            result['away_team']    = away.get('team', {}).get('abbreviation', '')
-            result['home_batters'] = home.get('batters', [])
-            result['away_batters'] = away.get('batters', [])
-            hp = home.get('pitchers', []); ap = away.get('pitchers', [])
-            result['home_pitcher_id'] = hp[0] if hp else None
-            result['away_pitcher_id'] = ap[0] if ap else None
-            result['lineups_official'] = bool(result['home_batters'])
-            return result
-        except Exception:
-            pass
-
-    # Pre-game: try schedule hydration for probable pitchers + official lineups
+    # ── Step 1: always get team names + probable pitchers from schedule ───────
     try:
-        sched = statsapi.get('schedule', {'gamePk': game_pk, 'hydrate': 'probablePitcher,lineups'})
+        sched = statsapi.get('schedule', {
+            'gamePk': game_pk,
+            'hydrate': 'probablePitcher,lineups',
+        })
         dates = sched.get('dates', [])
         game  = dates[0].get('games', [{}])[0] if dates else {}
         teams = game.get('teams', {})
@@ -58,7 +43,8 @@ def get_game_context(game_pk: int, status: str = '') -> dict:
         result['home_pitcher_id'] = teams.get('home', {}).get('probablePitcher', {}).get('id')
         result['away_pitcher_id'] = teams.get('away', {}).get('probablePitcher', {}).get('id')
 
-        lineups     = game.get('lineups', {})
+        # Official lineups from schedule hydration (pre-game / during game)
+        lineups      = game.get('lineups', {})
         home_players = lineups.get('homePlayers', [])
         away_players = lineups.get('awayPlayers', [])
         if home_players:
@@ -66,24 +52,41 @@ def get_game_context(game_pk: int, status: str = '') -> dict:
             result['lineups_official'] = True
         if away_players:
             result['away_batters'] = [p['id'] for p in away_players]
+
     except Exception:
         pass
 
-    # Fallback to boxscore if still no batters
-    if not result['home_batters']:
+    # ── Step 2: for completed/live games, override with actual boxscore lineup ─
+    game_is_live_or_final = any(s in status for s in COMPLETED)
+    if game_is_live_or_final or not result['home_batters']:
         try:
             box  = statsapi.boxscore_data(game_pk)
-            home = box.get('home', {}); away = box.get('away', {})
-            result['home_batters'] = home.get('batters', [])
-            result['away_batters'] = away.get('batters', [])
-            if result['home_batters']:
+            home = box.get('home', {})
+            away = box.get('away', {})
+
+            hb = home.get('batters', [])
+            ab = away.get('batters', [])
+
+            if hb:
+                result['home_batters']    = hb
                 result['lineups_official'] = True
+            if ab:
+                result['away_batters'] = ab
+
+            # Fill team names from boxscore if still missing
+            if not result['home_team']:
+                result['home_team'] = home.get('team', {}).get('abbreviation', '')
+            if not result['away_team']:
+                result['away_team'] = away.get('team', {}).get('abbreviation', '')
+
+            # Starting pitchers (index 0 = starter)
             if not result['home_pitcher_id']:
                 hp = home.get('pitchers', [])
                 result['home_pitcher_id'] = hp[0] if hp else None
             if not result['away_pitcher_id']:
                 ap = away.get('pitchers', [])
                 result['away_pitcher_id'] = ap[0] if ap else None
+
         except Exception:
             pass
 
