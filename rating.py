@@ -110,6 +110,15 @@ def compute_rating(
             line_label = f'{edge:.2f} UNDER'
         scores['Line Edge'] = (round(line_score, 1), 10)
 
+    # ── Hot/Cold Streak (0-10, can go negative) ──────────────────────────────
+    # Compares last 7 games vs last 30 games — recent trend matters
+    if recent_7g > 0 and recent_30g > 0:
+        pct_diff = (recent_7g - recent_30g) / max(recent_30g, 0.1)
+        heat_score = max(-8.0, min(10.0, pct_diff * 20))
+    else:
+        heat_score = 0.0
+    scores['Hot/Cold Streak'] = (round(heat_score, 1), 10)
+
     total = round(min(100, max(0, sum(v[0] for v in scores.values()))))
 
     grade = (
