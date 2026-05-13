@@ -43,7 +43,7 @@ MLB_API = 'https://statsapi.mlb.com/api/v1'
 
 # ── Data helpers ──────────────────────────────────────────────────────────────
 
-@st.cache_data(show_spinner=False, ttl=3600)
+@st.cache_data(show_spinner=False, ttl=86400)
 def get_player_info(pid: int) -> tuple:
     try:
         info = statsapi.lookup_player(pid)
@@ -54,7 +54,7 @@ def get_player_info(pid: int) -> tuple:
     return str(pid), ''
 
 
-@st.cache_data(show_spinner=False, ttl=3600)
+@st.cache_data(show_spinner=False, ttl=7200)
 def fetch_logs(player_id: int) -> pd.DataFrame:
     current_year = datetime.now().year
     seasons = [current_year - 2, current_year - 1, current_year]
@@ -259,7 +259,7 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
                                     weather['wind_dir_code'])
         return idx, pid, pname, pteam, res, is_starter, spot, sub_idx
 
-    with ThreadPoolExecutor(max_workers=min(len(batter_ids), 6)) as exe:
+    with ThreadPoolExecutor(max_workers=2) as exe:
         fetched = list(exe.map(fetch, enumerate(batter_ids)))
 
     # Sort: starters by spot, subs by spot then sub_idx
