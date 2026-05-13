@@ -2,12 +2,17 @@
 Player rating engine — scores a batter 0-100 for a given matchup.
 
 Components:
-  Form        (0-30)  — recent H+R+RBI rolling averages
-  Season Avg  (0-20)  — season-long H+R+RBI baseline
-  Matchup     (0-25)  — opposing pitcher quality + BvP history
-  Barrel Edge (0-15)  — batter barrel rate advantage over pitcher, weighted by pitch mix
-  Park & Wind (0-10)  — ballpark factor + wind direction/speed
+  Form         (0-25) — recent H+R+RBI rolling averages + hit rate (BA)
+  Season Avg   (0-15) — season-long H+R+RBI baseline
+  Matchup      (0-22) — opposing pitcher quality + BvP history
+  Barrel Edge  (0-13) — batter barrel rate advantage over pitcher, weighted by pitch mix
+  Park & Weather(0-15)— ballpark factor + live wind/temp
+  Batting Order(0-10) — lineup position 1-5 bonus (more PA, run opportunities)
 """
+
+
+# Batting order position scores (index 0 = spot 1, etc.)
+BATTING_ORDER_SCORES = [8, 10, 8, 7, 5, 3, 2, 1, 1]
 
 
 def compute_rating(
@@ -22,41 +27,52 @@ def compute_rating(
     park_factor: float,
     wind_speed: float,
     wind_dir: int,
-    bvp_avg: float   = 0.250,
-    bvp_sample: int  = 0,
+    bvp_avg: float      = 0.250,
+    bvp_sample: int     = 0,
+    batting_order: int  = 0,   # 1-9, 0 = unknown
+    recent_ba: float    = 0.250,  # rolling batting average (hit rate)
+    temp_f: float       = 72.0,
 ) -> dict:
     scores = {}
 
-    # ── Form (0-30) ──────────────────────────────────────────────────────────
-    # Weighted blend of 7g and 30g rolling avg; 3.5 H+R+RBI/game = max
-    form_raw = 0.65 * recent_7g + 0.35 * recent_30g
-    scores['Form'] = (round(min(30.0, (form_raw / 3.5) * 30), 1), 30)
+    # ── Form (0-25) ──────────────────────────────────────────────────────────
+    # Blend of 7g/30g HRR avg + hit rate bonus
+    form_raw  = 0.65 * recent_7g + 0.35 * recent_30g
+    hrr_score = min(20.0, (form_raw / 3.5) * 20)
+    # Hit rate bonus: .300+ BA = +5, .270 = +3, .240 = +1, below = 0
+    ba_bonus  = max(0.0, min(5.0, (recent_ba - 0.200) / (0.350 - 0.200) * 5.0))
+    scores['Form & Hit Rate'] = (round(hrr_score + ba_bonus, 1), 25)
 
-    # ── Season Avg (0-20) ────────────────────────────────────────────────────
-    scores['Season Avg'] = (round(min(20.0, (season_avg / 3.0) * 20), 1), 20)
+    # ── Season Avg (0-15) ────────────────────────────────────────────────────
+    scores['Season Avg'] = (round(min(15.0, (season_avg / 3.0) * 15), 1), 15)
 
-    # ── Matchup (0-25) ───────────────────────────────────────────────────────
-    # ERA: 3.00 → 25 pts, league avg 4.30 → ~13 pts, 6.00+ → 0 pts
-    era_score = max(0.0, min(25.0, 25.0 * (6.0 - opp_era) / (6.0 - 3.0)))
-    # BvP adjustment: ±3 pts when we have a real sample (10+ AB)
+    # ── Matchup (0-22) ───────────────────────────────────────────────────────
+    era_score = max(0.0, min(22.0, 22.0 * (6.0 - opp_era) / (6.0 - 3.0)))
     if bvp_sample:
-        era_score = max(0.0, min(25.0, era_score + (bvp_avg - 0.250) * 20))
-    scores['Matchup'] = (round(era_score, 1), 25)
+        era_score = max(0.0, min(22.0, era_score + (bvp_avg - 0.250) * 18))
+    scores['Matchup'] = (round(era_score, 1), 22)
 
-    # ── Barrel Edge (0-15) ───────────────────────────────────────────────────
-    # For each pitch group: (batter barrel% - pitcher barrel% allowed) × how often batter sees it
+    # ── Barrel Edge (0-13) ───────────────────────────────────────────────────
     barrel_edge = (
         batter_fb_seen * (batter_fb_barrel - pitcher_fb_barrel) +
         batter_bk_seen * (batter_bk_barrel - pitcher_bk_barrel) +
         batter_os_seen * (batter_os_barrel - pitcher_os_barrel)
     )
-    # Scale: 0 edge → 7.5 pts, +0.05 edge → 15 pts, -0.05 edge → 0 pts
-    scores['Barrel Edge'] = (round(max(0.0, min(15.0, 7.5 + barrel_edge * 150)), 1), 15)
+    scores['Barrel Edge'] = (round(max(0.0, min(13.0, 6.5 + barrel_edge * 130)), 1), 13)
 
-    # ── Park & Wind (0-10) ───────────────────────────────────────────────────
-    park_score = max(0.0, min(7.0, (park_factor - 0.90) / (1.15 - 0.90) * 7.0))
+    # ── Park & Weather (0-15) ────────────────────────────────────────────────
+    park_score = max(0.0, min(8.0, (park_factor - 0.90) / (1.15 - 0.90) * 8.0))
     wind_score = max(-3.0, min(3.0, wind_dir * min(wind_speed, 20) / 20 * 3.0))
-    scores['Park & Wind'] = (round(max(0.0, min(10.0, park_score + wind_score)), 1), 10)
+    # Temperature: ideal ~75°F, too cold (<50) or dome-neutral
+    temp_score = max(-2.0, min(2.0, (temp_f - 50) / (85 - 50) * 2.0)) if temp_f > 0 else 0
+    scores['Park & Weather'] = (round(max(0.0, min(15.0, park_score + wind_score + temp_score + 2)), 1), 15)
+
+    # ── Batting Order (0-10) ─────────────────────────────────────────────────
+    if 1 <= batting_order <= 9:
+        bo_score = BATTING_ORDER_SCORES[batting_order - 1]
+    else:
+        bo_score = 4  # unknown — use middle value
+    scores['Batting Order'] = (float(bo_score), 10)
 
     total = round(min(100, max(0, sum(v[0] for v in scores.values()))))
 
@@ -68,14 +84,14 @@ def compute_rating(
     )
 
     color = (
-        '#22c55e' if total >= 75 else   # green
-        '#eab308' if total >= 55 else   # yellow
-        '#ef4444'                        # red
+        '#22c55e' if total >= 75 else
+        '#eab308' if total >= 55 else
+        '#ef4444'
     )
 
     return {
         'total':      total,
         'grade':      grade,
         'color':      color,
-        'components': scores,  # {label: (score, max_score)}
+        'components': scores,
     }
