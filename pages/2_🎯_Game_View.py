@@ -111,7 +111,8 @@ def run_prediction(player_id: int, pitcher_id, is_home: bool, park_team: str,
     if len(dc) < 20:
         return None
 
-    X, y = dc[fc], dc[TARGET_COL]
+    X = dc[fc].apply(pd.to_numeric, errors='coerce').fillna(0)
+    y = dc[TARGET_COL]
 
     # Fast model — no CV, fewer trees
     model = XGBRegressor(n_estimators=100, learning_rate=0.08, max_depth=4,
@@ -125,7 +126,8 @@ def run_prediction(player_id: int, pitcher_id, is_home: bool, park_team: str,
     latest.at[latest.index[0], 'wind_speed']  = wind_speed
     latest.at[latest.index[0], 'wind_dir']    = wind_dir
 
-    proj = max(0.0, float(model.predict(latest[fc])[0]))
+    latest_X = latest[fc].apply(pd.to_numeric, errors='coerce').fillna(0)
+    proj = max(0.0, float(model.predict(latest_X)[0]))
 
     r7   = df.tail(7);  hrr7  = (r7['h']  + r7['r']  + r7['rbi']).mean()
     r30  = df.tail(30); hrr30 = (r30['h'] + r30['r'] + r30['rbi']).mean()
