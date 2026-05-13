@@ -276,7 +276,7 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
         if not is_starter:
             bg = '#111827'
 
-        logo        = logo_img_tag(pteam or batter_team, 24)
+        logo        = logo_img_tag(batter_team or pteam, 24)
         order_color = ('#22c55e' if spot <= 2 and is_starter else
                        '#38bdf8' if spot <= 5 and is_starter else '#475569')
 
