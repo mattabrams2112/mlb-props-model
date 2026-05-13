@@ -18,6 +18,7 @@ import statsapi
 import requests as _req
 
 from feature_engineering import build_features, get_feature_cols, TARGET_COL
+from tracker import add_predictions as tracker_add
 from pitcher_data import get_pitcher_season_stats, get_pitcher_name
 from statcast_features import get_batter_statcast, get_pitcher_statcast
 from weather import get_park_factor
@@ -330,11 +331,25 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
                                     weather['wind_dir_code'],
                                     bp_era=bp_era, bp_whip=bp_whip, line=line_val,
                                     is_home=is_home)
-                # Save for future — locked forever, also auto-adds 60+ to tracker
+                # Save for future — locked forever
                 if game_date:
                     save_rating(game_date, pid, r_data['total'], r_data['grade'],
                                 res['proj'], player_name=pname, team=batter_team,
                                 vs_pitcher=opp_p_name)
+
+            # Always add 60+ players to tracker (cached or new)
+            if r_data['total'] >= 60 and pname and game_date:
+                try:
+                    tracker_add([{
+                        'player':     pname,
+                        'team':       batter_team,
+                        'rating':     r_data['total'],
+                        'grade':      r_data['grade'],
+                        'projected':  res['proj'],
+                        'vs_pitcher': opp_p_name,
+                    }])
+                except Exception:
+                    pass
 
             batter_sc = get_batter_statcast(pid, int(res['df']['season'].iloc[-1]))
             fb_b = batter_sc.get('batter_fb_barrel_pct', 0)
