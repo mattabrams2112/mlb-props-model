@@ -29,6 +29,7 @@ from bvp_stats import get_bvp
 from stadium_weather import get_stadium_weather
 from bullpen_data import get_bullpen_stats
 from ratings_cache import get_cached_rating, save_rating
+from odds_api import get_todays_event_ids, get_player_line, fair_probability, american_to_prob, prob_to_american, ODDS_API_KEY
 
 st.set_page_config(page_title="Game View | MLB Props", page_icon="🎯", layout="wide")
 st.markdown("""
@@ -228,7 +229,8 @@ def cv(v, high, med):
 
 def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
                   opp_team, park_team, weather, game_label, opp_p_name,
-                  date_key: str, batter_team: str = '', game_date: str = ''):
+                  date_key: str, batter_team: str = '', game_date: str = '',
+                  event_id: str = ''):
 
     season  = datetime.now().year
     p_std   = get_pitcher_season_stats(opp_pitcher_id) if opp_pitcher_id else {}
@@ -265,7 +267,8 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
         '<tr style="background:#0f172a;color:#38bdf8;font-size:11px;font-weight:700;">'
     )
     for h, align in [('#','c'),('','l'),('Player','l'),('Ord','c'),
-                     ('Rating','c'),('Proj','c'),('Line','c'),('Edge','c'),
+                     ('Rating','c'),('Proj','c'),('Line','c'),('Odds','c'),
+                     ('Fair Odds','c'),('Edge','c'),
                      ('30g BA','c'),('7g HRR','c'),('30g HRR','c'),('Barrel % (seen)','l')]:
         a = 'left' if align == 'l' else 'center'
         header += f'<th style="padding:5px 7px;text-align:{a};border-bottom:1px solid #1e40af;">{h}</th>'
@@ -290,7 +293,9 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
         res        = run_prediction(pid, opp_pitcher_id, is_home, park_team,
                                     weather['temp_f'], weather['wind_speed'],
                                     weather['wind_dir_code'], game_date=game_date)
-        return idx, pid, pname, pteam, res, is_starter, spot, sub_idx
+        # Fetch odds if API key available
+        odds_data = get_player_line(pname, event_id) if ODDS_API_KEY and event_id else None
+        return idx, pid, pname, pteam, res, is_starter, spot, sub_idx, odds_data
 
     with ThreadPoolExecutor(max_workers=2) as exe:
         fetched = list(exe.map(fetch, enumerate(batter_ids)))
@@ -302,7 +307,7 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
     rows_html = []
     totals    = []
 
-    for row_i, (idx, pid, pname, pteam, res, is_starter, spot, sub_idx) in enumerate(fetched):
+    for row_i, (idx, pid, pname, pteam, res, is_starter, spot, sub_idx, odds_data) in enumerate(fetched):
         display_order = str(spot) if is_starter else f'{spot}.{sub_idx}'
         batting_order = spot if is_starter else 0
         bg = '#0f172a' if row_i % 2 == 0 else '#1e293b'
@@ -326,10 +331,13 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
                           'components': {}, 'line_label': None}
                 res = dict(res); res['proj'] = locked_proj
             else:
+                book_line = odds_data['line']      if odds_data else line_val
+                book_odds = odds_data['over_odds'] if odds_data else None
                 r_data = get_rating(res, pid, opp_pitcher_id, park_team, batting_order,
                                     weather['temp_f'], weather['wind_speed'],
                                     weather['wind_dir_code'],
-                                    bp_era=bp_era, bp_whip=bp_whip, line=line_val,
+                                    bp_era=bp_era, bp_whip=bp_whip,
+                                    line=book_line, over_odds=book_odds,
                                     is_home=is_home)
                 # Save for future — locked forever
                 if game_date:
@@ -363,16 +371,30 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
             pc = cv(res['proj'], 3.0, 2.0)
             bc = cv(res['ba30'], 0.280, 0.250)
 
-            if line_val is not None:
-                edge     = round(res['proj'] - line_val, 2)
-                edge_str = f'{edge:+.2f}'
-                ec       = '#22c55e' if edge > 0 else '#ef4444'
-                ll       = r_data.get('line_label', '')
-                line_display = f'<span style="color:#e0f2fe;">{line_val}</span>'
+            # Line / odds display
+            disp_line = odds_data['line'] if odds_data else line_val
+            disp_odds = odds_data['over_odds'] if odds_data else None
+
+            if disp_line is not None:
+                edge      = round(res['proj'] - disp_line, 2)
+                edge_str  = f'{edge:+.2f}'
+                ec        = '#22c55e' if edge > 0.25 else '#eab308' if edge > 0 else '#ef4444'
+                line_display = f'<span style="color:#e0f2fe;">{disp_line}</span>'
                 edge_display = f'<span style="color:{ec};font-weight:700;">{edge_str}</span>'
             else:
                 line_display = '<span style="color:#475569;">—</span>'
                 edge_display = '<span style="color:#475569;">—</span>'
+
+            if disp_odds is not None:
+                odds_color   = '#22c55e' if disp_odds > 0 else '#7dd3fc'
+                odds_display = f'<span style="color:{odds_color};font-weight:700;">{disp_odds:+d}</span>'
+                fair_p       = fair_probability(res['proj'], disp_line) if disp_line else 0
+                fair_o       = prob_to_american(fair_p)
+                fair_color   = '#22c55e' if fair_p > american_to_prob(disp_odds) else '#94a3b8'
+                fair_display = f'<span style="color:{fair_color};">{fair_o:+d}</span>'
+            else:
+                odds_display = '<span style="color:#475569;">—</span>'
+                fair_display = '<span style="color:#475569;">—</span>'
 
             barrel_html = (
                 f'<div style="font-size:10px;line-height:1.7;">'
@@ -393,6 +415,8 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
                 f'{r_data["total"]} <span style="font-size:10px;">{r_data["grade"]}</span></td>'
                 f'<td style="padding:6px 8px;text-align:center;font-weight:800;font-size:15px;color:{pc};">{res["proj"]}</td>'
                 f'<td style="padding:6px 8px;text-align:center;">{line_display}</td>'
+                f'<td style="padding:6px 8px;text-align:center;">{odds_display}</td>'
+                f'<td style="padding:6px 8px;text-align:center;">{fair_display}</td>'
                 f'<td style="padding:6px 8px;text-align:center;">{edge_display}</td>'
                 f'<td style="padding:6px 8px;text-align:center;color:{bc};font-size:12px;">.{int(res["ba30"]*1000):03d}</td>'
                 f'<td style="padding:6px 8px;text-align:center;color:#7dd3fc;font-size:12px;">{res["r7g"]}</td>'
@@ -517,7 +541,8 @@ if not has_lineups:
                 unsafe_allow_html=True)
     st.stop()
 
-date_key = selected_date.strftime('%Y%m%d')
+date_key   = selected_date.strftime('%Y%m%d')
+event_map  = get_todays_event_ids() if ODDS_API_KEY else {}
 
 for game in games:
     away     = game.get('away_team', '?')
@@ -536,6 +561,8 @@ for game in games:
 
     is_past       = selected_date < datetime.now().date()
     weather       = get_stadium_weather(home, '' if is_past else game.get('start_time', ''))
+    # Match event to odds API (keyed by home team full name or abbreviation)
+    event_id      = event_map.get(home, event_map.get(home.upper(), ''))
     pf            = get_park_factor(home)
     status        = game.get('status', '')
     away_score    = game.get('away_score', '')
@@ -585,7 +612,8 @@ for game in games:
             render_lineup(ac, ab_ids, a_codes, False, home_pid,
                           home, home, weather, away + ' @ ' + home,
                           home_p, date_key, batter_team=away,
-                          game_date=selected_date.strftime('%Y-%m-%d'))
+                          game_date=selected_date.strftime('%Y-%m-%d'),
+                          event_id=event_id)
         else:
             st.info('Lineup pending.')
 
@@ -595,7 +623,8 @@ for game in games:
             render_lineup(hc, hb_ids, h_codes, True, away_pid,
                           away, home, weather, away + ' @ ' + home,
                           away_p, date_key, batter_team=home,
-                          game_date=selected_date.strftime('%Y-%m-%d'))
+                          game_date=selected_date.strftime('%Y-%m-%d'),
+                          event_id=event_id)
         else:
             st.info('Lineup pending.')
 

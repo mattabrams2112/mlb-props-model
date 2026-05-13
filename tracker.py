@@ -10,7 +10,7 @@ from data_dir import data_path
 
 TRACKER_FILE = data_path('tracker_data.csv')
 COLS = ['date', 'player', 'team', 'rating', 'grade', 'projected',
-        'line', 'actual', 'result', 'vs_pitcher']
+        'line', 'over_odds', 'actual', 'result', 'vs_pitcher']
 DATABASE_URL = os.environ.get('DATABASE_URL', '')
 
 
@@ -88,7 +88,8 @@ def add_predictions(new_rows: list) -> int:
                 'rating':     row['rating'],
                 'grade':      row.get('grade', ''),
                 'projected':  row['projected'],
-                'line':       '',
+                'line':       row.get('line', ''),
+                'over_odds':  row.get('over_odds', ''),
                 'actual':     '',
                 'result':     '',
                 'vs_pitcher': row.get('vs_pitcher', ''),

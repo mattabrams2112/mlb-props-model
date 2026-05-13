@@ -38,8 +38,9 @@ def compute_rating(
     bp_era: float        = 4.20,
     bp_whip: float       = 1.30,
     line: float          = None,
-    home_hrr: float      = None,   # player's avg HRR in home games
-    away_hrr: float      = None,   # player's avg HRR in away games
+    over_odds: int       = None,   # sportsbook over odds (American)
+    home_hrr: float      = None,
+    away_hrr: float      = None,
     is_home: bool        = True,
 ) -> dict:
     scores = {}
@@ -87,6 +88,19 @@ def compute_rating(
     scores['Batting Order'] = (float(bo_score), 10)
 
     base_total = round(min(100, max(0, sum(v[0] for v in scores.values()))))
+
+    # ── Odds Value Edge ───────────────────────────────────────────────────────
+    # Compares model's fair probability vs sportsbook's implied probability
+    # Only applied when we have a line AND odds AND projection
+    if line is not None and over_odds is not None and projection is not None:
+        from odds_api import fair_probability, american_to_prob, edge_rating_bonus, prob_to_american
+        fair_prob    = fair_probability(projection, line)
+        implied_prob = american_to_prob(over_odds)
+        odds_edge    = fair_prob - implied_prob
+        odds_bonus   = edge_rating_bonus(odds_edge)
+        fair_odds_str = str(prob_to_american(fair_prob))
+        if odds_bonus != 0:
+            scores['Odds Edge'] = (round(odds_bonus, 1), 12)
 
     # ── Line Edge Bonus (0-10) — shown separately, added to base ─────────────
     line_score  = None
