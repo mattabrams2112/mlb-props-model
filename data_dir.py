@@ -7,5 +7,8 @@ import os
 
 DATA_DIR = os.environ.get('DATA_DIR', os.path.dirname(os.path.abspath(__file__)))
 
+# Create the directory if it doesn't exist
+os.makedirs(DATA_DIR, exist_ok=True)
+
 def data_path(filename: str) -> str:
     return os.path.join(DATA_DIR, filename)
