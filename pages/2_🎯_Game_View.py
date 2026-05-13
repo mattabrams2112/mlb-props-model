@@ -291,16 +291,35 @@ def render_side(batter_ids, is_home, opp_pitcher_id, park_team, weather):
 st.markdown('## 🎯 Game View — HRR Projections')
 st.caption('Rating factors: hit rate · barrel rates · live stadium weather · park factor · wind · batting order')
 
-hdr, btn = st.columns([6, 1])
-with btn:
+hdr_col, date_col, btn_col = st.columns([3, 2, 1])
+
+with date_col:
+    selected_date = st.date_input(
+        'Select date',
+        value=datetime.now().date(),
+        max_value=datetime.now().date(),
+        label_visibility='collapsed',
+    )
+
+with btn_col:
     if st.button('🔄 Refresh', use_container_width=True):
         st.session_state.pop('gv_games', None)
+        st.session_state.pop('gv_date', None)
         st.rerun()
 
-if 'gv_games' not in st.session_state:
-    with st.spinner('Fetching lineups...'):
-        st.session_state['gv_games'] = get_todays_lineups()
+date_str  = selected_date.strftime('%m/%d/%Y')
+cache_key = f'gv_games_{date_str}'
 
+# Clear cache if date changed
+if st.session_state.get('gv_date') != date_str:
+    st.session_state.pop('gv_games', None)
+    st.session_state['gv_date'] = date_str
+
+if 'gv_games' not in st.session_state:
+    with st.spinner(f'Fetching lineups for {selected_date.strftime("%B %d, %Y")}...'):
+        st.session_state['gv_games'] = get_todays_lineups(date_str)
+
+st.markdown(f"### {selected_date.strftime('%A, %B %d, %Y')}")
 games = st.session_state.get('gv_games', [])
 if not games:
     st.warning('No games found today.')
@@ -308,7 +327,8 @@ if not games:
 
 has_lineups = any(g.get('home_batters') or g.get('away_batters') for g in games)
 if not has_lineups:
-    st.info('Lineups not yet posted. Check back 2–3 hours before first pitch.')
+    msg = 'No lineup data found for this date.' if selected_date < datetime.now().date() else 'Lineups not yet posted. Check back 2–3 hours before first pitch.'
+    st.info(msg)
     cols = st.columns(min(len(games), 4))
     for i, g in enumerate(games):
         with cols[i % 4]:
@@ -333,8 +353,9 @@ for game in games:
     if not ab_ids and not hb_ids:
         continue
 
-    # Fetch weather forecast at game start time
-    game_time_utc = game.get('start_time', '')
+    # For past games use recorded start time; for today use forecast
+    is_past = selected_date < datetime.now().date()
+    game_time_utc = '' if is_past else game.get('start_time', '')
     weather = get_stadium_weather(home, game_time_utc)
 
     # Game header
