@@ -11,6 +11,7 @@ import pandas as pd
 import requests
 from datetime import datetime
 from tracker import load, save, recalc_results, add_predictions
+from odds_api import get_todays_event_ids, get_hrr_lines, ODDS_API_KEY
 
 st.set_page_config(page_title="Tracker | MLB Props", page_icon="📊", layout="wide")
 
@@ -24,6 +25,48 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 MLB_API = 'https://statsapi.mlb.com/api/v1'
+
+
+def auto_fill_lines(df: pd.DataFrame) -> tuple:
+    """Fetch missing lines from The Odds API for today's pending plays."""
+    if not ODDS_API_KEY:
+        return df, 0
+
+    today   = datetime.now().strftime('%Y-%m-%d')
+    pending = df[(df['date'] == today) &
+                 (df['line'].isna() | (df['line'].astype(str).str.strip() == ''))]
+
+    if pending.empty:
+        return df, 0
+
+    # Get today's event map once
+    event_map = get_todays_event_ids()
+    if not event_map:
+        return df, 0
+
+    from lineup_fetcher import TEAM_ABBR
+    NICKNAMES = {v: k.split()[-1] for k, v in TEAM_ABBR.items()}
+
+    filled = 0
+    for i, row in pending.iterrows():
+        team = str(row.get('team', ''))
+        nickname = NICKNAMES.get(team, '')
+        event_id = event_map.get(team) or event_map.get(nickname) or ''
+        if not event_id:
+            continue
+        lines = get_hrr_lines(event_id)
+        if not lines:
+            continue
+        # Match player name
+        from odds_api import match_player
+        matched = match_player(row['player'], list(lines.keys()))
+        if matched:
+            entry = lines[matched]
+            df.at[i, 'line']      = entry['line']
+            df.at[i, 'over_odds'] = entry['over_odds']
+            filled += 1
+
+    return df, filled
 
 
 def fetch_actual_hrr(player_name: str, game_date: str) -> float | None:
@@ -97,6 +140,13 @@ if 'lineup_rows' in st.session_state:
         } for r in qualified])
 
 df = load()
+
+# Auto-fill missing lines from Odds API on page load
+if 'tracker_lines_filled' not in st.session_state:
+    df, n_filled = auto_fill_lines(df)
+    if n_filled > 0:
+        save(df)
+    st.session_state['tracker_lines_filled'] = True
 
 st.markdown('## 📊 Prediction Tracker')
 st.caption('All predictions rated 60+ are auto-added. Lines are entered manually. Actuals are fetched automatically after games finish.')
