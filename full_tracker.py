@@ -160,6 +160,9 @@ def update_actuals() -> int:
                 df.at[i, 'actual'] = hrr
                 line_val = str(row.get('line', '')).strip()
                 line = float(line_val) if line_val and line_val not in ('nan', '') else 1.5
+                # Store the assumed line if none was set
+                if not line_val or line_val in ('nan', ''):
+                    df.at[i, 'line'] = 1.5
                 # Only set W/L for past days
                 if game_date < today:
                     df.at[i, 'result'] = 'W' if hrr > line else 'L'
