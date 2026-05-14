@@ -206,8 +206,8 @@ def run_model(player_id: int, pitcher_id, is_home: bool,
     floor  = max(s_avg * 0.30, r30 * 0.30)
     projection = max(projection, floor)
 
-    # Ceiling — can't exceed 2x the 30g avg or 5.0 absolute max
-    ceiling = min(5.0, max(r30 * 2.0, s_avg * 2.0, 1.5))
+    # Ceiling — can't exceed 1.5x the 30g avg or 3.5 absolute max
+    ceiling = min(3.5, max(r30 * 1.5, s_avg * 1.5, 1.5))
     projection = min(projection, ceiling)
 
     return {

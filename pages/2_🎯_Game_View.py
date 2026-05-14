@@ -181,8 +181,9 @@ def run_prediction(player_id: int, pitcher_id, is_home: bool, park_team: str,
     floor = max(season_avg_val * 0.30, r30_avg * 0.30)
     proj  = max(proj, floor)
 
-    # Ceiling — can't exceed 2x the 30g avg or 5.0 absolute max
-    ceiling = min(5.0, max(r30_avg * 2.0, season_avg_val * 2.0, 1.5))
+    # Ceiling — can't exceed 1.5x the 30g avg or 3.5 absolute max
+    # 3.5 is a very strong game (e.g. 2H + 1R + 1RBI) — realistic upper bound
+    ceiling = min(3.5, max(r30_avg * 1.5, season_avg_val * 1.5, 1.5))
     proj    = min(proj, ceiling)
 
     r7  = df.tail(7);  hrr7  = (r7['h']  + r7['r']  + r7['rbi']).mean()
