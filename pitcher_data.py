@@ -54,13 +54,25 @@ def get_pitcher_season_stats(pitcher_id: int, season: int = None) -> dict:
         season = CURRENT_YEAR
     cache = _load_pitcher_cache()
     key = f"{pitcher_id}_{season}"
+    # Only use cache if it has real data (not just league averages)
     if key in cache:
-        return cache[key]
+        cached = cache[key]
+        if cached.get('opp_era', LEAGUE_AVG['opp_era']) != LEAGUE_AVG['opp_era']:
+            return cached  # has real data
+        # Otherwise re-fetch — cache has stale defaults
 
     result = LEAGUE_AVG.copy()
     try:
-        data = statsapi.player_stat_data(pitcher_id, group='pitching', type='season', season=season)
-        for split in data.get('stats', []):
+        import requests as _req
+        resp = _req.get(
+            f'https://statsapi.mlb.com/api/v1/people/{pitcher_id}/stats',
+            params={'stats': 'season', 'group': 'pitching', 'season': season},
+            timeout=15
+        )
+        resp.raise_for_status()
+        stats_list = resp.json().get('stats', [])
+        splits = stats_list[0].get('splits', []) if stats_list else []
+        for split in splits:
             s = split.get('stat', {})
             ip = _parse_float(s.get('inningsPitched'), 0)
             bb = _parse_float(s.get('baseOnBalls'), 0)
