@@ -14,7 +14,9 @@ Components:
   Max with line:   100
 """
 
-BATTING_ORDER_SCORES = [8, 10, 8, 7, 5, 3, 2, 1, 1]
+# Compressed range — spots 7-9 still get meaningful points
+# Max diff between #1 and #9 is only 3 pts so it doesn't dominate the rating
+BATTING_ORDER_SCORES = [6, 7, 6, 6, 5, 5, 4, 4, 4]
 
 
 def compute_rating(
@@ -144,9 +146,9 @@ def compute_rating(
     temp_score = max(-1.0, min(1.0, (temp_f - 50) / (85 - 50) * 1.0)) if temp_f > 0 else 0
     scores['Park & Weather'] = (round(max(0.0, min(12.0, park_score + wind_score + temp_score + 1)), 1), 12)
 
-    # ── Batting Order (0-10) ─────────────────────────────────────────────────
-    bo_score = BATTING_ORDER_SCORES[batting_order - 1] if 1 <= batting_order <= 9 else 4
-    scores['Batting Order'] = (float(bo_score), 10)
+    # ── Batting Order (0-7) — compressed range, spots 7-9 still score meaningfully
+    bo_score = BATTING_ORDER_SCORES[batting_order - 1] if 1 <= batting_order <= 9 else 5
+    scores['Batting Order'] = (float(bo_score), 7)
 
     base_total = round(min(100, max(0, sum(v[0] for v in scores.values()))))
 
