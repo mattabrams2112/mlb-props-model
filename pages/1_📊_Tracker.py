@@ -63,8 +63,8 @@ def auto_fill_lines(df: pd.DataFrame) -> tuple:
         matched = match_player(row['player'], list(lines.keys()))
         if matched:
             entry = lines[matched]
-            df.at[i, 'line']      = entry['line']
-            df.at[i, 'over_odds'] = entry['over_odds']
+            df.at[i, 'line']      = str(entry['line'])
+            df.at[i, 'over_odds'] = str(entry['over_odds'])
             filled += 1
 
     return df, filled
