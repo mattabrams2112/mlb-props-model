@@ -131,11 +131,11 @@ def auto_fill_actuals(df: pd.DataFrame) -> tuple:
                         hrr = v
                         break
             if hrr is not None:
-                df.at[i, 'actual'] = hrr
+                df.at[i, 'actual'] = str(hrr)
                 # Store 1.5 as default line if none set
                 line_val = str(row.get('line', '')).strip()
                 if not line_val or line_val in ('nan', ''):
-                    df.at[i, 'line'] = 1.5
+                    df.at[i, 'line'] = '1.5'
                 updated += 1
 
     if updated:
