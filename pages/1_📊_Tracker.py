@@ -165,7 +165,9 @@ def sync_from_ratings_cache():
     if ratings.empty:
         return 0
 
+    today = datetime.now().strftime('%Y-%m-%d')
     qualifying = ratings[
+        (ratings['date'].astype(str).str[:10] < today) &  # past days only
         (pd.to_numeric(ratings['rating'],    errors='coerce') >= 56) &
         (pd.to_numeric(ratings['projected'], errors='coerce') >= 1.9) &
         (ratings['player_name'].astype(str).str.strip() != '')
