@@ -399,8 +399,14 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
         line_val = st.session_state.get(line_key)
 
         if is_starter and res:
-            # Check if we have a locked pre-game rating
-            cached = get_cached_rating(game_date, pid) if game_date else None
+            # Check session state first (instant, survives page navigation)
+            session_key = f'locked_{date_key}_{pid}'
+            session_cached = st.session_state.get(session_key)
+
+            # Then check database cache
+            db_cached = get_cached_rating(game_date, pid) if game_date and not session_cached else None
+            cached = session_cached or (db_cached if db_cached else None)
+
             if cached:
                 locked_rating, locked_grade, locked_proj = cached
                 r_data = {'total': locked_rating, 'grade': locked_grade,
@@ -431,7 +437,9 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
                                     opp_def_rating=opp_defense.get('def_rating', 0.0),
                                     pitcher_rest_factor=p_rest.get('rest_factor', 0.0),
                                     pitcher_gb_pct=p_sc.get('pitcher_gb_pct', 0.430))
-                # Save for future — locked forever
+                # Lock in session state immediately
+                st.session_state[session_key] = (r_data['total'], r_data['grade'], res['proj'])
+                # Save to database for persistence across sessions
                 if game_date:
                     save_rating(game_date, pid, r_data['total'], r_data['grade'],
                                 res['proj'], player_name=pname, team=batter_team,
