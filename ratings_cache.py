@@ -97,6 +97,6 @@ def save_rating(game_date: str, player_id: int, rating: int, grade: str,
                 'grade':      grade,
                 'projected':  projected,
                 'vs_pitcher': vs_pitcher,
-            }])
+            }], game_date=game_date)
         except Exception:
             pass

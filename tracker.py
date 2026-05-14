@@ -77,9 +77,9 @@ def recalc_results(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def add_predictions(new_rows: list) -> int:
+def add_predictions(new_rows: list, game_date: str = None) -> int:
     df    = load()
-    today = datetime.now().strftime('%Y-%m-%d')
+    today = game_date or datetime.now().strftime('%Y-%m-%d')
     existing = set(zip(df['date'], df['player']))
     added = 0
     for row in new_rows:
