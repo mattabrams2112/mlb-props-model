@@ -344,27 +344,31 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
         unsafe_allow_html=True
     )
 
-    # ── Parallel fetch ────────────────────────────────────────────────────────
-    game_started = status in ('In Progress', 'Manager Challenge', 'Final',
-                              'Game Over', 'Completed Early')
+    # ── Parallel fetch (cached in session state for instant return visits) ────
+    game_started    = status in ('In Progress', 'Manager Challenge', 'Final',
+                                 'Game Over', 'Completed Early')
+    fetch_cache_key = f'gv_fetch_{date_key}_{game_pk}_{int(is_home)}'
 
-    def fetch(args):
-        idx, pid = args
-        pname, pteam = get_player_info(pid)
-        ocode      = batter_codes.get(int(pid), (idx + 1) * 100)
-        is_starter = (ocode % 100 == 0)
-        spot       = ocode // 100
-        sub_idx    = ocode % 100
-        res        = run_prediction(pid, opp_pitcher_id, is_home, park_team,
-                                    weather['temp_f'], weather['wind_speed'],
-                                    weather['wind_dir_code'], game_date=game_date)
-        # Only fetch live odds for pre-game — once started, odds are frozen out
-        odds_data = (get_player_line(pname, event_id)
-                     if ODDS_API_KEY and event_id and not game_started else None)
-        return idx, pid, pname, pteam, res, is_starter, spot, sub_idx, odds_data
+    if fetch_cache_key in st.session_state:
+        fetched = st.session_state[fetch_cache_key]
+    else:
+        def fetch(args):
+            idx, pid = args
+            pname, pteam = get_player_info(pid)
+            ocode      = batter_codes.get(int(pid), (idx + 1) * 100)
+            is_starter = (ocode % 100 == 0)
+            spot       = ocode // 100
+            sub_idx    = ocode % 100
+            res        = run_prediction(pid, opp_pitcher_id, is_home, park_team,
+                                        weather['temp_f'], weather['wind_speed'],
+                                        weather['wind_dir_code'], game_date=game_date)
+            odds_data = (get_player_line(pname, event_id)
+                         if ODDS_API_KEY and event_id and not game_started else None)
+            return idx, pid, pname, pteam, res, is_starter, spot, sub_idx, odds_data
 
-    with ThreadPoolExecutor(max_workers=2) as exe:
-        fetched = list(exe.map(fetch, enumerate(batter_ids)))
+        with ThreadPoolExecutor(max_workers=2) as exe:
+            fetched = list(exe.map(fetch, enumerate(batter_ids)))
+        st.session_state[fetch_cache_key] = fetched
 
     # Sort: starters by spot, subs by spot then sub_idx
     fetched.sort(key=lambda x: (0 if x[5] else 1, x[6], x[7]))
@@ -594,8 +598,10 @@ with date_col:
                                   label_visibility='collapsed')
 with btn_col:
     if st.button('🔄 Refresh', use_container_width=True):
-        st.session_state.pop('gv_games', None)
-        st.session_state.pop('gv_date', None)
+        # Clear all game view caches
+        for k in list(st.session_state.keys()):
+            if k.startswith('gv_'):
+                st.session_state.pop(k, None)
         st.rerun()
 
 date_str = selected_date.strftime('%m/%d/%Y')
@@ -714,10 +720,10 @@ for game in games:
     )
 
     ac, hc = st.columns(2)
+    gk = str(game.get('game_pk', ''))
 
     with ac:
         st.markdown(f'**{away} Batting** · vs {home_p}')
-        gk = str(game.get('game_pk', ''))
         if ab_ids:
             render_lineup(ac, ab_ids, a_codes, False, home_pid,
                           home, home, weather, away + ' @ ' + home,
