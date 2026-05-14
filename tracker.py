@@ -63,11 +63,17 @@ def save(df: pd.DataFrame):
 
 
 def recalc_results(df: pd.DataFrame) -> pd.DataFrame:
-    """Recalculate W/L. If no line, assumes 1.5 as default."""
+    """Recalculate W/L for past days only. Today's games stay pending."""
+    from datetime import datetime
+    today = datetime.now().strftime('%Y-%m-%d')
     df = df.copy()
-    # Ensure result column is string type
     df['result'] = df['result'].astype(object)
     for i, row in df.iterrows():
+        # Never compute W/L for today's games
+        game_date = str(row.get('date', ''))[:10]
+        if game_date >= today:
+            df.at[i, 'result'] = ''
+            continue
         try:
             actual = float(row['actual'])
             line_val = str(row.get('line', '')).strip()

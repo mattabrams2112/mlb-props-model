@@ -157,6 +157,14 @@ if 'lineup_rows' in st.session_state:
 
 df = load()
 
+# Clear any W/L that was incorrectly set for today's games
+_today = datetime.now().strftime('%Y-%m-%d')
+_today_mask = df['date'].astype(str).str[:10] >= _today
+if _today_mask.any():
+    df.loc[_today_mask, 'result'] = ''
+    df.loc[_today_mask, 'actual'] = ''
+    save(df)
+
 # Auto-sync qualifying plays from ratings cache on page load
 def sync_from_ratings_cache():
     """Pull any qualifying plays from ratings cache that aren't in the tracker yet."""
