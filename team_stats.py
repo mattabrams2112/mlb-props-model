@@ -21,6 +21,9 @@ TEAM_IDS = {
 }
 
 
+LEAGUE_AVG_ERRORS = 100  # approx errors per team per season
+
+
 def _load_cache() -> dict:
     if not os.path.exists(CACHE_FILE):
         return {}
@@ -82,3 +85,44 @@ def get_team_recent_scoring(team_abbr: str, n_games: int = 7) -> dict:
         return result
     except Exception:
         return defaults
+
+
+@st.cache_data(show_spinner=False, ttl=86400)
+def get_team_defense_rating(team_abbr: str, season: int = None) -> dict:
+    """
+    Returns a defensive rating score.
+    Lower errors + better fielding pct = higher score (better for opposing batters... wait)
+    Actually: WORSE defense = MORE hits = good for batter.
+    Score > 1.0 = defense is bad (more errors than avg = good for batter)
+    Score < 1.0 = defense is good (fewer errors = bad for batter)
+    """
+    if season is None:
+        from datetime import datetime
+        season = datetime.now().year
+    defaults = {'def_errors_rate': 1.0, 'def_rating': 0.0}
+    team_id  = TEAM_IDS.get(team_abbr.upper())
+    if not team_id:
+        return defaults
+    cache = _load_cache()
+    key   = f'def_{team_abbr}_{season}'
+    if key in cache:
+        return cache[key]
+    try:
+        data = statsapi.get('stats', {
+            'stats': 'season', 'group': 'fielding',
+            'teamId': team_id, 'season': season, 'playerPool': 'all',
+        })
+        # Sum up team errors from all fielder splits
+        total_errors = 0
+        for split in (data.get('stats') or [{}])[0].get('splits', []):
+            total_errors += int(split.get('stat', {}).get('errors', 0) or 0)
+        # Rate relative to league average — >1.0 means more errors (bad defense)
+        rate = round(total_errors / max(LEAGUE_AVG_ERRORS, 1), 3)
+        # Rating for batter: bad defense (+) good for batter, good defense (-) bad
+        def_bonus = round((rate - 1.0) * 5, 2)  # -5 to +5 pts range
+        result = {'def_errors_rate': rate, 'def_rating': def_bonus}
+    except Exception:
+        result = defaults
+    cache[key] = result
+    _save_cache(cache)
+    return result

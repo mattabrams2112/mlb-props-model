@@ -59,6 +59,9 @@ def compute_rating(
     batter_hard_hit_vs_lhp: float = 0.360,
     team_runs_avg: float     = 4.5,
     umpire_tendency: float   = 0.0,
+    opp_def_rating: float    = 0.0,   # positive = bad defense (good for batter)
+    pitcher_rest_factor: float = 0.0, # negative = short rest (good for batter)
+    pitcher_gb_pct: float    = 0.430, # high GB% = bad for batter (fewer XBH)
 ) -> dict:
     scores = {}
 
@@ -93,6 +96,18 @@ def compute_rating(
         plat_hh     = batter_hard_hit_vs_rhp
     plat_score = max(0.0, min(6.0, 3.0 + (plat_xba - 0.250) * 15 + (plat_hh - 0.360) * 10))
     scores['Platoon'] = (round(plat_score, 1), 6)
+
+    # ── Opponent Defense (0-5, can go negative) ──────────────────────────────
+    # Bad defense (more errors) = more hits reach = good for batter
+    def_score = max(-3.0, min(5.0, 2.5 + opp_def_rating))
+    scores['Opp Defense'] = (round(def_score, 1), 5)
+
+    # ── Pitcher Rest & GB% (0-5) ─────────────────────────────────────────────
+    # Short rest hurts pitcher (good for batter), high GB% hurts batter
+    gb_penalty  = max(-3.0, min(0.0, (0.43 - pitcher_gb_pct) * 10))  # high GB = fewer XBH
+    rest_bonus  = max(-3.0, min(3.0, pitcher_rest_factor * 2))        # short rest = good for batter
+    pitcher_ctx = max(-3.0, min(5.0, 2.5 + rest_bonus + gb_penalty))
+    scores['Pitcher Context'] = (round(pitcher_ctx, 1), 5)
 
     # ── Team Run Environment (0-5) ───────────────────────────────────────────
     # High-scoring team = more RBI/run opportunities

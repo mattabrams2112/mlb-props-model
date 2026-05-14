@@ -14,6 +14,11 @@ import numpy as np
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
 from xgboost import XGBRegressor
+try:
+    from lightgbm import LGBMRegressor
+    HAS_LGBM = True
+except ImportError:
+    HAS_LGBM = False
 import statsapi
 import requests as _req
 
@@ -31,9 +36,9 @@ from stadium_weather import get_stadium_weather
 from bullpen_data import get_bullpen_stats
 from ratings_cache import get_cached_rating, save_rating
 from odds_api import get_todays_event_ids, get_player_line, fair_probability, american_to_prob, prob_to_american, ODDS_API_KEY
-from team_stats import get_team_recent_scoring
+from team_stats import get_team_recent_scoring, get_team_defense_rating
 from umpire_data import get_game_umpire
-from pitcher_data import get_pitcher_throws, get_pitcher_last_n_starts
+from pitcher_data import get_pitcher_throws, get_pitcher_last_n_starts, get_pitcher_rest_days
 
 st.set_page_config(page_title="Game View | MLB Props", page_icon="🎯", layout="wide")
 st.markdown("""
@@ -142,9 +147,15 @@ def run_prediction(player_id: int, pitcher_id, is_home: bool, park_team: str,
     X = dc[fc].apply(pd.to_numeric, errors='coerce').fillna(0)
     y = dc[TARGET_COL]
 
-    model = XGBRegressor(n_estimators=100, learning_rate=0.08, max_depth=4,
-                         subsample=0.8, colsample_bytree=0.8, random_state=42, verbosity=0)
-    model.fit(X, y)
+    xgb = XGBRegressor(n_estimators=100, learning_rate=0.08, max_depth=4,
+                        subsample=0.8, colsample_bytree=0.8, random_state=42, verbosity=0)
+    xgb.fit(X, y)
+
+    if HAS_LGBM:
+        lgb = LGBMRegressor(n_estimators=100, learning_rate=0.08, max_depth=4,
+                             subsample=0.8, colsample_bytree=0.8, random_state=42,
+                             verbose=-1)
+        lgb.fit(X, y)
 
     latest   = dc.iloc[-1:].copy()
     latest.at[latest.index[0], 'is_home']     = int(is_home)
@@ -153,8 +164,13 @@ def run_prediction(player_id: int, pitcher_id, is_home: bool, park_team: str,
     latest.at[latest.index[0], 'wind_speed']  = wind_speed
     latest.at[latest.index[0], 'wind_dir']    = wind_dir
 
-    latest_X = latest[fc].apply(pd.to_numeric, errors='coerce').fillna(0)
-    proj     = max(0.0, float(model.predict(latest_X)[0]))
+    latest_X  = latest[fc].apply(pd.to_numeric, errors='coerce').fillna(0)
+    xgb_pred  = float(xgb.predict(latest_X)[0])
+    if HAS_LGBM:
+        lgb_pred = float(lgb.predict(latest_X)[0])
+        proj = max(0.0, (xgb_pred * 0.55 + lgb_pred * 0.45))  # slight XGBoost bias
+    else:
+        proj = max(0.0, xgb_pred)
 
     # Projection floor — can't be less than 30% of season avg or 30% of 30g avg
     # Prevents bad feature values from producing absurdly low projections
@@ -257,7 +273,9 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
     bp_whip     = bp.get('bp_whip', 1.30)
     p_throws    = get_pitcher_throws(opp_pitcher_id) if opp_pitcher_id else 'R'
     p_last3     = get_pitcher_last_n_starts(opp_pitcher_id, 3, season) if opp_pitcher_id else {}
+    p_rest      = get_pitcher_rest_days(opp_pitcher_id, season, game_date) if opp_pitcher_id else {}
     team_score  = get_team_recent_scoring(batter_team)
+    opp_defense = get_team_defense_rating(opp_team, season)
     try:
         ump_data = get_game_umpire(int(game_pk)) if game_pk else {}
     except Exception:
@@ -378,7 +396,10 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
                                     batter_hard_hit_vs_rhp=b_sc_local.get('batter_hard_hit_vs_rhp', 0.360),
                                     batter_hard_hit_vs_lhp=b_sc_local.get('batter_hard_hit_vs_lhp', 0.360),
                                     team_runs_avg=team_score.get('team_runs_avg', 4.5),
-                                    umpire_tendency=ump_data.get('umpire_tendency', 0.0))
+                                    umpire_tendency=ump_data.get('umpire_tendency', 0.0),
+                                    opp_def_rating=opp_defense.get('def_rating', 0.0),
+                                    pitcher_rest_factor=p_rest.get('rest_factor', 0.0),
+                                    pitcher_gb_pct=p_sc.get('pitcher_gb_pct', 0.430))
                 # Save for future — locked forever
                 if game_date:
                     save_rating(game_date, pid, r_data['total'], r_data['grade'],

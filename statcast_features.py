@@ -50,6 +50,7 @@ PITCHER_DEFAULTS = {
     'pitcher_xba_allowed':   0.250,
     'pitcher_hard_hit_pct':  0.360,
     'pitcher_avg_ev':        88.0,
+    'pitcher_gb_pct':        0.430,  # league avg ~43%
 }
 
 
@@ -127,6 +128,13 @@ def _compute_features(df: pd.DataFrame, role: str) -> dict:
                 avg_ev   = float(ev.mean())
                 result[f'{role}_hard_hit_pct'] = round(hard_hit, 4)
                 result[f'{role}_avg_ev']        = round(avg_ev, 2)
+
+    # ── Ground ball % (pitcher only) ─────────────────────────────────────────
+    if role == 'pitcher' and 'bb_type' in batted.columns:
+        n_batted = len(batted)
+        if n_batted >= 20:
+            gb_count = (batted['bb_type'] == 'ground_ball').sum()
+            result['pitcher_gb_pct'] = round(int(gb_count) / n_batted, 4)
 
     # ── Platoon splits (batter only) ─────────────────────────────────────────
     if role == 'batter' and 'p_throws' in df.columns:

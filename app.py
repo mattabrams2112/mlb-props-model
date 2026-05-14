@@ -8,6 +8,11 @@ import numpy as np
 import plotly.graph_objects as go
 from datetime import datetime
 from xgboost import XGBRegressor
+try:
+    from lightgbm import LGBMRegressor
+    HAS_LGBM = True
+except ImportError:
+    HAS_LGBM = False
 from sklearn.model_selection import TimeSeriesSplit
 from sklearn.metrics import mean_absolute_error
 import statsapi
@@ -169,9 +174,13 @@ def run_model(player_id: int, pitcher_id, is_home: bool,
         m.fit(X.iloc[ti], y.iloc[ti])
         maes.append(mean_absolute_error(y.iloc[vi], m.predict(X.iloc[vi])))
 
-    model = XGBRegressor(n_estimators=300, learning_rate=0.05, max_depth=4,
-                         subsample=0.8, colsample_bytree=0.8, random_state=42, verbosity=0)
-    model.fit(X, y)
+    xgb = XGBRegressor(n_estimators=300, learning_rate=0.05, max_depth=4,
+                        subsample=0.8, colsample_bytree=0.8, random_state=42, verbosity=0)
+    xgb.fit(X, y)
+    if HAS_LGBM:
+        lgb = LGBMRegressor(n_estimators=200, learning_rate=0.05, max_depth=4,
+                             subsample=0.8, colsample_bytree=0.8, random_state=42, verbose=-1)
+        lgb.fit(X, y)
 
     latest = df_clean.iloc[-1:].copy()
     latest.at[latest.index[0], 'is_home']    = int(is_home)
@@ -181,7 +190,12 @@ def run_model(player_id: int, pitcher_id, is_home: bool,
     if park_override:
         latest.at[latest.index[0], 'park_factor'] = get_park_factor(park_override)
 
-    projection = max(0.0, float(model.predict(latest[feature_cols])[0]))
+    xgb_pred = float(xgb.predict(latest[feature_cols])[0])
+    if HAS_LGBM:
+        lgb_pred   = float(lgb.predict(latest[feature_cols])[0])
+        projection = max(0.0, xgb_pred * 0.55 + lgb_pred * 0.45)
+    else:
+        projection = max(0.0, xgb_pred)
     recent_7g  = (df.tail(7)['h']  + df.tail(7)['r']  + df.tail(7)['rbi']).mean()
     recent_30g = (df.tail(30)['h'] + df.tail(30)['r'] + df.tail(30)['rbi']).mean()
     season_avg = df_clean['total_season_avg'].iloc[-1]

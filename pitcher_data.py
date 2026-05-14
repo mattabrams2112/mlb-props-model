@@ -90,6 +90,54 @@ def get_pitcher_season_stats(pitcher_id: int, season: int = None) -> dict:
     return result
 
 
+def get_pitcher_rest_days(pitcher_id: int, season: int = None,
+                          game_date: str = None) -> dict:
+    """Returns days of rest since last appearance and a rest bonus/penalty."""
+    if season is None:
+        season = CURRENT_YEAR
+    defaults = {'rest_days': 5, 'rest_factor': 0.0}
+    cache = _load_pitcher_cache()
+    today = game_date or datetime.now().strftime('%Y-%m-%d')
+    key   = f'{pitcher_id}_{season}_rest_{today}'
+    if key in cache:
+        return cache[key]
+    try:
+        data   = statsapi.player_stat_data(pitcher_id, group='pitching',
+                                           type='gameLog', season=season)
+        splits = data.get('stats', [])
+        if not splits:
+            return defaults
+        # Find most recent appearance before game_date
+        dates = []
+        for s in splits:
+            gi = s.get('game', {})
+            gd = gi.get('gameDate', s.get('date', ''))[:10]
+            if gd and gd < today:
+                dates.append(gd)
+        if not dates:
+            return defaults
+        last_game = max(dates)
+        from datetime import datetime as dt
+        rest = (dt.strptime(today, '%Y-%m-%d') - dt.strptime(last_game, '%Y-%m-%d')).days
+        # Short rest penalty, normal = 0, extra rest slight bonus
+        if rest <= 3:
+            factor = -0.8   # very short rest — significant penalty
+        elif rest == 4:
+            factor = -0.3   # short rest
+        elif rest == 5:
+            factor = 0.0    # normal
+        elif rest == 6:
+            factor = 0.2    # extra rest
+        else:
+            factor = 0.4    # well rested
+        result = {'rest_days': rest, 'rest_factor': factor}
+    except Exception:
+        result = defaults
+    cache[key] = result
+    _save_pitcher_cache(cache)
+    return result
+
+
 def get_pitcher_throws(pitcher_id: int) -> str:
     """Returns 'L' or 'R' for pitcher handedness."""
     try:
