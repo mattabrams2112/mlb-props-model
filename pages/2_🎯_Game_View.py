@@ -399,20 +399,22 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
         line_val = st.session_state.get(line_key)
 
         if is_starter and res:
-            # Check session state first (instant, survives page navigation)
             session_key = f'locked_{date_key}_{pid}'
-            session_cached = st.session_state.get(session_key)
 
-            # Then check database cache
-            db_cached = get_cached_rating(game_date, pid) if game_date and not session_cached else None
-            cached = session_cached or (db_cached if db_cached else None)
+            # Try cache sources in order
+            cached = (st.session_state.get(session_key) or
+                      (get_cached_rating(game_date, pid) if game_date else None))
 
             if cached:
+                # Always use locked pre-game rating — never recalculate
                 locked_rating, locked_grade, locked_proj = cached
                 r_data = {'total': locked_rating, 'grade': locked_grade,
                           'color': '#22c55e' if locked_rating >= 75 else '#eab308' if locked_rating >= 55 else '#ef4444',
                           'components': {}, 'line_label': None}
                 res = dict(res); res['proj'] = locked_proj
+            elif game_started:
+                # Game already started and no pre-game cache — skip rating
+                continue
             else:
                 book_line  = odds_data['line']      if odds_data else line_val
                 book_odds  = odds_data['over_odds'] if odds_data else None
