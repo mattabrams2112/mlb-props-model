@@ -109,13 +109,13 @@ def auto_fill_actuals(df: pd.DataFrame) -> tuple:
     today = datetime.now().strftime('%Y-%m-%d')
 
     for i, row in df.iterrows():
-        if str(row.get('actual', '')).strip() not in ('', 'nan') :
-            continue
-        if str(row.get('line', '')).strip() in ('', 'nan'):
+        # Skip if actual already filled
+        if str(row.get('actual', '')).strip() not in ('', 'nan'):
             continue
         game_date = str(row.get('date', ''))[:10]
-        if game_date >= today:
-            continue  # game hasn't happened yet
+        # Skip future games only — allow fetching for today and past
+        if game_date > today:
+            continue
 
         actual = fetch_actual_hrr(row['player'], game_date)
         if actual is not None:

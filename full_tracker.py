@@ -96,10 +96,8 @@ def update_actuals():
     for i, row in df.iterrows():
         if str(row.get('actual', '')).strip() not in ('', 'nan'):
             continue
-        if str(row.get('line', '')).strip() in ('', 'nan'):
-            continue
         game_date = str(row.get('date', ''))[:10]
-        if game_date >= today:
+        if game_date > today:
             continue
         try:
             players = statsapi.lookup_player(row['player'])
