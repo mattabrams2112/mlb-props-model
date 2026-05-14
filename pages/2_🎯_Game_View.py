@@ -210,7 +210,14 @@ def run_prediction(player_id: int, pitcher_id, is_home: bool, park_team: str,
 
 def get_rating(res, player_id, pitcher_id, park_team, batting_order,
                temp_f, wind_speed, wind_dir, bp_era=4.20, bp_whip=1.30,
-               line=None, over_odds=None, is_home=True):
+               line=None, over_odds=None, is_home=True,
+               opp_fip=4.20, opp_last3_era=4.30, opp_last3_whip=1.28,
+               pitcher_throws='R',
+               batter_xba_vs_rhp=0.250, batter_xba_vs_lhp=0.250,
+               batter_hard_hit_vs_rhp=0.360, batter_hard_hit_vs_lhp=0.360,
+               team_runs_avg=4.5, umpire_tendency=0.0,
+               opp_def_rating=0.0, pitcher_rest_factor=0.0,
+               pitcher_gb_pct=0.430):
     season = int(res['df']['season'].iloc[-1])
     b_sc   = get_batter_statcast(player_id, season)
     p_sc   = get_pitcher_statcast(pitcher_id, season) if pitcher_id else {}
@@ -251,8 +258,21 @@ def get_rating(res, player_id, pitcher_id, park_team, batting_order,
         pitcher_hard_hit_pct = p_sc.get('pitcher_hard_hit_pct', 0.360),
         batter_xba           = b_sc.get('batter_xba', 0.250),
         pitcher_xba_allowed  = p_sc.get('pitcher_xba_allowed', 0.250),
-        batter_avg_ev        = b_sc.get('batter_avg_ev', 88.0),
-        pitcher_avg_ev       = p_sc.get('pitcher_avg_ev', 88.0),
+        batter_avg_ev           = b_sc.get('batter_avg_ev', 88.0),
+        pitcher_avg_ev          = p_sc.get('pitcher_avg_ev', 88.0),
+        opp_fip                 = opp_fip,
+        opp_last3_era           = opp_last3_era,
+        opp_last3_whip          = opp_last3_whip,
+        pitcher_throws          = pitcher_throws,
+        batter_xba_vs_rhp       = batter_xba_vs_rhp,
+        batter_xba_vs_lhp       = batter_xba_vs_lhp,
+        batter_hard_hit_vs_rhp  = batter_hard_hit_vs_rhp,
+        batter_hard_hit_vs_lhp  = batter_hard_hit_vs_lhp,
+        team_runs_avg           = team_runs_avg,
+        umpire_tendency         = umpire_tendency,
+        opp_def_rating          = opp_def_rating,
+        pitcher_rest_factor     = pitcher_rest_factor,
+        pitcher_gb_pct          = pitcher_gb_pct,
     )
 
 
