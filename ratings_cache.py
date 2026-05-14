@@ -86,8 +86,8 @@ def save_rating(game_date: str, player_id: int, rating: int, grade: str,
     df = pd.concat([df, new_row], ignore_index=True)
     _save(df)
 
-    # Auto-add to tracker if rating >= 62 AND projected >= 1.9
-    if rating >= 62 and projected >= 1.9 and player_name:
+    # Auto-add to tracker if rating >= 56 AND projected >= 1.9
+    if rating >= 56 and projected >= 1.9 and player_name:
         try:
             from tracker import add_predictions
             add_predictions([{

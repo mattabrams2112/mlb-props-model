@@ -452,7 +452,7 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
                     pass
 
             # Add 62+ rating AND 1.9+ projection players to the betting tracker
-            if r_data['total'] >= 62 and res['proj'] >= 1.9 and pname and game_date:
+            if r_data['total'] >= 56 and res['proj'] >= 1.9 and pname and game_date:
                 try:
                     tracker_add([{
                         'player':     pname,

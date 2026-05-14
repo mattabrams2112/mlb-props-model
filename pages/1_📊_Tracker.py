@@ -129,7 +129,7 @@ def auto_fill_actuals(df: pd.DataFrame) -> tuple:
 
 # Auto-import any 60+ rated players from today's lineup
 if 'lineup_rows' in st.session_state:
-    qualified = [r for r in st.session_state['lineup_rows'] if r['Rating'] >= 62 and r['Projected'] >= 1.9]
+    qualified = [r for r in st.session_state['lineup_rows'] if r['Rating'] >= 56 and r['Projected'] >= 1.9]
     if qualified:
         add_predictions([{
             'player':     r['Player'],
@@ -151,7 +151,7 @@ def sync_from_ratings_cache():
         return 0
     today_ratings = ratings[
         (ratings['date'] == today) &
-        (pd.to_numeric(ratings['rating'],    errors='coerce') >= 62) &
+        (pd.to_numeric(ratings['rating'],    errors='coerce') >= 56) &
         (pd.to_numeric(ratings['projected'], errors='coerce') >= 1.9)
     ]
     if today_ratings.empty:
