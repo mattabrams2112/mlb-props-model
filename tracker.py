@@ -22,7 +22,12 @@ def _get_engine():
         url = DATABASE_URL
         if url.startswith('postgres://'):
             url = url.replace('postgres://', 'postgresql://', 1)
-        return create_engine(url)
+        url = url.replace('postgres://', 'postgresql://', 1)
+        if '?' not in url:
+            url += '?sslmode=require'
+        elif 'sslmode' not in url:
+            url += '&sslmode=require'
+        return create_engine(url, connect_args={'connect_timeout': 10})
     except Exception:
         return None
 
