@@ -161,17 +161,6 @@ if 'lineup_rows' in st.session_state:
 
 df = load()
 
-# Clear any W/L that was incorrectly set for today's games
-_today = datetime.now().strftime('%Y-%m-%d')
-_today_mask = df['date'].astype(str).str[:10] >= _today
-if _today_mask.any():
-    # Rebuild df with string dtypes for result/actual to avoid float64 clash
-    df = df.astype({col: 'object' for col in ['result', 'actual', 'line', 'over_odds']
-                    if col in df.columns})
-    df.loc[_today_mask, 'result'] = ''
-    df.loc[_today_mask, 'actual'] = ''
-    save(df)
-
 # Auto-sync qualifying plays from ratings cache on page load
 def sync_from_ratings_cache():
     """Pull qualifying plays from ratings cache for all recent dates."""
@@ -179,7 +168,9 @@ def sync_from_ratings_cache():
     if ratings.empty:
         return 0
 
+    today = datetime.now().strftime('%Y-%m-%d')
     qualifying = ratings[
+        (ratings['date'].astype(str) < today) &          # past games only
         (pd.to_numeric(ratings['rating'],    errors='coerce') >= 56) &
         (pd.to_numeric(ratings['projected'], errors='coerce') >= 1.9) &
         (ratings['player_name'].astype(str).str.strip() != '')
