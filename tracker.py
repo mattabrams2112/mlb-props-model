@@ -64,19 +64,16 @@ def save(df: pd.DataFrame):
 
 
 def recalc_results(df: pd.DataFrame) -> pd.DataFrame:
-    """Recalculate W/L for past days only. Today's games stay pending."""
-    from datetime import datetime
-    today = datetime.now().strftime('%Y-%m-%d')
+    """Recalculate W/L for any row that has an actual value."""
     df = df.copy()
     df['result'] = df['result'].astype(object)
     for i, row in df.iterrows():
-        # Never compute W/L for today's games
-        game_date = str(row.get('date', ''))[:10]
-        if game_date >= today:
-            df.at[i, 'result'] = ''
-            continue
         try:
-            actual = float(row['actual'])
+            actual_str = str(row.get('actual', '')).strip()
+            if not actual_str or actual_str == 'nan':
+                df.at[i, 'result'] = ''
+                continue
+            actual = float(actual_str)
             line_val = str(row.get('line', '')).strip()
             line = float(line_val) if line_val and line_val not in ('nan', '') else 1.5
             df.at[i, 'result'] = 'W' if actual > line else 'L'

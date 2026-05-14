@@ -127,11 +127,8 @@ def update_actuals() -> int:
     today   = datetime.now().strftime('%Y-%m-%d')
     updated = 0
 
-    # Only process past days — never today
-    pending = df[
-        (df['actual'].astype(str).str.strip().isin(['', 'nan'])) &
-        (df['date'].astype(str).str[:10] < today)
-    ]
+    # Process all games with missing actuals (past + today's completed)
+    pending = df[df['actual'].astype(str).str.strip().isin(['', 'nan'])]
     if pending.empty:
         return 0
 

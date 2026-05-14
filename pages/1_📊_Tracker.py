@@ -109,10 +109,7 @@ def auto_fill_actuals(df: pd.DataFrame) -> tuple:
     df      = df.copy()
     today   = datetime.now().strftime('%Y-%m-%d')
 
-    pending = df[
-        (df['actual'].astype(str).str.strip().isin(['', 'nan'])) &
-        (df['date'].astype(str).str[:10] < today)
-    ]
+    pending = df[df['actual'].astype(str).str.strip().isin(['', 'nan'])]
     if pending.empty:
         return df, 0
 
@@ -168,9 +165,7 @@ def sync_from_ratings_cache():
     if ratings.empty:
         return 0
 
-    today = datetime.now().strftime('%Y-%m-%d')
     qualifying = ratings[
-        (ratings['date'].astype(str) < today) &          # past games only
         (pd.to_numeric(ratings['rating'],    errors='coerce') >= 56) &
         (pd.to_numeric(ratings['projected'], errors='coerce') >= 1.9) &
         (ratings['player_name'].astype(str).str.strip() != '')
