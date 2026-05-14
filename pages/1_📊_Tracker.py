@@ -103,24 +103,39 @@ def fetch_actual_hrr(player_name: str, game_date: str) -> float | None:
 
 
 def auto_fill_actuals(df: pd.DataFrame) -> tuple:
-    """Fetch actuals for all rows that have a line but no actual yet."""
+    """Fetch actuals for past days only — never today. Uses boxscores (fast)."""
+    from full_tracker import _get_boxscore_stats_for_date
     updated = 0
-    df = df.copy()
-    today = datetime.now().strftime('%Y-%m-%d')
+    df      = df.copy()
+    today   = datetime.now().strftime('%Y-%m-%d')
 
-    for i, row in df.iterrows():
-        # Skip if actual already filled
-        if str(row.get('actual', '')).strip() not in ('', 'nan'):
-            continue
-        game_date = str(row.get('date', ''))[:10]
-        # Only fetch actuals for completed past days — never today
-        if game_date >= today:
-            continue
+    pending = df[
+        (df['actual'].astype(str).str.strip().isin(['', 'nan'])) &
+        (df['date'].astype(str).str[:10] < today)
+    ]
+    if pending.empty:
+        return df, 0
 
-        actual = fetch_actual_hrr(row['player'], game_date)
-        if actual is not None:
-            df.at[i, 'actual'] = actual
-            updated += 1
+    for game_date in pending['date'].astype(str).str[:10].unique():
+        player_stats = _get_boxscore_stats_for_date(game_date)
+        if not player_stats:
+            continue
+        date_rows = df[df['date'].astype(str).str[:10] == game_date]
+        for i in date_rows.index:
+            row = df.loc[i]
+            if str(row.get('actual', '')).strip() not in ('', 'nan'):
+                continue
+            player_lower = str(row.get('player', '')).lower().strip()
+            hrr = player_stats.get(player_lower)
+            if hrr is None:
+                last = player_lower.split()[-1] if player_lower else ''
+                for k, v in player_stats.items():
+                    if last and last in k:
+                        hrr = v
+                        break
+            if hrr is not None:
+                df.at[i, 'actual'] = hrr
+                updated += 1
 
     if updated:
         df = recalc_results(df)
