@@ -35,13 +35,14 @@ def load() -> pd.DataFrame:
             for c in COLS:
                 if c not in df.columns:
                     df[c] = ''
-            return df[COLS]
+            df = df[COLS].astype(str).replace('nan', '')
+            return df
         except Exception:
             pass
 
     if os.path.exists(TRACKER_FILE):
         try:
-            df = pd.read_csv(TRACKER_FILE)
+            df = pd.read_csv(TRACKER_FILE, dtype=str).fillna('')
             for c in COLS:
                 if c not in df.columns:
                     df[c] = ''
