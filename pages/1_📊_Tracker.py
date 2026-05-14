@@ -12,6 +12,7 @@ import requests
 from datetime import datetime
 from tracker import load, save, recalc_results, add_predictions
 from odds_api import get_todays_event_ids, get_hrr_lines, ODDS_API_KEY
+from ratings_cache import _load as load_ratings_cache
 
 st.set_page_config(page_title="Tracker | MLB Props", page_icon="📊", layout="wide")
 
@@ -141,6 +142,37 @@ if 'lineup_rows' in st.session_state:
 
 df = load()
 
+# Auto-sync qualifying plays from ratings cache on page load
+def sync_from_ratings_cache():
+    """Pull any qualifying plays from ratings cache that aren't in the tracker yet."""
+    today   = datetime.now().strftime('%Y-%m-%d')
+    ratings = load_ratings_cache()
+    if ratings.empty:
+        return 0
+    today_ratings = ratings[
+        (ratings['date'] == today) &
+        (pd.to_numeric(ratings['rating'],    errors='coerce') >= 62) &
+        (pd.to_numeric(ratings['projected'], errors='coerce') >= 1.9)
+    ]
+    if today_ratings.empty:
+        return 0
+    rows = []
+    for _, r in today_ratings.iterrows():
+        if r.get('player_name', ''):
+            rows.append({
+                'player':     r['player_name'],
+                'team':       r.get('team', ''),
+                'rating':     int(r['rating']),
+                'grade':      r.get('grade', ''),
+                'projected':  float(r['projected']),
+                'vs_pitcher': r.get('vs_pitcher', ''),
+            })
+    return add_predictions(rows) if rows else 0
+
+if 'tracker_synced' not in st.session_state:
+    synced = sync_from_ratings_cache()
+    st.session_state['tracker_synced'] = True
+
 # Auto-fill missing lines from Odds API on page load
 if 'tracker_lines_filled' not in st.session_state:
     df, n_filled = auto_fill_lines(df)
@@ -174,7 +206,16 @@ if df.empty:
 
 # ── Auto-fetch actuals ─────────────────────────────────────────────────────────
 
-col_fetch, col_save = st.columns([2, 1])
+col_sync, col_fetch = st.columns(2)
+with col_sync:
+    if st.button('🔁 Sync Today\'s Plays', use_container_width=True,
+                 help='Pull any missing qualifying plays from the ratings cache'):
+        st.session_state.pop('tracker_synced', None)
+        n = sync_from_ratings_cache()
+        df = load()
+        st.success(f'Synced {n} new play(s)!' if n else 'All plays already tracked.')
+        st.rerun()
+
 with col_fetch:
     if st.button('🔄 Auto-fetch Actuals from MLB API', type='primary', use_container_width=True):
         with st.spinner('Fetching actual H+R+RBI for completed games...'):
