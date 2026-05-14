@@ -100,10 +100,20 @@ def update_actuals():
         if game_date > today:
             continue
         try:
-            players = statsapi.lookup_player(row['player'])
-            if not players:
+            # Use direct API for player lookup to avoid statsapi hanging
+            lookup_resp = requests.get(
+                'https://statsapi.mlb.com/api/v1/people/search',
+                params={'names': row['player'], 'sportId': 1},
+                timeout=8
+            )
+            people = lookup_resp.json().get('people', []) if lookup_resp.ok else []
+            if not people:
+                # Fallback to statsapi
+                players = statsapi.lookup_player(row['player'])
+                people = [{'id': players[0]['id']}] if players else []
+            if not people:
                 continue
-            pid  = players[0]['id']
+            pid  = people[0]['id']
             year = game_date[:4]
             resp = requests.get(
                 f'https://statsapi.mlb.com/api/v1/people/{pid}/stats',

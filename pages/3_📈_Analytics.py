@@ -64,14 +64,7 @@ if _total_plays == 0:
 else:
     st.caption(f'📊 {_total_plays} plays in log')
 
-# ── Auto-update on page load ──────────────────────────────────────────────────
-# Silently fetch actuals for any completed games from previous days
-if 'analytics_last_update' not in st.session_state:
-    with st.spinner('Checking for new results...'):
-        n = update_actuals()
-    st.session_state['analytics_last_update'] = True
-    if n > 0:
-        st.success(f'Auto-updated {n} plays with latest results!')
+# Auto-update removed from page load — use button below to fetch actuals
 
 # ── Controls ──────────────────────────────────────────────────────────────────
 
