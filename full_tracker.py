@@ -97,7 +97,8 @@ def update_actuals():
         if str(row.get('actual', '')).strip() not in ('', 'nan'):
             continue
         game_date = str(row.get('date', ''))[:10]
-        if game_date > today:
+        # Only fetch actuals for completed past days — never today
+        if game_date >= today:
             continue
         try:
             # Use direct API for player lookup to avoid statsapi hanging

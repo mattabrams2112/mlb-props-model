@@ -113,8 +113,8 @@ def auto_fill_actuals(df: pd.DataFrame) -> tuple:
         if str(row.get('actual', '')).strip() not in ('', 'nan'):
             continue
         game_date = str(row.get('date', ''))[:10]
-        # Skip future games only — allow fetching for today and past
-        if game_date > today:
+        # Only fetch actuals for completed past days — never today
+        if game_date >= today:
             continue
 
         actual = fetch_actual_hrr(row['player'], game_date)
