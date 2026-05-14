@@ -1,0 +1,261 @@
+"""
+Analytics — tracks every HRR play and finds the most profitable
+rating ranges, projection ranges, and key number combinations.
+"""
+import sys, os
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+
+import streamlit as st
+import pandas as pd
+import numpy as np
+import plotly.graph_objects as go
+import plotly.express as px
+from full_tracker import load_all, update_actuals, save_all
+
+st.set_page_config(page_title="Analytics | MLB Props", page_icon="📈", layout="wide")
+
+st.markdown("""
+<style>
+  h1,h2,h3{color:#38bdf8!important;}
+  .stMarkdown p,label,.stCaption{color:#7dd3fc!important;}
+  .stMetric label{color:#38bdf8!important;}
+  .stMetric [data-testid="metric-container"]>div{color:#e0f2fe!important;}
+</style>
+""", unsafe_allow_html=True)
+
+
+def win_rate(df):
+    d = df[df['result'].isin(['W','L'])]
+    if len(d) == 0:
+        return None, 0
+    w = (d['result'] == 'W').sum()
+    return round(w / len(d) * 100, 1), len(d)
+
+
+def roi(df):
+    """Simple ROI assuming -110 standard vig."""
+    decided = df[df['result'].isin(['W','L'])]
+    if len(decided) == 0:
+        return None
+    wins   = (decided['result'] == 'W').sum()
+    losses = (decided['result'] == 'L').sum()
+    # Assume -110 (bet 110 to win 100)
+    profit = wins * 100 - losses * 110
+    return round(profit / (len(decided) * 110) * 100, 1)
+
+
+def color_wr(wr):
+    if wr is None:
+        return '#475569'
+    if wr >= 60:
+        return '#22c55e'
+    if wr >= 52:
+        return '#eab308'
+    return '#ef4444'
+
+
+st.markdown('## 📈 Play Analytics')
+st.caption('Tracks every HRR play to find the most profitable rating and projection thresholds.')
+
+# ── Controls ──────────────────────────────────────────────────────────────────
+
+col_refresh, col_fetch = st.columns([1, 1])
+with col_refresh:
+    if st.button('🔄 Refresh Data', use_container_width=True):
+        st.rerun()
+with col_fetch:
+    if st.button('⬇️ Auto-fetch All Actuals', type='primary', use_container_width=True):
+        with st.spinner('Fetching results from MLB API...'):
+            n = update_actuals()
+        st.success(f'Updated {n} plays!')
+        st.rerun()
+
+df = load_all()
+
+if df.empty:
+    st.info('No play data yet. Open the Game View page to start logging plays automatically.')
+    st.stop()
+
+# Ensure numeric types
+df['rating']    = pd.to_numeric(df['rating'],    errors='coerce')
+df['projected'] = pd.to_numeric(df['projected'], errors='coerce')
+df['line']      = pd.to_numeric(df['line'],      errors='coerce')
+df['actual']    = pd.to_numeric(df['actual'],    errors='coerce')
+
+decided = df[df['result'].isin(['W','L'])]
+
+# ── Overall record ────────────────────────────────────────────────────────────
+
+st.markdown('---')
+total_wr, total_n = win_rate(df)
+total_roi         = roi(df)
+
+c1,c2,c3,c4,c5 = st.columns(5)
+c1.metric('Total Plays',  len(df))
+c2.metric('Decided',      total_n)
+c3.metric('Win Rate',     f'{total_wr}%' if total_wr else '—')
+c4.metric('ROI',          f'{total_roi}%' if total_roi else '—')
+c5.metric('Pending',      len(df[df['result'] == '']))
+
+st.markdown('---')
+
+# ── Rating buckets ────────────────────────────────────────────────────────────
+
+st.markdown('### Win Rate by Rating')
+
+rating_buckets = [(0,40,'<40'),(40,50,'40-49'),(50,60,'50-59'),
+                  (60,70,'60-69'),(70,80,'70-79'),(80,90,'80-89'),(90,101,'90+')]
+r_labels, r_wrs, r_ns, r_rois, r_colors = [], [], [], [], []
+
+for lo, hi, label in rating_buckets:
+    sub = df[(df['rating'] >= lo) & (df['rating'] < hi)]
+    wr, n = win_rate(sub)
+    r_labels.append(label)
+    r_wrs.append(wr or 0)
+    r_ns.append(n)
+    r_rois.append(roi(sub))
+    r_colors.append(color_wr(wr))
+
+fig_r = go.Figure(go.Bar(
+    x=r_labels, y=r_wrs,
+    marker_color=r_colors,
+    text=[f'{w}%<br>({n} plays)' if n > 0 else '0 plays'
+          for w, n in zip(r_wrs, r_ns)],
+    textposition='outside',
+))
+fig_r.add_hline(y=52.4, line_dash='dash', line_color='#ef4444',
+                annotation_text='Break-even (-110)', annotation_position='right')
+fig_r.update_layout(
+    height=350, yaxis=dict(range=[0, 100], title='Win %'),
+    paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+    font=dict(color='#7dd3fc'), margin=dict(t=30,b=10),
+    xaxis=dict(title='Rating Bucket'),
+)
+st.plotly_chart(fig_r, use_container_width=True, config={'displayModeBar': False})
+
+# Rating table
+r_df = pd.DataFrame({
+    'Rating Range': r_labels,
+    'Plays': r_ns,
+    'Win Rate': [f'{w}%' if n > 0 else '—' for w, n in zip(r_wrs, r_ns)],
+    'ROI':     [f'{r}%' if r is not None else '—' for r in r_rois],
+})
+st.dataframe(r_df, hide_index=True, use_container_width=True)
+
+st.markdown('---')
+
+# ── Projection buckets ────────────────────────────────────────────────────────
+
+st.markdown('### Win Rate by Projection (vs Line)')
+
+# Group by proj - line edge
+if df['line'].notna().any():
+    df['edge'] = df['projected'] - df['line']
+    edge_buckets = [(-99,-1.0,'<-1.0'),(-1.0,-0.5,'-1.0 to -0.5'),
+                    (-0.5,0.0,'-0.5 to 0'),( 0.0,0.5,'0 to +0.5'),
+                    (0.5,1.0,'+0.5 to +1.0'),(1.0,99,'+1.0+')]
+    e_labels,e_wrs,e_ns,e_rois,e_colors = [],[],[],[],[]
+    for lo,hi,label in edge_buckets:
+        sub = df[(df['edge'] >= lo) & (df['edge'] < hi)]
+        wr,n = win_rate(sub)
+        e_labels.append(label); e_wrs.append(wr or 0)
+        e_ns.append(n); e_rois.append(roi(sub)); e_colors.append(color_wr(wr))
+
+    fig_e = go.Figure(go.Bar(
+        x=e_labels, y=e_wrs, marker_color=e_colors,
+        text=[f'{w}%<br>({n})' if n>0 else '0' for w,n in zip(e_wrs,e_ns)],
+        textposition='outside',
+    ))
+    fig_e.add_hline(y=52.4, line_dash='dash', line_color='#ef4444')
+    fig_e.update_layout(
+        height=350, yaxis=dict(range=[0,100], title='Win %'),
+        paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+        font=dict(color='#7dd3fc'), margin=dict(t=30,b=10),
+        xaxis=dict(title='Projection − Line Edge'),
+    )
+    st.plotly_chart(fig_e, use_container_width=True, config={'displayModeBar': False})
+else:
+    st.info('Enter sportsbook lines in the Game View to see edge analysis.')
+
+st.markdown('---')
+
+# ── Key number finder ─────────────────────────────────────────────────────────
+
+st.markdown('### Key Number Finder — Most Profitable Thresholds')
+st.caption('Minimum rating and projection that maximize win rate with at least 10 plays.')
+
+if len(decided) >= 10:
+    results = []
+    for min_r in range(40, 85, 5):
+        for min_p in [0.5, 1.0, 1.5, 2.0, 2.5, 3.0]:
+            sub = df[(df['rating'] >= min_r) & (df['projected'] >= min_p)]
+            wr, n = win_rate(sub)
+            r_val = roi(sub)
+            if n >= 10 and wr is not None:
+                results.append({
+                    'Min Rating': min_r,
+                    'Min Proj':   min_p,
+                    'Plays':      n,
+                    'Win Rate':   wr,
+                    'ROI':        r_val or 0,
+                })
+
+    if results:
+        res_df = pd.DataFrame(results).sort_values('Win Rate', ascending=False)
+        res_df['Win Rate'] = res_df['Win Rate'].apply(lambda x: f'{x}%')
+        res_df['ROI']      = res_df['ROI'].apply(lambda x: f'{x}%')
+        st.dataframe(res_df.head(20), hide_index=True, use_container_width=True)
+
+        # Highlight the best combo
+        best = results[0] if results else None
+        if best:
+            st.success(
+                f"🏆 **Best combo:** Rating ≥ {best['Min Rating']} + Projection ≥ {best['Min Proj']} "
+                f"→ **{best['Win Rate']}% win rate** over {best['Plays']} plays"
+            )
+    else:
+        st.info('Not enough data yet. Need at least 10 decided plays per combination.')
+else:
+    st.info(f'Need at least 10 decided plays for key number analysis. Currently have {len(decided)}.')
+
+st.markdown('---')
+
+# ── Best players ──────────────────────────────────────────────────────────────
+
+st.markdown('### Most Profitable Players (min 5 plays)')
+
+if len(decided) >= 5:
+    player_stats = []
+    for player, grp in decided.groupby('player'):
+        wr, n = win_rate(grp)
+        if n >= 5:
+            player_stats.append({
+                'Player':   player,
+                'Plays':    n,
+                'W':        int((grp['result']=='W').sum()),
+                'L':        int((grp['result']=='L').sum()),
+                'Win Rate': f'{wr}%',
+                'ROI':      f'{roi(grp)}%' if roi(grp) is not None else '—',
+                'Avg Proj': round(grp['projected'].mean(), 2),
+                'Avg Rating': round(grp['rating'].mean(), 0),
+            })
+    if player_stats:
+        p_df = pd.DataFrame(player_stats).sort_values('Win Rate', ascending=False)
+        st.dataframe(p_df, hide_index=True, use_container_width=True)
+
+st.markdown('---')
+
+# ── Backup ────────────────────────────────────────────────────────────────────
+
+st.markdown('### Backup')
+dl, ul = st.columns(2)
+with dl:
+    st.download_button('⬇️ Download Play Log', data=df.to_csv(index=False),
+                       file_name='mlb_play_log.csv', mime='text/csv',
+                       use_container_width=True)
+with ul:
+    up = st.file_uploader('⬆️ Restore Play Log', type='csv')
+    if up:
+        save_all(pd.read_csv(up))
+        st.success('Restored!')
+        st.rerun()

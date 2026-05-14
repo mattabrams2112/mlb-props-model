@@ -19,6 +19,7 @@ import requests as _req
 
 from feature_engineering import build_features, get_feature_cols, TARGET_COL
 from tracker import add_predictions as tracker_add
+from full_tracker import log_play
 from pitcher_data import get_pitcher_season_stats, get_pitcher_name
 from statcast_features import get_batter_statcast, get_pitcher_statcast
 from weather import get_park_factor
@@ -356,7 +357,21 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
                                 res['proj'], player_name=pname, team=batter_team,
                                 vs_pitcher=opp_p_name)
 
-            # Always add 60+ players to tracker (cached or new)
+            # Log ALL plays to analytics tracker
+            if pname and game_date:
+                try:
+                    log_play(
+                        player=pname, team=batter_team,
+                        rating=r_data['total'], grade=r_data['grade'],
+                        projected=res['proj'],
+                        line=disp_line, over_odds=disp_odds,
+                        vs_pitcher=opp_p_name, is_home=is_home,
+                        game_date=game_date,
+                    )
+                except Exception:
+                    pass
+
+            # Add 60+ players to the betting tracker
             if r_data['total'] >= 60 and pname and game_date:
                 try:
                     tracker_add([{
@@ -366,6 +381,8 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
                         'grade':      r_data['grade'],
                         'projected':  res['proj'],
                         'vs_pitcher': opp_p_name,
+                        'line':       disp_line,
+                        'over_odds':  disp_odds,
                     }])
                 except Exception:
                     pass
