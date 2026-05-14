@@ -223,7 +223,7 @@ c5.metric('Tracked', len(df))
 st.markdown('---')
 
 if df.empty:
-    st.info('No predictions tracked yet. Go to the home page — players rated 60+ are added here automatically when lineups load.')
+    st.info('No predictions tracked yet. Open the **🎯 Game View** for any past date and let the lineups fully load — qualifying plays (rating ≥ 56, projection ≥ 1.9) are added automatically.')
     st.stop()
 
 # ── Auto-fetch actuals ─────────────────────────────────────────────────────────
