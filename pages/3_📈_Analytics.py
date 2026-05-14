@@ -55,17 +55,28 @@ def color_wr(wr):
 
 
 st.markdown('## 📈 Play Analytics')
-st.caption('Tracks every HRR play to find the most profitable rating and projection thresholds.')
+st.caption('Auto-updates after every game. Tracks every HRR play to find the most profitable thresholds.')
+
+# ── Auto-update on page load ──────────────────────────────────────────────────
+# Silently fetch actuals for any completed games from previous days
+if 'analytics_last_update' not in st.session_state:
+    with st.spinner('Checking for new results...'):
+        n = update_actuals()
+    st.session_state['analytics_last_update'] = True
+    if n > 0:
+        st.success(f'Auto-updated {n} plays with latest results!')
 
 # ── Controls ──────────────────────────────────────────────────────────────────
 
 col_refresh, col_fetch = st.columns([1, 1])
 with col_refresh:
-    if st.button('🔄 Refresh Data', use_container_width=True):
+    if st.button('🔄 Refresh', use_container_width=True):
+        st.session_state.pop('analytics_last_update', None)
         st.rerun()
 with col_fetch:
-    if st.button('⬇️ Auto-fetch All Actuals', type='primary', use_container_width=True):
-        with st.spinner('Fetching results from MLB API...'):
+    if st.button('⬇️ Force Fetch All Actuals', type='primary', use_container_width=True):
+        st.session_state.pop('analytics_last_update', None)
+        with st.spinner('Fetching all results from MLB API...'):
             n = update_actuals()
         st.success(f'Updated {n} plays!')
         st.rerun()
