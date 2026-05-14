@@ -186,10 +186,15 @@ def run_model(player_id: int, pitcher_id, is_home: bool,
     recent_30g = (df.tail(30)['h'] + df.tail(30)['r'] + df.tail(30)['rbi']).mean()
     season_avg = df_clean['total_season_avg'].iloc[-1]
 
-    # Projection floor — prevents bad feature values from producing absurd lows
+    # Floor — can't go below 30% of recent averages
     s_avg  = float(season_avg) if not np.isnan(season_avg) else 0
-    floor  = max(s_avg * 0.30, float(recent_30g) * 0.30)
+    r30    = float(recent_30g)
+    floor  = max(s_avg * 0.30, r30 * 0.30)
     projection = max(projection, floor)
+
+    # Ceiling — can't exceed 2x the 30g avg or 5.0 absolute max
+    ceiling = min(5.0, max(r30 * 2.0, s_avg * 2.0, 1.5))
+    projection = min(projection, ceiling)
 
     return {
         'projection': round(projection, 2),

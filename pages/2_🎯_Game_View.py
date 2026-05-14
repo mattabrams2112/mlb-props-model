@@ -157,8 +157,14 @@ def run_prediction(player_id: int, pitcher_id, is_home: bool, park_team: str,
     # Prevents bad feature values from producing absurdly low projections
     season_avg_val = float(dc['total_season_avg'].iloc[-1]) if not np.isnan(dc['total_season_avg'].iloc[-1]) else 0
     r30_avg = float((df.tail(30)['h'] + df.tail(30)['r'] + df.tail(30)['rbi']).mean())
-    floor   = max(season_avg_val * 0.30, r30_avg * 0.30)
-    proj    = max(proj, floor)
+
+    # Floor — can't go below 30% of recent averages
+    floor = max(season_avg_val * 0.30, r30_avg * 0.30)
+    proj  = max(proj, floor)
+
+    # Ceiling — can't exceed 2x the 30g avg or 5.0 absolute max
+    ceiling = min(5.0, max(r30_avg * 2.0, season_avg_val * 2.0, 1.5))
+    proj    = min(proj, ceiling)
 
     r7  = df.tail(7);  hrr7  = (r7['h']  + r7['r']  + r7['rbi']).mean()
     r30 = df.tail(30); hrr30 = (r30['h'] + r30['r'] + r30['rbi']).mean()
