@@ -174,21 +174,23 @@ if _today_mask.any():
 
 # Auto-sync qualifying plays from ratings cache on page load
 def sync_from_ratings_cache():
-    """Pull any qualifying plays from ratings cache that aren't in the tracker yet."""
-    today   = datetime.now().strftime('%Y-%m-%d')
+    """Pull qualifying plays from ratings cache for all recent dates."""
     ratings = load_ratings_cache()
     if ratings.empty:
         return 0
-    today_ratings = ratings[
-        (ratings['date'] == today) &
+
+    qualifying = ratings[
         (pd.to_numeric(ratings['rating'],    errors='coerce') >= 56) &
-        (pd.to_numeric(ratings['projected'], errors='coerce') >= 1.9)
+        (pd.to_numeric(ratings['projected'], errors='coerce') >= 1.9) &
+        (ratings['player_name'].astype(str).str.strip() != '')
     ]
-    if today_ratings.empty:
+    if qualifying.empty:
         return 0
-    rows = []
-    for _, r in today_ratings.iterrows():
-        if r.get('player_name', ''):
+
+    total_added = 0
+    for game_date in qualifying['date'].unique():
+        rows = []
+        for _, r in qualifying[qualifying['date'] == game_date].iterrows():
             rows.append({
                 'player':     r['player_name'],
                 'team':       r.get('team', ''),
@@ -197,11 +199,13 @@ def sync_from_ratings_cache():
                 'projected':  float(r['projected']),
                 'vs_pitcher': r.get('vs_pitcher', ''),
             })
-    return add_predictions(rows) if rows else 0
+        if rows:
+            total_added += add_predictions(rows, game_date=game_date)
+    return total_added
 
-if 'tracker_synced' not in st.session_state:
-    synced = sync_from_ratings_cache()
-    st.session_state['tracker_synced'] = True
+synced = sync_from_ratings_cache()
+if synced > 0:
+    df = load()  # reload with new entries
 
 # Auto-fill missing lines from Odds API on page load
 if 'tracker_lines_filled' not in st.session_state:
