@@ -9,7 +9,7 @@ from statcast_features import (
     BATTER_DEFAULTS, PITCHER_DEFAULTS,
 )
 
-WINDOWS = [7, 14, 30]
+WINDOWS = [7, 14, 20, 30]
 STAT_COLS = ['h', 'r', 'rbi', 'hr', 'bb', 'k', 'ab', 'd', 't', 'total']
 TARGET_COL = 'total'
 
@@ -148,6 +148,33 @@ def build_features(df: pd.DataFrame, fetch_weather: bool = True,
         .transform(lambda x: x.shift(1).expanding().mean())
     )
 
+    # ── Home/away rolling hit rates (last 20 games in each venue) ─────────────
+    # These capture venue-specific recent form — more predictive than overall avg
+    for venue_val, suffix in [(1, 'home'), (0, 'away')]:
+        mask = df['is_home'] == venue_val
+        # Rolling 20g HRR in this venue (no leakage)
+        venue_total = df['total'].where(mask).fillna(np.nan)
+        df[f'hrr_20g_{suffix}'] = (
+            venue_total.shift(1).rolling(20, min_periods=5).mean()
+        )
+        # Rolling 20g BA in this venue
+        venue_h  = df['h'].where(mask).fillna(np.nan)
+        venue_ab = df['ab'].where(mask).fillna(np.nan)
+        df[f'ba_20g_{suffix}'] = (
+            venue_h.shift(1).rolling(20, min_periods=5).sum() /
+            venue_ab.shift(1).rolling(20, min_periods=5).sum().replace(0, np.nan)
+        )
+
+    # Fill missing venue splits with overall averages
+    df['hrr_20g_home'] = df['hrr_20g_home'].fillna(df['total_avg_20g'])
+    df['hrr_20g_away'] = df['hrr_20g_away'].fillna(df['total_avg_20g'])
+    df['ba_20g_home']  = df['ba_20g_home'].fillna(df['ba_20g'])
+    df['ba_20g_away']  = df['ba_20g_away'].fillna(df['ba_20g'])
+
+    # Current venue HRR and BA (whichever applies to this game)
+    df['hrr_20g_venue'] = np.where(df['is_home'] == 1, df['hrr_20g_home'], df['hrr_20g_away'])
+    df['ba_20g_venue']  = np.where(df['is_home'] == 1, df['ba_20g_home'],  df['ba_20g_away'])
+
     df['month']       = df['date'].dt.month
     df['day_of_week'] = df['date'].dt.dayofweek
     df['park_factor'] = df['home_team'].apply(get_park_factor)
@@ -227,6 +254,8 @@ def get_feature_cols() -> list:
              'temp_f', 'wind_speed', 'wind_dir', 'home_hrr_avg', 'is_day_game']
     for w in WINDOWS:
         cols += [f'k_pct_{w}g', f'bb_pct_{w}g', f'babip_{w}g']
+    cols += ['hrr_20g_home', 'hrr_20g_away', 'hrr_20g_venue',
+             'ba_20g_home',  'ba_20g_away',  'ba_20g_venue']
     cols += PITCHER_FEATURE_COLS + BVP_FEATURE_COLS
     cols += BATTER_STATCAST_COLS + PITCHER_STATCAST_COLS
     return cols

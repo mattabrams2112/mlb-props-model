@@ -35,6 +35,8 @@ def compute_rating(
     bvp_sample: int      = 0,
     batting_order: int   = 0,
     recent_ba: float     = 0.250,
+    recent_20g: float    = None,   # 20-game HRR in current venue (home or away)
+    recent_ba_venue: float = None, # 20-game BA in current venue
     temp_f: float        = 72.0,
     projection: float    = None,
     bp_era: float        = 4.20,
@@ -75,9 +77,13 @@ def compute_rating(
     scores['Projection'] = (round(proj_score, 1), 30)
 
     # ── Form & Hit Rate (0-15) ────────────────────────────────────────────────
-    form_raw  = 0.65 * recent_7g + 0.35 * recent_30g
+    # Weighted blend: 7g (50%) + 20g venue-specific (30%) + 30g (20%)
+    r20       = recent_20g if recent_20g is not None else recent_30g
+    form_raw  = 0.50 * recent_7g + 0.30 * r20 + 0.20 * recent_30g
     hrr_score = min(11.0, (form_raw / 3.5) * 11)
-    ba_bonus  = max(0.0, min(4.0, (recent_ba - 0.200) / (0.350 - 0.200) * 4.0))
+    # Use venue-specific BA if available for more accurate hit rate
+    ba_used   = recent_ba_venue if recent_ba_venue is not None else recent_ba
+    ba_bonus  = max(0.0, min(4.0, (ba_used - 0.200) / (0.350 - 0.200) * 4.0))
     scores['Form & Hit Rate'] = (round(hrr_score + ba_bonus, 1), 15)
 
     # ── Starter Matchup (0-15) ───────────────────────────────────────────────

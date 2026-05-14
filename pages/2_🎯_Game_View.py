@@ -205,6 +205,10 @@ def run_prediction(player_id: int, pitcher_id, is_home: bool, park_team: str,
         'home_hrr': round(float(home_hrr), 2) if home_hrr else None,
         'away_hrr': round(float(away_hrr), 2) if away_hrr else None,
         'df':       df,
+        'r20g_venue': round(float(dc['hrr_20g_venue'].iloc[-1]), 2)
+                      if 'hrr_20g_venue' in dc.columns and not np.isnan(dc['hrr_20g_venue'].iloc[-1]) else None,
+        'ba_venue':   round(float(dc['ba_20g_venue'].iloc[-1]), 3)
+                      if 'ba_20g_venue' in dc.columns and not np.isnan(dc['ba_20g_venue'].iloc[-1]) else None,
     }
 
 
@@ -254,6 +258,8 @@ def get_rating(res, player_id, pitcher_id, park_team, batting_order,
         home_hrr             = res.get('home_hrr'),
         away_hrr             = res.get('away_hrr'),
         is_home              = is_home,
+        recent_20g           = res.get('r20g_venue'),
+        recent_ba_venue      = res.get('ba_venue'),
         batter_hard_hit_pct  = b_sc.get('batter_hard_hit_pct', 0.360),
         pitcher_hard_hit_pct = p_sc.get('pitcher_hard_hit_pct', 0.360),
         batter_xba           = b_sc.get('batter_xba', 0.250),
