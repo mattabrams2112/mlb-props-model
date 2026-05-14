@@ -87,9 +87,10 @@ def compute_rating(
     scores['Form & Hit Rate'] = (round(hrr_score + ba_bonus, 1), 15)
 
     # ── Starter Matchup (0-15) ───────────────────────────────────────────────
-    # Blend season ERA with FIP and last 3 starts for better accuracy
+    # Higher ERA = worse pitcher = better for batter = higher score
+    # ERA 3.0 (Ohtani) = 0pts, ERA 4.5 (avg) = 7.5pts, ERA 6.0+ = 15pts
     blended_era = (opp_era * 0.4 + opp_fip * 0.35 + opp_last3_era * 0.25)
-    era_score = max(0.0, min(15.0, 15.0 * (6.0 - blended_era) / (6.0 - 3.0)))
+    era_score = max(0.0, min(15.0, 15.0 * (blended_era - 3.0) / (6.0 - 3.0)))
     if bvp_sample:
         era_score = max(0.0, min(15.0, era_score + (bvp_avg - 0.250) * 12))
     scores['Starter Matchup'] = (round(era_score, 1), 15)
