@@ -413,8 +413,35 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
                           'components': {}, 'line_label': None}
                 res = dict(res); res['proj'] = locked_proj
             elif game_started:
-                # Game already started and no pre-game cache — skip rating
-                continue
+                # Game started, no pre-game cache — calculate without odds
+                book_line  = None
+                book_odds  = None
+                season_r   = int(res['df']['season'].iloc[-1])
+                b_sc_local = get_batter_statcast(pid, season_r)
+                r_data = get_rating(res, pid, opp_pitcher_id, park_team, batting_order,
+                                    weather['temp_f'], weather['wind_speed'],
+                                    weather['wind_dir_code'],
+                                    bp_era=bp_era, bp_whip=bp_whip,
+                                    line=None, over_odds=None,
+                                    is_home=is_home,
+                                    opp_fip=p_std.get('opp_fip', 4.20),
+                                    opp_last3_era=p_last3.get('opp_last3_era', 4.30),
+                                    opp_last3_whip=p_last3.get('opp_last3_whip', 1.28),
+                                    pitcher_throws=p_throws,
+                                    batter_xba_vs_rhp=b_sc_local.get('batter_xba_vs_rhp', 0.250),
+                                    batter_xba_vs_lhp=b_sc_local.get('batter_xba_vs_lhp', 0.250),
+                                    batter_hard_hit_vs_rhp=b_sc_local.get('batter_hard_hit_vs_rhp', 0.360),
+                                    batter_hard_hit_vs_lhp=b_sc_local.get('batter_hard_hit_vs_lhp', 0.360),
+                                    team_runs_avg=team_score.get('team_runs_avg', 4.5),
+                                    umpire_tendency=ump_data.get('umpire_tendency', 0.0),
+                                    opp_def_rating=opp_defense.get('def_rating', 0.0),
+                                    pitcher_rest_factor=p_rest.get('rest_factor', 0.0),
+                                    pitcher_gb_pct=p_sc.get('pitcher_gb_pct', 0.430))
+                st.session_state[session_key] = (r_data['total'], r_data['grade'], res['proj'])
+                if game_date:
+                    save_rating(game_date, pid, r_data['total'], r_data['grade'],
+                                res['proj'], player_name=pname, team=batter_team,
+                                vs_pitcher=opp_p_name)
             else:
                 book_line  = odds_data['line']      if odds_data else line_val
                 book_odds  = odds_data['over_odds'] if odds_data else None
