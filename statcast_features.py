@@ -38,6 +38,10 @@ BATTER_DEFAULTS = {
     'batter_xwoba':         0.320,
     'batter_hard_hit_pct':  0.360,
     'batter_avg_ev':        88.0,
+    'batter_xba_vs_rhp':    0.250,
+    'batter_xba_vs_lhp':    0.250,
+    'batter_hard_hit_vs_rhp': 0.360,
+    'batter_hard_hit_vs_lhp': 0.360,
 }
 PITCHER_DEFAULTS = {
     'pitcher_fb_barrel_pct': 0.080, 'pitcher_fb_thrown_pct': 0.55,
@@ -123,6 +127,21 @@ def _compute_features(df: pd.DataFrame, role: str) -> dict:
                 avg_ev   = float(ev.mean())
                 result[f'{role}_hard_hit_pct'] = round(hard_hit, 4)
                 result[f'{role}_avg_ev']        = round(avg_ev, 2)
+
+    # ── Platoon splits (batter only) ─────────────────────────────────────────
+    if role == 'batter' and 'p_throws' in df.columns:
+        for side, suffix in [('R', 'rhp'), ('L', 'lhp')]:
+            side_df     = df[df['p_throws'] == side]
+            side_batted = side_df[side_df['type'] == 'X']
+            if len(side_batted) >= 10:
+                if 'estimated_ba_using_speedangle' in side_batted.columns:
+                    xba_s = side_batted['estimated_ba_using_speedangle'].dropna()
+                    if len(xba_s) >= 5:
+                        result[f'batter_xba_vs_{suffix}'] = round(float(xba_s.mean()), 4)
+                if 'launch_speed' in side_batted.columns:
+                    ev_s = side_batted['launch_speed'].dropna()
+                    if len(ev_s) >= 5:
+                        result[f'batter_hard_hit_vs_{suffix}'] = round((ev_s >= 95).sum() / len(ev_s), 4)
 
     # Fill any missing advanced metrics with defaults
     for k, v in defaults.items():

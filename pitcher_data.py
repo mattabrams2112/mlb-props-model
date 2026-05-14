@@ -68,17 +68,66 @@ def get_pitcher_season_stats(pitcher_id: int, season: int = None) -> dict:
             h = _parse_float(s.get('hits'), 0)
             bf = _parse_float(s.get('battersFaced'), 1)
 
+            hr  = _parse_float(s.get('homeRuns'), 0)
+            hbp = _parse_float(s.get('hitByPitch'), 0)
+            # FIP = (13*HR + 3*(BB+HBP) - 2*K) / IP + 3.20
+            fip = round((13*hr + 3*(bb+hbp) - 2*k) / ip + 3.20, 2) if ip > 0 else 4.20
             result = {
-                'opp_era':    _parse_float(s.get('era'),  LEAGUE_AVG['opp_era']),
-                'opp_whip':   _parse_float(s.get('whip'), LEAGUE_AVG['opp_whip']),
-                'opp_k_pct':  round(k / bf, 3) if bf > 0 else LEAGUE_AVG['opp_k_pct'],
-                'opp_bb_pct': round(bb / bf, 3) if bf > 0 else LEAGUE_AVG['opp_bb_pct'],
+                'opp_era':     _parse_float(s.get('era'),  LEAGUE_AVG['opp_era']),
+                'opp_whip':    _parse_float(s.get('whip'), LEAGUE_AVG['opp_whip']),
+                'opp_k_pct':   round(k / bf, 3) if bf > 0 else LEAGUE_AVG['opp_k_pct'],
+                'opp_bb_pct':  round(bb / bf, 3) if bf > 0 else LEAGUE_AVG['opp_bb_pct'],
                 'opp_h_per_9': round(h * 9 / ip, 2) if ip > 0 else LEAGUE_AVG['opp_h_per_9'],
+                'opp_fip':     max(1.0, min(8.0, fip)),
+                'opp_throws':  '',  # filled by get_pitcher_throws
             }
             break
     except Exception:
         pass
 
+    cache[key] = result
+    _save_pitcher_cache(cache)
+    return result
+
+
+def get_pitcher_throws(pitcher_id: int) -> str:
+    """Returns 'L' or 'R' for pitcher handedness."""
+    try:
+        data = statsapi.get('person', {'personId': pitcher_id})
+        return data.get('people', [{}])[0].get('pitchHand', {}).get('code', 'R')
+    except Exception:
+        return 'R'
+
+
+def get_pitcher_last_n_starts(pitcher_id: int, n: int = 3, season: int = None) -> dict:
+    """ERA and WHIP over last N starts."""
+    if season is None:
+        season = CURRENT_YEAR
+    defaults = {'opp_last3_era': 4.30, 'opp_last3_whip': 1.28}
+    cache = _load_pitcher_cache()
+    key   = f"{pitcher_id}_{season}_last{n}"
+    if key in cache:
+        return cache[key]
+    try:
+        data = statsapi.player_stat_data(
+            pitcher_id, group='pitching', type='gameLog', season=season)
+        starts = [s for s in data.get('stats', [])
+                  if int(s.get('stat', {}).get('gamesStarted', 0)) > 0][-n:]
+        if not starts:
+            return defaults
+        total_er, total_ip, total_h, total_bb = 0, 0, 0, 0
+        for s in starts:
+            st = s.get('stat', {})
+            total_er += _parse_float(st.get('earnedRuns'), 0)
+            total_ip += _parse_float(st.get('inningsPitched'), 0)
+            total_h  += _parse_float(st.get('hits'), 0)
+            total_bb += _parse_float(st.get('baseOnBalls'), 0)
+        result = {
+            'opp_last3_era':  round((total_er * 9 / total_ip), 2) if total_ip > 0 else 4.30,
+            'opp_last3_whip': round((total_h + total_bb) / total_ip, 2) if total_ip > 0 else 1.28,
+        }
+    except Exception:
+        result = defaults
     cache[key] = result
     _save_pitcher_cache(cache)
     return result

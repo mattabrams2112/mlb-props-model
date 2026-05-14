@@ -31,6 +31,9 @@ from stadium_weather import get_stadium_weather
 from bullpen_data import get_bullpen_stats
 from ratings_cache import get_cached_rating, save_rating
 from odds_api import get_todays_event_ids, get_player_line, fair_probability, american_to_prob, prob_to_american, ODDS_API_KEY
+from team_stats import get_team_recent_scoring
+from umpire_data import get_game_umpire
+from pitcher_data import get_pitcher_throws, get_pitcher_last_n_starts
 
 st.set_page_config(page_title="Game View | MLB Props", page_icon="🎯", layout="wide")
 st.markdown("""
@@ -244,14 +247,21 @@ def cv(v, high, med):
 def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
                   opp_team, park_team, weather, game_label, opp_p_name,
                   date_key: str, batter_team: str = '', game_date: str = '',
-                  event_id: str = ''):
+                  event_id: str = '', game_pk: str = ''):
 
-    season  = datetime.now().year
-    p_std   = get_pitcher_season_stats(opp_pitcher_id) if opp_pitcher_id else {}
-    p_sc    = get_pitcher_statcast(opp_pitcher_id) if opp_pitcher_id else {}
-    bp      = get_bullpen_stats(opp_team, season)
-    bp_era  = bp.get('bp_era', 4.20)
-    bp_whip = bp.get('bp_whip', 1.30)
+    season      = datetime.now().year
+    p_std       = get_pitcher_season_stats(opp_pitcher_id) if opp_pitcher_id else {}
+    p_sc        = get_pitcher_statcast(opp_pitcher_id) if opp_pitcher_id else {}
+    bp          = get_bullpen_stats(opp_team, season)
+    bp_era      = bp.get('bp_era', 4.20)
+    bp_whip     = bp.get('bp_whip', 1.30)
+    p_throws    = get_pitcher_throws(opp_pitcher_id) if opp_pitcher_id else 'R'
+    p_last3     = get_pitcher_last_n_starts(opp_pitcher_id, 3, season) if opp_pitcher_id else {}
+    team_score  = get_team_recent_scoring(batter_team)
+    try:
+        ump_data = get_game_umpire(int(game_pk)) if game_pk else {}
+    except Exception:
+        ump_data = {}
 
     era   = f"{p_std.get('opp_era',0):.2f}"   if opp_pitcher_id else '—'
     whip  = f"{p_std.get('opp_whip',0):.2f}"  if opp_pitcher_id else '—'
@@ -356,7 +366,17 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
                                     weather['wind_dir_code'],
                                     bp_era=bp_era, bp_whip=bp_whip,
                                     line=book_line, over_odds=book_odds,
-                                    is_home=is_home)
+                                    is_home=is_home,
+                                    opp_fip=p_std.get('opp_fip', 4.20),
+                                    opp_last3_era=p_last3.get('opp_last3_era', 4.30),
+                                    opp_last3_whip=p_last3.get('opp_last3_whip', 1.28),
+                                    pitcher_throws=p_throws,
+                                    batter_xba_vs_rhp=b_sc.get('batter_xba_vs_rhp', 0.250),
+                                    batter_xba_vs_lhp=b_sc.get('batter_xba_vs_lhp', 0.250),
+                                    batter_hard_hit_vs_rhp=b_sc.get('batter_hard_hit_vs_rhp', 0.360),
+                                    batter_hard_hit_vs_lhp=b_sc.get('batter_hard_hit_vs_lhp', 0.360),
+                                    team_runs_avg=team_score.get('team_runs_avg', 4.5),
+                                    umpire_tendency=ump_data.get('umpire_tendency', 0.0))
                 # Save for future — locked forever
                 if game_date:
                     save_rating(game_date, pid, r_data['total'], r_data['grade'],
@@ -654,12 +674,13 @@ for game in games:
 
     with ac:
         st.markdown(f'**{away} Batting** · vs {home_p}')
+        gk = str(game.get('game_pk', ''))
         if ab_ids:
             render_lineup(ac, ab_ids, a_codes, False, home_pid,
                           home, home, weather, away + ' @ ' + home,
                           home_p, date_key, batter_team=away,
                           game_date=selected_date.strftime('%Y-%m-%d'),
-                          event_id=event_id)
+                          event_id=event_id, game_pk=gk)
         else:
             st.info('Lineup pending.')
 
@@ -670,7 +691,7 @@ for game in games:
                           away, home, weather, away + ' @ ' + home,
                           away_p, date_key, batter_team=home,
                           game_date=selected_date.strftime('%Y-%m-%d'),
-                          event_id=event_id)
+                          event_id=event_id, game_pk=gk)
         else:
             st.info('Lineup pending.')
 

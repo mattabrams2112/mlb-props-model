@@ -51,6 +51,8 @@ def get_game_logs(player_id: int, seasons: list = None) -> pd.DataFrame:
                     'player_id': player_id,
                     'season':    season,
                     'date':      game_info.get('gameDate', split.get('date', '')),
+                    'game_hour': int(game_info.get('gameDate','T13:').split('T')[1][:2])
+                                 if 'T' in game_info.get('gameDate','') else 13,
                     'game_pk':   str(game_info.get('gamePk', '')),
                     'opponent':  opponent,
                     'home_team': home_team,

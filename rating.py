@@ -48,6 +48,17 @@ def compute_rating(
     pitcher_xba_allowed: float = 0.250,
     batter_avg_ev: float     = 88.0,
     pitcher_avg_ev: float    = 88.0,
+    # New stats
+    opp_fip: float           = 4.20,
+    opp_last3_era: float     = 4.30,
+    opp_last3_whip: float    = 1.28,
+    pitcher_throws: str      = 'R',
+    batter_xba_vs_rhp: float = 0.250,
+    batter_xba_vs_lhp: float = 0.250,
+    batter_hard_hit_vs_rhp: float = 0.360,
+    batter_hard_hit_vs_lhp: float = 0.360,
+    team_runs_avg: float     = 4.5,
+    umpire_tendency: float   = 0.0,
 ) -> dict:
     scores = {}
 
@@ -65,10 +76,32 @@ def compute_rating(
     scores['Form & Hit Rate'] = (round(hrr_score + ba_bonus, 1), 15)
 
     # ── Starter Matchup (0-15) ───────────────────────────────────────────────
-    era_score = max(0.0, min(15.0, 15.0 * (6.0 - opp_era) / (6.0 - 3.0)))
+    # Blend season ERA with FIP and last 3 starts for better accuracy
+    blended_era = (opp_era * 0.4 + opp_fip * 0.35 + opp_last3_era * 0.25)
+    era_score = max(0.0, min(15.0, 15.0 * (6.0 - blended_era) / (6.0 - 3.0)))
     if bvp_sample:
         era_score = max(0.0, min(15.0, era_score + (bvp_avg - 0.250) * 12))
     scores['Starter Matchup'] = (round(era_score, 1), 15)
+
+    # ── Platoon Advantage (0-6) ──────────────────────────────────────────────
+    # Use the correct split based on pitcher handedness
+    if pitcher_throws == 'L':
+        plat_xba    = batter_xba_vs_lhp
+        plat_hh     = batter_hard_hit_vs_lhp
+    else:
+        plat_xba    = batter_xba_vs_rhp
+        plat_hh     = batter_hard_hit_vs_rhp
+    plat_score = max(0.0, min(6.0, 3.0 + (plat_xba - 0.250) * 15 + (plat_hh - 0.360) * 10))
+    scores['Platoon'] = (round(plat_score, 1), 6)
+
+    # ── Team Run Environment (0-5) ───────────────────────────────────────────
+    # High-scoring team = more RBI/run opportunities
+    team_score = max(0.0, min(5.0, (team_runs_avg - 3.0) / (7.0 - 3.0) * 5.0))
+    scores['Team Scoring'] = (round(team_score, 1), 5)
+
+    # ── Umpire (0-3) ─────────────────────────────────────────────────────────
+    ump_score = max(0.0, min(3.0, 1.5 + umpire_tendency))
+    scores['Umpire'] = (round(ump_score, 1), 3)
 
     # ── Bullpen (0-8) ────────────────────────────────────────────────────────
     bp_era_score  = max(0.0, min(5.0, (bp_era - 3.0) / (5.5 - 3.0) * 5.0))

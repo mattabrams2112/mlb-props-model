@@ -152,6 +152,27 @@ def build_features(df: pd.DataFrame, fetch_weather: bool = True,
     df['day_of_week'] = df['date'].dt.dayofweek
     df['park_factor'] = df['home_team'].apply(get_park_factor)
 
+    # Day/night game (UTC hour: < 17 = day game ~1pm ET, >= 17 = night ~7pm ET)
+    if 'game_hour' in df.columns:
+        df['is_day_game'] = (df['game_hour'] < 17).astype(int)
+    else:
+        df['is_day_game'] = 0
+
+    # Rolling K% and BB% for batter
+    for w in WINDOWS:
+        pa = (df['ab'] + df['bb']).shift(1).rolling(w, min_periods=3).sum()
+        df[f'k_pct_{w}g']  = df['k'].shift(1).rolling(w, min_periods=3).sum() / pa.replace(0, np.nan)
+        df[f'bb_pct_{w}g'] = df['bb'].shift(1).rolling(w, min_periods=3).sum() / pa.replace(0, np.nan)
+
+    # Rolling BABIP = (H - HR) / (AB - K - HR)
+    for w in WINDOWS:
+        h_r  = df['h'].shift(1).rolling(w, min_periods=3).sum()
+        hr_r = df['hr'].shift(1).rolling(w, min_periods=3).sum()
+        ab_r = df['ab'].shift(1).rolling(w, min_periods=3).sum()
+        k_r  = df['k'].shift(1).rolling(w, min_periods=3).sum()
+        denom = (ab_r - k_r - hr_r).replace(0, np.nan)
+        df[f'babip_{w}g'] = (h_r - hr_r) / denom
+
     # Home/away splits — rolling avg HRR at home vs away (no leakage)
     try:
         df['home_hrr_avg'] = (
@@ -202,7 +223,10 @@ def get_feature_cols() -> list:
     for w in WINDOWS:
         cols += [f'ba_{w}g', f'slg_{w}g']
     cols.append('total_season_avg')
-    cols += ['is_home', 'month', 'day_of_week', 'park_factor', 'temp_f', 'wind_speed', 'wind_dir', 'home_hrr_avg']
+    cols += ['is_home', 'month', 'day_of_week', 'park_factor',
+             'temp_f', 'wind_speed', 'wind_dir', 'home_hrr_avg', 'is_day_game']
+    for w in WINDOWS:
+        cols += [f'k_pct_{w}g', f'bb_pct_{w}g', f'babip_{w}g']
     cols += PITCHER_FEATURE_COLS + BVP_FEATURE_COLS
     cols += BATTER_STATCAST_COLS + PITCHER_STATCAST_COLS
     return cols
