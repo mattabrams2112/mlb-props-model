@@ -119,7 +119,9 @@ def update_actuals():
                     hrr = int(s.get('hits',0)) + int(s.get('runs',0)) + int(s.get('rbi',0))
                     df.at[i, 'actual'] = hrr
                     try:
-                        df.at[i, 'result'] = 'W' if hrr > float(row['line']) else 'L'
+                        line_val = str(row.get('line', '')).strip()
+                        line = float(line_val) if line_val and line_val != 'nan' else 1.5
+                        df.at[i, 'result'] = 'W' if hrr > line else 'L'
                     except Exception:
                         pass
                     updated += 1

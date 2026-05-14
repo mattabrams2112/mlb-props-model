@@ -57,6 +57,13 @@ def color_wr(wr):
 st.markdown('## 📈 Play Analytics')
 st.caption('Auto-updates after every game. Tracks every HRR play to find the most profitable thresholds.')
 
+# Show play log size for debugging
+_total_plays = len(load_all())
+if _total_plays == 0:
+    st.warning('⚠️ No plays logged yet. Open the **Game View** page and let lineups fully load — every batter gets logged automatically.')
+else:
+    st.caption(f'📊 {_total_plays} plays in log')
+
 # ── Auto-update on page load ──────────────────────────────────────────────────
 # Silently fetch actuals for any completed games from previous days
 if 'analytics_last_update' not in st.session_state:

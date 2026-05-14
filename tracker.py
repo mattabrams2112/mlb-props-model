@@ -63,11 +63,14 @@ def save(df: pd.DataFrame):
 
 
 def recalc_results(df: pd.DataFrame) -> pd.DataFrame:
+    """Recalculate W/L. If no line, assumes 1.5 as default."""
     df = df.copy()
     for i, row in df.iterrows():
         try:
             actual = float(row['actual'])
-            line   = float(row['line'])
+            # Default line to 1.5 if not set
+            line_val = str(row.get('line', '')).strip()
+            line = float(line_val) if line_val and line_val != 'nan' else 1.5
             df.at[i, 'result'] = 'W' if actual > line else 'L'
         except (ValueError, TypeError):
             df.at[i, 'result'] = ''
