@@ -218,6 +218,11 @@ with col_sync:
 
 with col_fetch:
     if st.button('🔄 Auto-fetch Actuals from MLB API', type='primary', use_container_width=True):
+        today_str = datetime.now().strftime('%Y-%m-%d')
+        pending = df[df['actual'].isna() | (df['actual'].astype(str).str.strip().isin(['', 'nan']))]
+        st.caption(f'Debug: {len(df)} total plays, {len(pending)} missing actuals, today={today_str}')
+        if not pending.empty:
+            st.caption(f'Sample dates: {pending["date"].tolist()[:5]}')
         with st.spinner('Fetching actual H+R+RBI for completed games...'):
             df, updated = auto_fill_actuals(df)
         if updated:
