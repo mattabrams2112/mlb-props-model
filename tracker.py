@@ -33,31 +33,40 @@ def _get_engine():
 
 
 def load() -> pd.DataFrame:
+    """Load tracker — all columns stored as strings to avoid dtype conflicts."""
+    def _clean(df):
+        for c in COLS:
+            if c not in df.columns:
+                df[c] = ''
+        df = df[COLS].copy()
+        # Convert everything to string and clean up NaN/None
+        for c in df.columns:
+            df[c] = df[c].astype(object).where(df[c].notna(), '').astype(str)
+            df[c] = df[c].replace({'nan': '', 'None': '', 'NaN': ''})
+        return df
+
     engine = _get_engine()
     if engine:
         try:
             df = pd.read_sql('SELECT * FROM tracker ORDER BY date DESC', engine)
-            for c in COLS:
-                if c not in df.columns:
-                    df[c] = ''
-            df = df[COLS].astype(str).replace('nan', '')
-            return df
+            return _clean(df)
         except Exception:
             pass
 
     if os.path.exists(TRACKER_FILE):
         try:
             df = pd.read_csv(TRACKER_FILE, dtype=str).fillna('')
-            for c in COLS:
-                if c not in df.columns:
-                    df[c] = ''
-            return df[COLS]
+            return _clean(df)
         except Exception:
             pass
     return pd.DataFrame(columns=COLS)
 
 
 def save(df: pd.DataFrame):
+    # Normalize all values to strings before saving
+    df = df.copy()
+    for c in df.columns:
+        df[c] = df[c].astype(str).replace({'nan': '', 'None': '', 'NaN': ''})
     engine = _get_engine()
     if engine:
         try:
