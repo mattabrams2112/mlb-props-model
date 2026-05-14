@@ -440,8 +440,8 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
                 except Exception:
                     pass
 
-            # Add 60+ players to the betting tracker
-            if r_data['total'] >= 60 and pname and game_date:
+            # Add 62+ rating AND 1.9+ projection players to the betting tracker
+            if r_data['total'] >= 62 and res['proj'] >= 1.9 and pname and game_date:
                 try:
                     tracker_add([{
                         'player':     pname,

@@ -85,7 +85,7 @@ def auto_fill_actuals(df: pd.DataFrame) -> tuple:
 
 # Auto-import any 60+ rated players from today's lineup
 if 'lineup_rows' in st.session_state:
-    qualified = [r for r in st.session_state['lineup_rows'] if r['Rating'] >= 60]
+    qualified = [r for r in st.session_state['lineup_rows'] if r['Rating'] >= 62 and r['Projected'] >= 1.9]
     if qualified:
         add_predictions([{
             'player':     r['Player'],
