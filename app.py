@@ -11,7 +11,7 @@ from xgboost import XGBRegressor
 try:
     from lightgbm import LGBMRegressor
     HAS_LGBM = True
-except ImportError:
+except (ImportError, OSError):
     HAS_LGBM = False
 from sklearn.model_selection import TimeSeriesSplit
 from sklearn.metrics import mean_absolute_error

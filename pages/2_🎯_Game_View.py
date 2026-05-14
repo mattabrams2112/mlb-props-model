@@ -17,7 +17,7 @@ from xgboost import XGBRegressor
 try:
     from lightgbm import LGBMRegressor
     HAS_LGBM = True
-except ImportError:
+except (ImportError, OSError):
     HAS_LGBM = False
 import statsapi
 import requests as _req
