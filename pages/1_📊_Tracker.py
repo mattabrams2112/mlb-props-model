@@ -267,6 +267,25 @@ with col_fetch:
         else:
             st.info('No new actuals to fetch — either games are pending or already filled.')
 
+# ── Manual correction ─────────────────────────────────────────────────────────
+
+with st.expander('✏️ Manually Correct an Actual', expanded=False):
+    st.caption('Use this to fix wrong actuals (e.g. mid-game stats fetched incorrectly).')
+    players = df['player'].tolist()
+    sel_player = st.selectbox('Player', players, key='manual_player')
+    new_actual = st.number_input('Correct Actual H+R+RBI', min_value=0, max_value=20, step=1, key='manual_actual')
+    if st.button('✅ Apply Correction', type='primary'):
+        idx = df[df['player'] == sel_player].index
+        if len(idx) > 0:
+            df = df.copy()
+            df.loc[idx[0], 'actual'] = str(new_actual)
+            line_val = str(df.loc[idx[0], 'line']).strip()
+            line = float(line_val) if line_val and line_val not in ('nan', '') else 1.5
+            df.loc[idx[0], 'result'] = 'W' if new_actual > line else 'L'
+            save(df)
+            st.success(f'Updated {sel_player}: actual={new_actual}, result={"W" if new_actual > line else "L"}')
+            st.rerun()
+
 # ── Editable table ─────────────────────────────────────────────────────────────
 
 st.markdown('### Results')
