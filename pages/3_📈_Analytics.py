@@ -64,7 +64,17 @@ if _total_plays == 0:
 else:
     st.caption(f'📊 {_total_plays} plays in log')
 
-# Auto-update removed from page load — use button below to fetch actuals
+# Clear any actuals/results for today's games (may have been fetched mid-game)
+from full_tracker import load_all as _load_all, save_all as _save_all
+_today_str = datetime.now().strftime('%Y-%m-%d')
+_full_df = _load_all()
+if not _full_df.empty:
+    _today_mask = _full_df['date'].astype(str).str[:10] >= _today_str
+    if _today_mask.any():
+        _full_df = _full_df.copy()
+        _full_df.loc[_today_mask, 'actual'] = ''
+        _full_df.loc[_today_mask, 'result'] = ''
+        _save_all(_full_df)
 
 # ── Controls ──────────────────────────────────────────────────────────────────
 
