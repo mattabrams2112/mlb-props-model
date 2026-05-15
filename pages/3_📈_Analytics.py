@@ -101,22 +101,24 @@ if df.empty:
 # ── Manual correction ─────────────────────────────────────────────────────────
 with st.expander('✏️ Manually Correct an Actual', expanded=False):
     st.caption('Fix wrong actuals caused by mid-game fetches.')
-    players_a = df['player'].tolist() if not df.empty else []
+    dates_a  = sorted(df['date'].astype(str).str[:10].unique(), reverse=True) if not df.empty else []
+    sel_date_a = st.selectbox('Date', dates_a, key='analytics_manual_date')
+    day_df_a   = df[df['date'].astype(str).str[:10] == sel_date_a] if sel_date_a else df
+    players_a  = day_df_a['player'].tolist()
     sel_a = st.selectbox('Player', players_a, key='analytics_manual_player')
     new_a = st.number_input('Correct Actual H+R+RBI', min_value=0, max_value=20, step=1, key='analytics_manual_actual')
     if st.button('✅ Apply', type='primary', key='analytics_apply'):
-        idx = df[df['player'] == sel_a].index
+        idx = df[(df['player'] == sel_a) & (df['date'].astype(str).str[:10] == sel_date_a)].index
         if len(idx) > 0:
             df = df.copy()
             i = idx[0]
             df.at[i, 'actual'] = str(new_a)
             line_val = str(df.at[i, 'line']).strip()
             line = float(line_val) if line_val and line_val not in ('nan', '') else 1.5
-            game_date = str(df.at[i, 'date'])[:10]
             today_s = _datetime.now().strftime('%Y-%m-%d')
-            df.at[i, 'result'] = 'W' if (new_a > line and game_date < today_s) else 'L' if game_date < today_s else ''
+            df.at[i, 'result'] = 'W' if (new_a > line and sel_date_a < today_s) else 'L' if sel_date_a < today_s else ''
             save_all(df)
-            st.success(f'Updated {sel_a}: actual={new_a}')
+            st.success(f'Updated {sel_a} ({sel_date_a}): actual={new_a}')
             st.rerun()
 
 # Ensure numeric types
