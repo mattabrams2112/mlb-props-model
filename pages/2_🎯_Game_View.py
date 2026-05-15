@@ -673,22 +673,6 @@ if not has_lineups:
            if selected_date < datetime.now().date()
            else 'Lineups not yet posted. Check back 2–3 hours before first pitch.')
     st.info(msg)
-    cols = st.columns(min(len(games), 4))
-    for i, g in enumerate(games):
-        with cols[i % 4]:
-            w     = get_stadium_weather(g.get('home_team', ''), g.get('start_time', ''))
-            w_txt = '🏟️ Dome' if w['is_dome'] else str(w['temp_f']) + '°F · ' + w['wind_label']
-            ap    = get_pitcher_name(g.get('away_pitcher_id')) if g.get('away_pitcher_id') else 'TBD'
-            hp    = get_pitcher_name(g.get('home_pitcher_id')) if g.get('home_pitcher_id') else 'TBD'
-            st.markdown(
-                f'<div style="background:#1e293b;border:1px solid #1e40af;border-radius:8px;'
-                f'padding:12px;text-align:center;">'
-                f'{logo_img_tag(g.get("away_team",""),28)}'
-                f'<b style="color:#38bdf8;"> {g.get("away_team","?")} @ {g.get("home_team","?")} </b>'
-                f'{logo_img_tag(g.get("home_team",""),28)}<br>'
-                f'<span style="font-size:11px;color:#7dd3fc;">{ap} vs {hp}</span><br>'
-                f'<span style="font-size:11px;color:#94a3b8;">{w_txt}</span></div>',
-                unsafe_allow_html=True)
     st.stop()
 
 date_key   = selected_date.strftime('%Y%m%d')
