@@ -31,6 +31,18 @@ st.set_page_config(page_title="MLB Props Model", page_icon="⚾", layout="wide")
 
 st.markdown("""
 <style>
+  /* Bigger sidebar nav links */
+  [data-testid="stSidebarNav"] a {
+    font-size: 1.15rem !important;
+    padding: 0.6rem 1rem !important;
+    font-weight: 600 !important;
+  }
+  [data-testid="stSidebarNav"] span {
+    font-size: 1.15rem !important;
+  }
+  [data-testid="stSidebarNavItems"] {
+    gap: 0.3rem !important;
+  }
   .block-container { padding-top: 1.5rem; }
   .player-header { display:flex; align-items:center; gap:10px; }
   .proj-number   { font-size:52px; font-weight:800; line-height:1; }
