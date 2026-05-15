@@ -65,8 +65,9 @@ else:
     st.caption(f'📊 {_total_plays} plays in log')
 
 # Clear any actuals/results for today's games (may have been fetched mid-game)
+from datetime import datetime as _datetime
 from full_tracker import load_all as _load_all, save_all as _save_all
-_today_str = datetime.now().strftime('%Y-%m-%d')
+_today_str = _datetime.now().strftime('%Y-%m-%d')
 _full_df = _load_all()
 if not _full_df.empty:
     _today_mask = _full_df['date'].astype(str).str[:10] >= _today_str
