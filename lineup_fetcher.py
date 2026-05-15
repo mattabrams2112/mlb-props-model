@@ -71,8 +71,8 @@ def get_game_context(game_pk: int, status: str = '',
 
     game_is_live_or_final = any(s in status for s in COMPLETED)
 
-    # For completed/live games go straight to boxscore for actual lineup
-    if game_is_live_or_final:
+    # Always try boxscore for any game — works for Final, In Progress, and pre-game
+    if True:
         try:
             box  = statsapi.boxscore_data(game_pk)
             home = box.get('home', {})
