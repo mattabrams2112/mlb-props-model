@@ -109,7 +109,11 @@ def auto_fill_actuals(df: pd.DataFrame) -> tuple:
     df      = df.copy()
     today   = datetime.now().strftime('%Y-%m-%d')
 
-    pending = df[df['actual'].astype(str).str.strip().isin(['', 'nan'])]
+    # Only fetch actuals for completed past days — never today's games
+    pending = df[
+        (df['actual'].astype(str).str.strip().isin(['', 'nan'])) &
+        (df['date'].astype(str).str[:10] < today)
+    ]
     if pending.empty:
         return df, 0
 
@@ -193,7 +197,16 @@ def sync_from_ratings_cache():
 
 synced = sync_from_ratings_cache()
 if synced > 0:
-    df = load()  # reload with new entries
+    df = load()
+
+# Clear any actuals for today's games (may have been fetched mid-game)
+_today = datetime.now().strftime('%Y-%m-%d')
+_today_rows = df['date'].astype(str).str[:10] >= _today
+if _today_rows.any():
+    df = df.copy()
+    df.loc[_today_rows, 'actual'] = ''
+    df.loc[_today_rows, 'result'] = ''
+    save(df)
 
 # Auto-fill missing lines from Odds API on page load
 if 'tracker_lines_filled' not in st.session_state:
