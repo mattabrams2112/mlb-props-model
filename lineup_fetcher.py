@@ -71,8 +71,8 @@ def get_game_context(game_pk: int, status: str = '',
 
     game_is_live_or_final = any(s in status for s in COMPLETED)
 
-    # Always try boxscore for any game — works for Final, In Progress, and pre-game
-    if True:
+    # For completed/live games go straight to boxscore
+    if game_is_live_or_final:
         try:
             box  = statsapi.boxscore_data(game_pk)
             home = box.get('home', {})
@@ -108,7 +108,8 @@ def get_game_context(game_pk: int, status: str = '',
             ap = away.get('pitchers', [])
             result['home_pitcher_id'] = hp[0] if hp else None
             result['away_pitcher_id'] = ap[0] if ap else None
-            return result
+            if result['home_batters']:
+                return result  # only return early if we got batters
         except Exception:
             pass
 
