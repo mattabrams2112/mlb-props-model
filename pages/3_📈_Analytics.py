@@ -79,11 +79,43 @@ if not _full_df.empty:
 
 # ── Controls ──────────────────────────────────────────────────────────────────
 
-col_refresh, col_fetch = st.columns([1, 1])
+col_refresh, col_fetch, col_sync = st.columns([1, 1, 1])
 with col_refresh:
     if st.button('🔄 Refresh', use_container_width=True):
         st.session_state.pop('analytics_last_update', None)
         st.rerun()
+with col_sync:
+    if st.button('🔁 Sync from Tracker', use_container_width=True,
+                 help='Copy any missing plays from the betting tracker into the analytics log'):
+        from tracker import load as load_tracker
+        tracker_df = load_tracker()
+        analytics_df = load_all()
+        added = 0
+        for _, row in tracker_df.iterrows():
+            player = str(row.get('player', ''))
+            date   = str(row.get('date', ''))[:10]
+            if player and date:
+                exists = (not analytics_df.empty and
+                         ((analytics_df['player'] == player) &
+                          (analytics_df['date'].astype(str).str[:10] == date)).any())
+                if not exists:
+                    from full_tracker import log_play
+                    try:
+                        log_play(
+                            player=player, team=str(row.get('team','')),
+                            rating=int(float(row.get('rating', 0) or 0)),
+                            grade=str(row.get('grade','')),
+                            projected=float(row.get('projected', 0) or 0),
+                            line=float(row.get('line', 0) or 0) if row.get('line') and str(row.get('line')) not in ('', 'nan') else None,
+                            vs_pitcher=str(row.get('vs_pitcher','')),
+                            game_date=date
+                        )
+                        added += 1
+                    except Exception:
+                        pass
+        st.success(f'Synced {added} missing play(s) from tracker!')
+        st.rerun()
+
 with col_fetch:
     if st.button('⬇️ Force Fetch All Actuals', type='primary', use_container_width=True):
         st.session_state.pop('analytics_last_update', None)
