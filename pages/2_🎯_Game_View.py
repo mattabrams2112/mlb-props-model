@@ -492,7 +492,9 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
             _game_finished = status in ('Final', 'Game Over', 'Completed Early')
             from datetime import datetime as _dt
             _today = _dt.now().strftime('%Y-%m-%d')
-            if r_data['total'] >= 56 and res['proj'] >= 1.9 and pname and game_date and (game_date < _today or _game_finished):
+            _r = r_data['total']; _p = res['proj']
+            _qualifies = (65 <= _r <= 69 and _p >= 2.5) or (_r >= 70)
+            if _qualifies and pname and game_date and (game_date < _today or _game_finished):
                 try:
                     tracker_add([{
                         'player':     pname,
