@@ -625,7 +625,7 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
             st.caption('Enter the H+R+RBI line for each player. Ratings and Edge update automatically.')
             cols = st.columns(3)
             for i, (_, pid, pname, res) in enumerate(starters_with_data):
-                line_key = f'line_{date_key}_{pid}'
+                line_key = f'line_{date_key}_{game_pk}_{batter_team}_{pid}'
                 with cols[i % 3]:
                     val = st.number_input(
                         pname, min_value=0.5, max_value=6.0,
