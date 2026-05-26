@@ -609,7 +609,7 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
                 f'<td style="padding:6px 8px;">{barrel_html}</td>'
                 f'</tr>'
             )
-            totals.append((r_data['total'], res['proj']))
+            totals.append((r_data['total'], _disp_proj))
 
         elif not is_starter:
             row = (
@@ -638,6 +638,8 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
         avg_r = round(sum(t[0] for t in totals) / len(totals))
         tot_p = round(sum(t[1] for t in totals), 2)
         rc    = cv(avg_r, 75, 55); pc = cv(tot_p / max(len(totals), 1), 3.0, 2.0)
+        # Save team HRR total to session state for Game Predictions page
+        st.session_state[f'team_hrr_{date_key}_{batter_team}'] = tot_p
         totals_row = (
             f'<tr style="background:#0f172a;border-top:2px solid #1e40af;">'
             f'<td colspan="3" style="padding:7px;color:#38bdf8;font-weight:700;">LINEUP TOTALS</td>'

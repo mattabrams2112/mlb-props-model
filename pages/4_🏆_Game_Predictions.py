@@ -217,7 +217,7 @@ def update_actuals():
 # ── Page ──────────────────────────────────────────────────────────────────────
 
 st.markdown('## 🏆 Game Predictions')
-st.caption('Model-driven winner picks based on pitcher quality, team offense, and park factors.')
+st.caption('Winner picks using lineup HRR totals from Game View (most accurate) or pitcher/park formula as fallback.')
 
 today_str = datetime.now().strftime('%Y-%m-%d')
 
@@ -278,6 +278,21 @@ if not games:
 
 # ── Build predictions ─────────────────────────────────────────────────────────
 
+date_key = selected_date.strftime('%Y%m%d')
+
+# Check how many games have HRR totals from Game View
+_hrr_available = sum(
+    1 for g in games
+    if st.session_state.get(f'team_hrr_{date_key}_{g.get("away_team")}') is not None
+    and st.session_state.get(f'team_hrr_{date_key}_{g.get("home_team")}') is not None
+)
+if _hrr_available == len(games):
+    st.success('✅ Using lineup HRR totals from Game View — most accurate predictions.')
+elif _hrr_available > 0:
+    st.info(f'⚡ {_hrr_available}/{len(games)} games using lineup HRR totals. Open Game View for the rest.')
+else:
+    st.warning('⚠️ Load the **Game View** page first for lineup-based predictions. Using pitcher/park formula as fallback.')
+
 if 'gp_rows' not in st.session_state:
     rows = []
     with st.spinner(f'Generating predictions for {len(games)} games...'):
@@ -290,9 +305,23 @@ if 'gp_rows' not in st.session_state:
             away_p = get_pitcher_name(away_pid) if away_pid else 'TBD'
             gid    = f'{away}_{home}'
 
-            winner, away_proj, home_proj, margin, confidence = predict_game(
-                home, away, home_pid, away_pid
-            )
+            # Use lineup HRR totals from Game View if available
+            away_hrr = st.session_state.get(f'team_hrr_{date_key}_{away}')
+            home_hrr = st.session_state.get(f'team_hrr_{date_key}_{home}')
+
+            if away_hrr is not None and home_hrr is not None:
+                margin = round(home_hrr - away_hrr, 1)
+                abs_m  = abs(margin)
+                confidence = ('Strong' if abs_m >= 3.0 else
+                              'Moderate' if abs_m >= 1.5 else
+                              'Lean' if abs_m >= 0.5 else 'Toss-up')
+                winner    = home if margin >= 0 else away
+                away_proj = away_hrr
+                home_proj = home_hrr
+            else:
+                winner, away_proj, home_proj, margin, confidence = predict_game(
+                    home, away, home_pid, away_pid
+                )
             rows.append({
                 'game_id':          gid,
                 'away_team':        away,
@@ -367,7 +396,7 @@ for row in rows:
 
         # Center
         f'<div style="text-align:center;flex:1;">'
-        f'<div style="font-size:13px;color:#475569;">proj runs</div>'
+        f'<div style="font-size:13px;color:#475569;">total proj HRR</div>'
         f'<div style="font-size:20px;color:#475569;margin:4px 0;">@</div>'
         f'<div style="margin-top:6px;">'
         f'<span style="background:{cc};color:#000;border-radius:5px;padding:3px 10px;'
