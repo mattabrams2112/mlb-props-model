@@ -525,6 +525,12 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
                           (75 <= _r <= 79 and _p >= 1.5) or
                           (80 <= _r <= 84 and _p >= 2.5) or
                           (85 <= _r <= 89 and _p >= 1.5))
+            if _qualifies:
+                _units = 2.0 if 85 <= _r <= 89 else 1.5 if 80 <= _r <= 84 else 1.0
+                _bet   = int(_units * 8)
+                _stake_badge = (f' <span style="font-size:10px;background:#1e3a5f;color:#7dd3fc;'
+                                f'border-radius:3px;padding:1px 4px;font-weight:700;">'
+                                f'{_units:.0f}u · ${_bet}</span>')
             if _qualifies and pname and game_date and (game_date < _today or _game_finished):
                 try:
                     tracker_add([{
@@ -590,7 +596,8 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
                 if _qualifies else
                 'padding:6px 8px;color:#e0f2fe;font-weight:600;white-space:nowrap;'
             )
-            _name_badge = ' <span style="font-size:10px;background:#f59e0b;color:#000;border-radius:3px;padding:1px 4px;font-weight:800;">BET</span>' if _qualifies else ''
+            _name_badge = (f' <span style="font-size:10px;background:#f59e0b;color:#000;border-radius:3px;padding:1px 4px;font-weight:800;">BET</span>{_stake_badge}'
+                           if _qualifies else '')
             _row_border = 'border-left:3px solid #f59e0b;' if _qualifies else ''
             row = (
                 f'<tr style="background:{bg};border-bottom:1px solid #1e293b;{_row_border}">'
