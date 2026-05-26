@@ -607,7 +607,8 @@ else:
             from tracker import add_predictions
             qualified = [r for r in all_rows if
                          (65 <= r['Rating'] <= 69 and r['Projected'] >= 2.5) or
-                         r['Rating'] >= 70]
+                         (70 <= r['Rating'] <= 74 and r['Projected'] >= 2.0) or
+                         (r['Rating'] >= 75 and r['Projected'] >= 1.8)]
             if qualified:
                 add_predictions([{
                     'player':     r['Player'],
