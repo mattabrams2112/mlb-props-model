@@ -380,6 +380,14 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
     # Sort: starters by spot, subs by spot then sub_idx
     fetched.sort(key=lambda x: (0 if x[5] else 1, x[6], x[7]))
 
+    # ── Lineup context ────────────────────────────────────────────────────────
+    # Build team projection map: spot -> proj for all starters with results
+    _LEAGUE_AVG    = 1.8
+    _starter_projs = {sp: r['proj'] for _, _, _, _, r, is_s, sp, _, _ in fetched
+                      if is_s and r and r.get('proj') is not None}
+    _team_avg      = (sum(_starter_projs.values()) / len(_starter_projs)
+                      if _starter_projs else _LEAGUE_AVG)
+
     # ── Build rows ────────────────────────────────────────────────────────────
     rows_html = []
     totals    = []
@@ -387,6 +395,19 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
     for row_i, (idx, pid, pname, pteam, res, is_starter, spot, sub_idx, odds_data) in enumerate(fetched):
         display_order = str(spot) if is_starter else f'{spot}.{sub_idx}'
         batting_order = spot if is_starter else 0
+
+        # Lineup context — how strong is this player's surrounding lineup?
+        if is_starter and res and spot in _starter_projs:
+            _prev = 9 if spot == 1 else spot - 1
+            _next = 1 if spot == 9 else spot + 1
+            _nbrs = [_starter_projs[s] for s in (_prev, _next) if s in _starter_projs]
+            _nbr_avg  = sum(_nbrs) / len(_nbrs) if _nbrs else _team_avg
+            _ctx_avg  = 0.5 * _team_avg + 0.5 * _nbr_avg
+            _ctx_pct  = max(-0.12, min(0.12, (_ctx_avg - _LEAGUE_AVG) / _LEAGUE_AVG * 0.4))
+        else:
+            _ctx_pct  = 0.0
+        _disp_proj = res['proj'] if res else 0  # updated in each branch below
+
         bg = '#0f172a' if row_i % 2 == 0 else '#1e293b'
         if not is_starter:
             bg = '#111827'
@@ -412,13 +433,16 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
                           'color': '#22c55e' if locked_rating >= 75 else '#eab308' if locked_rating >= 55 else '#ef4444',
                           'components': {}, 'line_label': None}
                 res = dict(res); res['proj'] = locked_proj
+                _disp_proj = locked_proj
             elif game_started:
                 # Game started, no pre-game cache — calculate without odds
                 book_line  = None
                 book_odds  = None
                 season_r   = int(res['df']['season'].iloc[-1])
                 b_sc_local = get_batter_statcast(pid, season_r)
-                r_data = get_rating(res, pid, opp_pitcher_id, park_team, batting_order,
+                _res_ctx   = dict(res)
+                _res_ctx['proj'] = round(max(0.5, res['proj'] * (1 + _ctx_pct)), 2)
+                r_data = get_rating(_res_ctx, pid, opp_pitcher_id, park_team, batting_order,
                                     weather['temp_f'], weather['wind_speed'],
                                     weather['wind_dir_code'],
                                     bp_era=bp_era, bp_whip=bp_whip,
@@ -437,17 +461,20 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
                                     opp_def_rating=opp_defense.get('def_rating', 0.0),
                                     pitcher_rest_factor=p_rest.get('rest_factor', 0.0),
                                     pitcher_gb_pct=p_sc.get('pitcher_gb_pct', 0.430))
-                st.session_state[session_key] = (r_data['total'], r_data['grade'], res['proj'])
+                _disp_proj = _res_ctx['proj']
+                st.session_state[session_key] = (r_data['total'], r_data['grade'], _disp_proj)
                 if game_date:
                     save_rating(game_date, pid, r_data['total'], r_data['grade'],
-                                res['proj'], player_name=pname, team=batter_team,
+                                _disp_proj, player_name=pname, team=batter_team,
                                 vs_pitcher=opp_p_name)
             else:
                 book_line  = odds_data['line']      if odds_data else line_val
                 book_odds  = odds_data['over_odds'] if odds_data else None
                 season_r   = int(res['df']['season'].iloc[-1])
                 b_sc_local = get_batter_statcast(pid, season_r)
-                r_data = get_rating(res, pid, opp_pitcher_id, park_team, batting_order,
+                _res_ctx   = dict(res)
+                _res_ctx['proj'] = round(max(0.5, res['proj'] * (1 + _ctx_pct)), 2)
+                r_data = get_rating(_res_ctx, pid, opp_pitcher_id, park_team, batting_order,
                                     weather['temp_f'], weather['wind_speed'],
                                     weather['wind_dir_code'],
                                     bp_era=bp_era, bp_whip=bp_whip,
@@ -466,12 +493,13 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
                                     opp_def_rating=opp_defense.get('def_rating', 0.0),
                                     pitcher_rest_factor=p_rest.get('rest_factor', 0.0),
                                     pitcher_gb_pct=p_sc.get('pitcher_gb_pct', 0.430))
+                _disp_proj = _res_ctx['proj']
                 # Lock in session state immediately
-                st.session_state[session_key] = (r_data['total'], r_data['grade'], res['proj'])
+                st.session_state[session_key] = (r_data['total'], r_data['grade'], _disp_proj)
                 # Save to database for persistence across sessions
                 if game_date:
                     save_rating(game_date, pid, r_data['total'], r_data['grade'],
-                                res['proj'], player_name=pname, team=batter_team,
+                                _disp_proj, player_name=pname, team=batter_team,
                                 vs_pitcher=opp_p_name)
 
             # Log ALL plays to analytics tracker
@@ -480,7 +508,7 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
                     log_play(
                         player=pname, team=batter_team,
                         rating=r_data['total'], grade=r_data['grade'],
-                        projected=res['proj'],
+                        projected=_disp_proj,
                         line=disp_line, over_odds=disp_odds,
                         vs_pitcher=opp_p_name, is_home=is_home,
                         game_date=game_date,
@@ -492,7 +520,7 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
             _game_finished = status in ('Final', 'Game Over', 'Completed Early')
             from datetime import datetime as _dt
             _today = _dt.now().strftime('%Y-%m-%d')
-            _r = r_data['total']; _p = res['proj']
+            _r = r_data['total']; _p = _disp_proj
             _qualifies = (70 <= _r <= 74 and _p >= 3.0) or (75 <= _r <= 89 and _p >= 1.5)
             if _qualifies and pname and game_date and (game_date < _today or _game_finished):
                 try:
@@ -501,7 +529,7 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
                         'team':       batter_team,
                         'rating':     r_data['total'],
                         'grade':      r_data['grade'],
-                        'projected':  res['proj'],
+                        'projected':  _disp_proj,
                         'vs_pitcher': opp_p_name,
                         'line':       disp_line,
                         'over_odds':  disp_odds,
@@ -518,7 +546,7 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
             os_s = batter_sc.get('batter_os_seen_pct', 0)
 
             rc = cv(r_data['total'], 75, 55)
-            pc = cv(res['proj'], 3.0, 2.0)
+            pc = cv(_disp_proj, 3.0, 2.0)
             bc = cv(res['ba30'], 0.280, 0.250)
 
             # Line / odds display
@@ -570,7 +598,7 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
                 f'<td style="padding:6px 8px;text-align:center;color:{order_color};font-weight:700;">#{batting_order}</td>'
                 f'<td style="padding:6px 8px;text-align:center;font-weight:800;color:{rc};">'
                 f'{r_data["total"]} <span style="font-size:10px;">{r_data["grade"]}</span></td>'
-                f'<td style="padding:6px 8px;text-align:center;font-weight:800;font-size:15px;color:{pc};">{res["proj"]}</td>'
+                f'<td style="padding:6px 8px;text-align:center;font-weight:800;font-size:15px;color:{pc};">{_disp_proj}</td>'
                 f'<td style="padding:6px 8px;text-align:center;">{line_display}</td>'
                 f'<td style="padding:6px 8px;text-align:center;">{odds_display}</td>'
                 f'<td style="padding:6px 8px;text-align:center;">{fair_display}</td>'
