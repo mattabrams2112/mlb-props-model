@@ -493,7 +493,7 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
             from datetime import datetime as _dt
             _today = _dt.now().strftime('%Y-%m-%d')
             _r = r_data['total']; _p = res['proj']
-            _qualifies = (65 <= _r <= 69 and _p >= 2.5) or (_r >= 70)
+            _qualifies = (70 <= _r <= 74 and _p >= 3.0) or (75 <= _r <= 89 and _p >= 1.5)
             if _qualifies and pname and game_date and (game_date < _today or _game_finished):
                 try:
                     tracker_add([{
@@ -554,12 +554,19 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
                 f'</div>'
             )
 
+            _name_cell_style = (
+                'padding:6px 8px;font-weight:700;white-space:nowrap;color:#fbbf24;'
+                if _qualifies else
+                'padding:6px 8px;color:#e0f2fe;font-weight:600;white-space:nowrap;'
+            )
+            _name_badge = ' <span style="font-size:10px;background:#f59e0b;color:#000;border-radius:3px;padding:1px 4px;font-weight:800;">BET</span>' if _qualifies else ''
+            _row_border = 'border-left:3px solid #f59e0b;' if _qualifies else ''
             row = (
-                f'<tr style="background:{bg};border-bottom:1px solid #1e293b;">'
+                f'<tr style="background:{bg};border-bottom:1px solid #1e293b;{_row_border}">'
                 f'<td style="padding:6px 8px;color:#475569;font-size:12px;">{display_order}</td>'
                 f'<td style="padding:6px 8px;">{logo}</td>'
-                f'<td style="padding:6px 8px;color:#e0f2fe;font-weight:600;white-space:nowrap;">'
-                f'{pname}<div style="font-size:10px;color:#475569;">{game_label}</div></td>'
+                f'<td style="{_name_cell_style}">'
+                f'{pname}{_name_badge}<div style="font-size:10px;color:#475569;">{game_label}</div></td>'
                 f'<td style="padding:6px 8px;text-align:center;color:{order_color};font-weight:700;">#{batting_order}</td>'
                 f'<td style="padding:6px 8px;text-align:center;font-weight:800;color:{rc};">'
                 f'{r_data["total"]} <span style="font-size:10px;">{r_data["grade"]}</span></td>'
