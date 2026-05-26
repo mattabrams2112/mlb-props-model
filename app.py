@@ -606,9 +606,8 @@ else:
             # Auto-save 60+ rated predictions to tracker
             from tracker import add_predictions
             qualified = [r for r in all_rows if
-                         (70 <= r['Rating'] <= 74 and r['Projected'] >= 2.5) or
-                         (75 <= r['Rating'] <= 79 and r['Projected'] >= 2.2) or
-                         (80 <= r['Rating'] <= 89 and r['Projected'] >= 1.8)]
+                         (70 <= r['Rating'] <= 74 and r['Projected'] >= 3.0) or
+                         (75 <= r['Rating'] <= 89 and r['Projected'] >= 1.5)]
             if qualified:
                 add_predictions([{
                     'player':     r['Player'],
