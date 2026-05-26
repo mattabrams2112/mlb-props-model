@@ -245,6 +245,24 @@ c5.metric('Tracked', len(df))
 
 st.markdown('---')
 
+# ── Pending breakdown ──────────────────────────────────────────────────────────
+_pending_df = df[df['result'] == ''].copy()
+_past_pending = _pending_df[_pending_df['date'].astype(str).str[:10] < _today]
+
+if not _past_pending.empty:
+    st.warning(f'⚠️ {len(_past_pending)} unresolved play(s) from past dates — hit **Auto-fetch Actuals** or correct manually.')
+    with st.expander(f'📋 View {len(_past_pending)} past pending plays', expanded=True):
+        _show = _past_pending[['date','player','team','rating','projected','line','actual']].copy()
+        _show['date'] = _show['date'].astype(str).str[:10]
+        st.dataframe(_show.sort_values('date', ascending=False), hide_index=True, use_container_width=True)
+
+if not df.empty and len(_pending_df) > 0:
+    _today_pending = _pending_df[_pending_df['date'].astype(str).str[:10] >= _today]
+    if not _today_pending.empty:
+        st.info(f'📅 {len(_today_pending)} pending play(s) from today — results will be available after games finish.')
+
+st.markdown('---')
+
 if df.empty:
     st.info('No predictions tracked yet. Open the **🎯 Game View** for any past date and let the lineups fully load — qualifying plays (rating ≥ 56, projection ≥ 1.9) are added automatically.')
     st.stop()
