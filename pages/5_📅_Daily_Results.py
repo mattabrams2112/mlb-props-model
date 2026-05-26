@@ -67,9 +67,7 @@ def get_units(rating):
     """Unit size per play based on rating band."""
     if 85 <= rating <= 89:
         return 2.0
-    if 80 <= rating <= 84:
-        return 1.5
-    return 1.0  # 70-79
+    return 1.0  # all other qualifying bands
 
 def play_profit(rating, result):
     """Profit in dollars for a single play at -110."""
@@ -107,8 +105,8 @@ stake_html = '''<table style="width:100%;border-collapse:collapse;font-family:mo
 <tr style="background:#1a2744;border-bottom:1px solid #334155;">
   <td style="padding:8px 12px;color:#22c55e;font-weight:700;">80–84</td>
   <td style="padding:8px 12px;text-align:center;color:#e0f2fe;">≥ 2.5</td>
-  <td style="padding:8px 12px;text-align:center;color:#fbbf24;font-weight:800;">1.5u</td>
-  <td style="padding:8px 12px;text-align:center;color:#e0f2fe;font-weight:700;">$12</td>
+  <td style="padding:8px 12px;text-align:center;color:#fbbf24;font-weight:800;">1u</td>
+  <td style="padding:8px 12px;text-align:center;color:#e0f2fe;font-weight:700;">$8</td>
 </tr>
 <tr style="background:#1a2744;border-bottom:1px solid #334155;">
   <td style="padding:8px 12px;color:#eab308;font-weight:700;">75–79</td>
