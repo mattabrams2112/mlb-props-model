@@ -91,36 +91,46 @@ def play_units_pl(rating, result):
 st.markdown('### Staking Guide')
 st.caption(f'Based on ${UNIT:.0f}/unit at {ODDS} odds (break-even: 55.6%)')
 
-stake_html = '''<table style="width:100%;border-collapse:collapse;font-family:monospace;max-width:500px;">
+stake_html = '''<table style="width:100%;border-collapse:collapse;font-family:monospace;">
 <thead><tr style="background:#1e3a5f;color:#38bdf8;font-size:13px;">
 <th style="padding:9px 12px;text-align:left;">Rating Band</th>
 <th style="padding:9px 12px;text-align:center;">Min Proj</th>
 <th style="padding:9px 12px;text-align:center;">Units</th>
 <th style="padding:9px 12px;text-align:center;">Bet Amount</th>
+<th style="padding:9px 12px;text-align:center;">Max Odds</th>
+<th style="padding:9px 12px;text-align:left;">Notes</th>
 </tr></thead><tbody>
 <tr style="background:#1a2744;border-bottom:1px solid #334155;">
   <td style="padding:8px 12px;color:#22c55e;font-weight:700;">85–89</td>
   <td style="padding:8px 12px;text-align:center;color:#e0f2fe;">≥ 1.5</td>
   <td style="padding:8px 12px;text-align:center;color:#fbbf24;font-weight:800;">2u</td>
   <td style="padding:8px 12px;text-align:center;color:#e0f2fe;font-weight:700;">$16</td>
+  <td style="padding:8px 12px;text-align:center;color:#22c55e;font-weight:700;">-150</td>
+  <td style="padding:8px 12px;color:#94a3b8;font-size:12px;">Bet almost regardless of juice</td>
 </tr>
 <tr style="background:#1a2744;border-bottom:1px solid #334155;">
-  <td style="padding:8px 12px;color:#22c55e;font-weight:700;">80–84</td>
+  <td style="padding:8px 12px;color:#eab308;font-weight:700;">80–84</td>
   <td style="padding:8px 12px;text-align:center;color:#e0f2fe;">≥ 2.5</td>
   <td style="padding:8px 12px;text-align:center;color:#fbbf24;font-weight:800;">1u</td>
   <td style="padding:8px 12px;text-align:center;color:#e0f2fe;font-weight:700;">$8</td>
+  <td style="padding:8px 12px;text-align:center;color:#ef4444;font-weight:700;">-110</td>
+  <td style="padding:8px 12px;color:#94a3b8;font-size:12px;">Borderline — skip if juiced</td>
 </tr>
 <tr style="background:#1a2744;border-bottom:1px solid #334155;">
   <td style="padding:8px 12px;color:#eab308;font-weight:700;">75–79</td>
   <td style="padding:8px 12px;text-align:center;color:#e0f2fe;">≥ 1.5</td>
   <td style="padding:8px 12px;text-align:center;color:#fbbf24;font-weight:800;">1u</td>
   <td style="padding:8px 12px;text-align:center;color:#e0f2fe;font-weight:700;">$8</td>
+  <td style="padding:8px 12px;text-align:center;color:#eab308;font-weight:700;">-115</td>
+  <td style="padding:8px 12px;color:#94a3b8;font-size:12px;">Skip if -120 or worse</td>
 </tr>
 <tr style="background:#1a2744;">
   <td style="padding:8px 12px;color:#eab308;font-weight:700;">70–74</td>
   <td style="padding:8px 12px;text-align:center;color:#e0f2fe;">≥ 3.0</td>
   <td style="padding:8px 12px;text-align:center;color:#fbbf24;font-weight:800;">1u</td>
   <td style="padding:8px 12px;text-align:center;color:#e0f2fe;font-weight:700;">$8</td>
+  <td style="padding:8px 12px;text-align:center;color:#eab308;font-weight:700;">-115</td>
+  <td style="padding:8px 12px;color:#94a3b8;font-size:12px;">Skip if -120 or worse</td>
 </tr>
 </tbody></table>'''
 st.markdown(stake_html, unsafe_allow_html=True)
