@@ -151,7 +151,9 @@ def auto_fill_actuals(df: pd.DataFrame) -> tuple:
 if 'lineup_rows' in st.session_state:
     qualified = [r for r in st.session_state['lineup_rows'] if
                  (70 <= r['Rating'] <= 74 and r['Projected'] >= 3.0) or
-                 (75 <= r['Rating'] <= 89 and r['Projected'] >= 1.5)]
+                 (75 <= r['Rating'] <= 79 and r['Projected'] >= 1.5) or
+                 (80 <= r['Rating'] <= 84 and r['Projected'] >= 2.5) or
+                 (85 <= r['Rating'] <= 89 and r['Projected'] >= 1.5)]
     if qualified:
         add_predictions([{
             'player':     r['Player'],
@@ -178,7 +180,9 @@ def sync_from_ratings_cache():
         (ratings['date'].astype(str).str[:10] < today) &
         (
             ((_r >= 70) & (_r <= 74) & (_p >= 3.0)) |
-            ((_r >= 75) & (_r <= 89) & (_p >= 1.5))
+            ((_r >= 75) & (_r <= 79) & (_p >= 1.5)) |
+            ((_r >= 80) & (_r <= 84) & (_p >= 2.5)) |
+            ((_r >= 85) & (_r <= 89) & (_p >= 1.5))
         ) &
         (ratings['player_name'].astype(str).str.strip() != '')
     ]

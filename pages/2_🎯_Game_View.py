@@ -521,7 +521,10 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
             from datetime import datetime as _dt
             _today = _dt.now().strftime('%Y-%m-%d')
             _r = r_data['total']; _p = _disp_proj
-            _qualifies = (70 <= _r <= 74 and _p >= 3.0) or (75 <= _r <= 89 and _p >= 1.5)
+            _qualifies = ((70 <= _r <= 74 and _p >= 3.0) or
+                          (75 <= _r <= 79 and _p >= 1.5) or
+                          (80 <= _r <= 84 and _p >= 2.5) or
+                          (85 <= _r <= 89 and _p >= 1.5))
             if _qualifies and pname and game_date and (game_date < _today or _game_finished):
                 try:
                     tracker_add([{

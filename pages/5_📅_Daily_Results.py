@@ -22,7 +22,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.markdown('## 📅 Daily Results')
-st.caption('Day-by-day performance for plays matching current criteria: Rating 70–74 + Proj ≥ 3.0 OR Rating 75–89 + Proj ≥ 1.5')
+st.caption('Criteria: 70–74 ≥ 3.0 | 75–79 ≥ 1.5 | 80–84 ≥ 2.5 | 85–89 ≥ 1.5')
 
 col_refresh, col_fetch = st.columns([1, 1])
 with col_refresh:
@@ -52,7 +52,9 @@ today_str = datetime.now().strftime('%Y-%m-%d')
 criteria = df[
     (
         ((df['rating'] >= 70) & (df['rating'] <= 74) & (df['projected'] >= 3.0)) |
-        ((df['rating'] >= 75) & (df['rating'] <= 89) & (df['projected'] >= 1.5))
+        ((df['rating'] >= 75) & (df['rating'] <= 79) & (df['projected'] >= 1.5)) |
+        ((df['rating'] >= 80) & (df['rating'] <= 84) & (df['projected'] >= 2.5)) |
+        ((df['rating'] >= 85) & (df['rating'] <= 89) & (df['projected'] >= 1.5))
     )
 ]
 
@@ -104,7 +106,7 @@ stake_html = '''<table style="width:100%;border-collapse:collapse;font-family:mo
 </tr>
 <tr style="background:#1a2744;border-bottom:1px solid #334155;">
   <td style="padding:8px 12px;color:#22c55e;font-weight:700;">80–84</td>
-  <td style="padding:8px 12px;text-align:center;color:#e0f2fe;">≥ 1.5</td>
+  <td style="padding:8px 12px;text-align:center;color:#e0f2fe;">≥ 2.5</td>
   <td style="padding:8px 12px;text-align:center;color:#fbbf24;font-weight:800;">1.5u</td>
   <td style="padding:8px 12px;text-align:center;color:#e0f2fe;font-weight:700;">$12</td>
 </tr>
