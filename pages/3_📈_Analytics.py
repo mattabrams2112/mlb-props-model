@@ -176,12 +176,15 @@ c5.metric('Pending',      len(df[df['result'] == '']))
 
 st.markdown('---')
 
-# ── Rating buckets ────────────────────────────────────────────────────────────
+# ── Rating buckets (5-point bands) ───────────────────────────────────────────
 
 st.markdown('### Win Rate by Rating')
 
-rating_buckets = [(0,40,'<40'),(40,50,'40-49'),(50,60,'50-59'),
-                  (60,70,'60-69'),(70,80,'70-79'),(80,90,'80-89'),(90,101,'90+')]
+rating_buckets = [
+    (60, 65, '60-64'), (65, 70, '65-69'), (70, 75, '70-74'),
+    (75, 80, '75-79'), (80, 85, '80-84'), (85, 90, '85-89'),
+    (90, 95, '90-94'), (95, 101, '95+'),
+]
 r_labels, r_wrs, r_ns, r_rois, r_colors = [], [], [], [], []
 
 for lo, hi, label in rating_buckets:
@@ -205,19 +208,46 @@ fig_r.add_hline(y=52.4, line_dash='dash', line_color='#ef4444',
 fig_r.update_layout(
     height=350, yaxis=dict(range=[0, 100], title='Win %'),
     paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
-    font=dict(color='#7dd3fc'), margin=dict(t=30,b=10),
-    xaxis=dict(title='Rating Bucket'),
+    font=dict(color='#7dd3fc'), margin=dict(t=30, b=10),
+    xaxis=dict(title='Rating Band'),
 )
 st.plotly_chart(fig_r, use_container_width=True, config={'displayModeBar': False})
 
 # Rating table
 r_df = pd.DataFrame({
-    'Rating Range': r_labels,
-    'Plays': r_ns,
-    'Win Rate': [f'{w}%' if n > 0 else '—' for w, n in zip(r_wrs, r_ns)],
-    'ROI':     [f'{r}%' if r is not None else '—' for r in r_rois],
+    'Rating Band': r_labels,
+    'Plays':       r_ns,
+    'Win Rate':    [f'{w}%' if n > 0 else '—' for w, n in zip(r_wrs, r_ns)],
+    'ROI':         [f'{r}%' if r is not None else '—' for r in r_rois],
 })
 st.dataframe(r_df, hide_index=True, use_container_width=True)
+
+st.markdown('---')
+
+# ── Rating band × Projection breakdown ───────────────────────────────────────
+
+st.markdown('### Win Rate by Rating Band + Projection Filter')
+st.caption('Shows how each 5-point rating band performs at different projection thresholds — find the exact cut that works.')
+
+proj_thresholds = [1.5, 2.0, 2.5, 3.0]
+band_rows = []
+
+for lo, hi, label in rating_buckets:
+    band = df[(df['rating'] >= lo) & (df['rating'] < hi)]
+    row = {'Rating Band': label, 'Total Plays': len(band[band['result'].isin(['W','L'])])}
+    for pt in proj_thresholds:
+        sub = band[band['projected'] >= pt]
+        wr, n = win_rate(sub)
+        w = int((sub[sub['result'].isin(['W','L'])]['result'] == 'W').sum())
+        l = int((sub[sub['result'].isin(['W','L'])]['result'] == 'L').sum())
+        if n > 0:
+            row[f'Proj ≥{pt}'] = f"{wr}% ({w}-{l})"
+        else:
+            row[f'Proj ≥{pt}'] = '—'
+    band_rows.append(row)
+
+band_breakdown = pd.DataFrame(band_rows)
+st.dataframe(band_breakdown, hide_index=True, use_container_width=True)
 
 st.markdown('---')
 
