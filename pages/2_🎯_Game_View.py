@@ -528,9 +528,10 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
             if _qualifies:
                 _units = 2.0 if 85 <= _r <= 89 else 1.5 if 80 <= _r <= 84 else 1.0
                 _bet   = int(_units * 8)
+                _u_str = '1.5' if _units == 1.5 else str(int(_units))
                 _stake_badge = (f' <span style="font-size:10px;background:#1e3a5f;color:#7dd3fc;'
                                 f'border-radius:3px;padding:1px 4px;font-weight:700;">'
-                                f'{_units:.0f}u · ${_bet}</span>')
+                                f'{_u_str}u · ${_bet}</span>')
             if _qualifies and pname and game_date and (game_date < _today or _game_finished):
                 try:
                     tracker_add([{
