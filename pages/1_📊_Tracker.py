@@ -1,5 +1,6 @@
 """
-Tracker — logs all 60+ rated predictions and tracks W/L record.
+Tracker — logs qualifying predictions and tracks W/L record.
+Criteria: 70-74 >= 3.0 | 75-79 >= 1.5 | 80-84 >= 2.5 | 85-89 >= 1.5
 WIN  = actual H+R+RBI > sportsbook line you entered.
 LOSS = actual H+R+RBI ≤ sportsbook line you entered.
 """
@@ -147,7 +148,7 @@ def auto_fill_actuals(df: pd.DataFrame) -> tuple:
     return df, updated
 
 
-# Auto-import any 60+ rated players from today's lineup
+# Auto-import qualifying players from today's lineup
 if 'lineup_rows' in st.session_state:
     qualified = [r for r in st.session_state['lineup_rows'] if
                  (70 <= r['Rating'] <= 74 and r['Projected'] >= 3.0) or
@@ -226,7 +227,18 @@ if 'tracker_lines_filled' not in st.session_state:
     st.session_state['tracker_lines_filled'] = True
 
 st.markdown('## 📊 Prediction Tracker')
-st.caption('All predictions rated 60+ are auto-added. Lines are entered manually. Actuals are fetched automatically after games finish.')
+st.caption('Criteria: 70–74 ≥ 3.0 | 75–79 ≥ 1.5 | 80–84 ≥ 2.5 | 85–89 ≥ 1.5 · Lines entered manually · Actuals fetched automatically')
+
+# Filter to current criteria only
+df['_r'] = pd.to_numeric(df['rating'],    errors='coerce')
+df['_p'] = pd.to_numeric(df['projected'], errors='coerce')
+df = df[
+    ((df['_r'] >= 70) & (df['_r'] <= 74) & (df['_p'] >= 3.0)) |
+    ((df['_r'] >= 75) & (df['_r'] <= 79) & (df['_p'] >= 1.5)) |
+    ((df['_r'] >= 80) & (df['_r'] <= 84) & (df['_p'] >= 2.5)) |
+    ((df['_r'] >= 85) & (df['_r'] <= 89) & (df['_p'] >= 1.5))
+].copy()
+df.drop(columns=['_r', '_p'], inplace=True)
 
 # ── Record summary ─────────────────────────────────────────────────────────────
 
@@ -264,7 +276,7 @@ if not df.empty and len(_pending_df) > 0:
 st.markdown('---')
 
 if df.empty:
-    st.info('No predictions tracked yet. Open the **🎯 Game View** for any past date and let the lineups fully load — qualifying plays (rating ≥ 56, projection ≥ 1.9) are added automatically.')
+    st.info('No predictions tracked yet. Open the **🎯 Game View** and let the lineups fully load — qualifying plays are added automatically.')
     st.stop()
 
 # ── Auto-fetch actuals ─────────────────────────────────────────────────────────
