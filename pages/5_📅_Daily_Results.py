@@ -61,7 +61,9 @@ criteria = df[
 decided = criteria[criteria['result'].isin(['W', 'L'])]
 pending = criteria[criteria['result'] == '']
 
-UNIT = 8.0  # dollars per unit
+UNIT = 8.0   # dollars per unit
+ODDS = -125  # sportsbook odds (American)
+_WIN_MULT = 100 / 125  # payout multiplier for -125
 
 def get_units(rating):
     """Unit size per play based on rating band."""
@@ -70,24 +72,24 @@ def get_units(rating):
     return 1.0  # all other qualifying bands
 
 def play_profit(rating, result):
-    """Profit in dollars for a single play at -110."""
+    """Profit in dollars for a single play at -125."""
     u = get_units(rating)
     stake = u * UNIT
     if result == 'W':
-        return round(stake * (100 / 110), 2)
+        return round(stake * _WIN_MULT, 2)
     return -stake
 
 def play_units_pl(rating, result):
-    """Profit in units for a single play at -110."""
+    """Profit in units for a single play at -125."""
     u = get_units(rating)
     if result == 'W':
-        return round(u * (100 / 110), 3)
+        return round(u * _WIN_MULT, 3)
     return -u
 
 # ── Staking guide ─────────────────────────────────────────────────────────────
 
 st.markdown('### Staking Guide')
-st.caption(f'Based on ${UNIT:.0f}/unit at -110 odds')
+st.caption(f'Based on ${UNIT:.0f}/unit at {ODDS} odds (break-even: 55.6%)')
 
 stake_html = '''<table style="width:100%;border-collapse:collapse;font-family:monospace;max-width:500px;">
 <thead><tr style="background:#1e3a5f;color:#38bdf8;font-size:13px;">
@@ -200,14 +202,14 @@ else:
     def row_color(wr_str):
         wr = float(wr_str.replace('%', ''))
         if wr >= 60:   return '#14532d'
-        if wr >= 52.4: return '#1c3a1a'
+        if wr >= 55.6: return '#1c3a1a'
         if wr > 0:     return '#450a0a'
         return '#1e293b'
 
     def wr_color(wr_str):
         wr = float(wr_str.replace('%', ''))
         if wr >= 60:   return '#22c55e'
-        if wr >= 52.4: return '#eab308'
+        if wr >= 55.6: return '#eab308'
         return '#ef4444'
 
     html = '''<table style="width:100%;border-collapse:collapse;font-family:monospace;">
@@ -217,7 +219,7 @@ else:
 <th style="padding:10px 12px;text-align:center;">Win Rate</th>
 <th style="padding:10px 12px;text-align:center;">Day Units</th>
 <th style="padding:10px 12px;text-align:center;">Running Units</th>
-<th style="padding:10px 12px;text-align:center;">Profit ($8/unit)</th>
+<th style="padding:10px 12px;text-align:center;">Profit ($8/unit, -125)</th>
 <th style="padding:10px 12px;text-align:center;">Plays</th>
 </tr></thead><tbody>'''
 
@@ -249,7 +251,7 @@ else:
     html += f'''<tr style="background:#0f172a;border-top:2px solid #38bdf8;">
 <td style="padding:10px 12px;color:#38bdf8;font-weight:800;">TOTAL</td>
 <td style="padding:10px 12px;text-align:center;color:#e0f2fe;font-weight:800;">{total_w}-{total_l}</td>
-<td style="padding:10px 12px;text-align:center;color:{"#22c55e" if (total_wr or 0) >= 52.4 else "#ef4444"};font-weight:800;">{total_wr}%</td>
+<td style="padding:10px 12px;text-align:center;color:{"#22c55e" if (total_wr or 0) >= 55.6 else "#ef4444"};font-weight:800;">{total_wr}%</td>
 <td style="padding:10px 12px;text-align:center;color:#94a3b8;">—</td>
 <td style="padding:10px 12px;text-align:center;color:{"#22c55e" if total_units_pl >= 0 else "#ef4444"};font-weight:800;">{total_ru_str}</td>
 <td style="padding:10px 12px;text-align:center;color:{"#22c55e" if total_profit_dollars >= 0 else "#ef4444"};font-weight:800;">{"+" if total_profit_dollars >= 0 else ""}${total_profit_dollars:.2f}</td>
