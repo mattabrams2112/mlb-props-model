@@ -8,7 +8,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-from full_tracker import load_all, update_actuals, save_all
+from full_tracker import load_all, update_actuals, save_all, log_play
 
 st.set_page_config(page_title="Daily Results | MLB Props", page_icon="📅", layout="wide")
 
@@ -319,6 +319,59 @@ if not pending.empty:
         })
 
     st.dataframe(pd.DataFrame(pend_rows), hide_index=True, use_container_width=True)
+
+st.markdown('---')
+
+# ── Manual add ────────────────────────────────────────────────────────────────
+
+with st.expander('➕ Manually Add a Play', expanded=False):
+    st.caption('Add a play directly to the log (bypasses Game View). Use for players missed by auto-logging.')
+    with st.form('manual_add_dr'):
+        mc1, mc2 = st.columns(2)
+        m_player  = mc1.text_input('Player Name', placeholder='e.g. James Wood')
+        m_team    = mc2.text_input('Team', placeholder='e.g. WSH')
+        mc3, mc4, mc5 = st.columns(3)
+        m_rating  = mc3.number_input('Rating', min_value=0, max_value=100, value=80, step=1)
+        m_proj    = mc4.number_input('Projected HRR', min_value=0.0, max_value=20.0, value=1.5, step=0.1)
+        m_line    = mc5.number_input('Line', min_value=0.5, max_value=10.0, value=1.5, step=0.5)
+        mc6, mc7 = st.columns(2)
+        m_date    = mc6.date_input('Game Date', value=datetime.now().date())
+        m_pitcher = mc7.text_input('vs Pitcher', placeholder='optional')
+        m_actual  = st.number_input('Actual HRR (leave -1 if still pending)', min_value=-1, max_value=30, value=-1, step=1)
+        submitted = st.form_submit_button('Add Play', type='primary', use_container_width=True)
+
+    if submitted:
+        if not m_player.strip():
+            st.error('Player name is required.')
+        else:
+            game_date = m_date.strftime('%Y-%m-%d')
+            _grade = 'A+' if m_rating >= 85 else 'A' if m_rating >= 80 else 'B+'
+            log_play(
+                player=m_player.strip(),
+                team=m_team.strip(),
+                rating=int(m_rating),
+                grade=_grade,
+                projected=float(m_proj),
+                line=float(m_line),
+                vs_pitcher=m_pitcher.strip(),
+                game_date=game_date,
+                game_started=False,
+            )
+            if m_actual >= 0:
+                _df = load_all()
+                mask = (
+                    (_df['player'] == m_player.strip()) &
+                    (_df['date'].astype(str).str[:10] == game_date)
+                )
+                if mask.any():
+                    idx = _df[mask].index[0]
+                    _df.at[idx, 'actual'] = str(m_actual)
+                    today_str2 = datetime.now().strftime('%Y-%m-%d')
+                    if game_date < today_str2:
+                        _df.at[idx, 'result'] = 'W' if m_actual > float(m_line) else 'L'
+                    save_all(_df)
+            st.success(f'Added {m_player.strip()} ({game_date})!')
+            st.rerun()
 
 st.markdown('---')
 
