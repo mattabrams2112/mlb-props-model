@@ -504,6 +504,7 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
 
             # Log ALL plays to analytics tracker
             if pname and game_date:
+                _pre_game = status in ('Preview', 'Pre-Game', 'Scheduled', 'Warmup')
                 try:
                     log_play(
                         player=pname, team=batter_team,
@@ -512,6 +513,7 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
                         line=disp_line, over_odds=disp_odds,
                         vs_pitcher=opp_p_name, is_home=is_home,
                         game_date=game_date,
+                        game_started=not _pre_game,
                     )
                 except Exception:
                     pass

@@ -65,17 +65,17 @@ def save_all(df: pd.DataFrame):
 def log_play(player: str, team: str, rating: int, grade: str,
              projected: float, line: float = None, over_odds: int = None,
              vs_pitcher: str = '', is_home: bool = True,
-             game_date: str = None):
-    """Log a play. Updates rating/projection if already logged for this date+player."""
+             game_date: str = None, game_started: bool = False):
+    """Log a play. Updates rating/projection only if game hasn't started yet."""
     df    = load_all()
     today = game_date or datetime.now().strftime('%Y-%m-%d')
     existing = (not df.empty and
                 ((df['date'].astype(str) == today) & (df['player'] == player)))
     if existing.any():
         idx = df[existing].index[0]
-        # Only update if game is today and no actual recorded yet
+        # Only update if today, game hasn't started yet, and no actual recorded
         is_today = (today == datetime.now().strftime('%Y-%m-%d'))
-        if is_today and str(df.at[idx, 'actual']).strip() in ('', 'nan'):
+        if is_today and not game_started and str(df.at[idx, 'actual']).strip() in ('', 'nan'):
             df.at[idx, 'rating']     = rating
             df.at[idx, 'grade']      = grade
             df.at[idx, 'projected']  = projected
