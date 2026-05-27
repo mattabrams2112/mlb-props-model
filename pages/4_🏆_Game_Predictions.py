@@ -100,11 +100,22 @@ def save_preds(df: pd.DataFrame):
 def add_game_pred(row: dict, game_date: str):
     df = load_preds()
     exists = (not df.empty and
-              (df['game_id'].astype(str) == str(row['game_id'])).any())
+              (df['game_id'].astype(str) == str(row['game_id'])) &
+              (df['date'].astype(str).str[:10] == game_date)).any()
     if not exists:
         new = pd.DataFrame([{c: row.get(c, '') for c in COLS}])
         df  = pd.concat([df, new], ignore_index=True)
         save_preds(df)
+
+
+def get_stored_pred(game_id: str, game_date: str):
+    """Return stored prediction for a game if it exists, else None."""
+    df = load_preds()
+    if df.empty:
+        return None
+    match = df[(df['game_id'].astype(str) == str(game_id)) &
+               (df['date'].astype(str).str[:10] == game_date)]
+    return match.iloc[0].to_dict() if not match.empty else None
 
 
 # ── Contextual adjustments ────────────────────────────────────────────────────
@@ -349,6 +360,28 @@ if 'gp_rows' not in st.session_state:
             home_p   = get_pitcher_name(home_pid) if home_pid else 'TBD'
             away_p   = get_pitcher_name(away_pid) if away_pid else 'TBD'
             gid      = f'{away}_{home}'
+            status   = game.get('status', '')
+            game_started = status not in ('Preview', 'Pre-Game', 'Scheduled', 'Warmup', '')
+
+            # If game has started, use stored prediction — never recalculate
+            stored = get_stored_pred(gid, date_str)
+            if stored and game_started:
+                adj = get_adjustments(home, away, home_pid, away_pid, date_str)
+                rows.append({
+                    'game_id':          gid,
+                    'away_team':        away,
+                    'home_team':        home,
+                    'away_pitcher':     away_p,
+                    'home_pitcher':     home_p,
+                    'predicted_winner': stored.get('predicted_winner', ''),
+                    'away_proj':        float(stored.get('away_proj', 0)),
+                    'home_proj':        float(stored.get('home_proj', 0)),
+                    'margin':           float(stored.get('margin', 0)),
+                    'confidence':       stored.get('confidence', 'Toss-up'),
+                    'source':           'stored',
+                    'adj':              adj,
+                })
+                continue
 
             away_hrr = st.session_state.get(f'team_hrr_{date_key}_{away}')
             home_hrr = st.session_state.get(f'team_hrr_{date_key}_{home}')
@@ -356,7 +389,6 @@ if 'gp_rows' not in st.session_state:
             adj = get_adjustments(home, away, home_pid, away_pid, date_str)
 
             if away_hrr is not None and home_hrr is not None:
-                # HRR totals available — apply adjustments on top
                 adj_home = round(home_hrr + adj['total_adj'], 1)
                 adj_away = round(away_hrr, 1)
                 margin   = round(adj_home - adj_away, 1)
@@ -364,7 +396,6 @@ if 'gp_rows' not in st.session_state:
                 away_proj, home_proj = away_hrr, adj_home
                 source = 'hrr'
             else:
-                # Fallback formula
                 winner, away_proj, home_proj, margin, adj = predict_game_formula(
                     home, away, home_pid, away_pid, date_str
                 )
