@@ -313,6 +313,47 @@ c2.metric('Win %',   pct)
 c3.metric('Decided', total)
 c4.metric('Pending', int((preds_df['result'].astype(str).str.strip() == '').sum()))
 
+# ── Confidence breakdown ───────────────────────────────────────────────────────
+
+st.markdown('---')
+st.markdown('### Accuracy by Confidence Level')
+
+conf_levels = [('Strong', '#22c55e'), ('Moderate', '#3b82f6'), ('Lean', '#eab308'), ('Toss-up', '#475569')]
+
+conf_html = '''<table style="width:100%;border-collapse:collapse;font-family:monospace;">
+<thead><tr style="background:#1e3a5f;color:#38bdf8;font-size:13px;">
+<th style="padding:9px 12px;text-align:left;">Confidence</th>
+<th style="padding:9px 12px;text-align:center;">Record</th>
+<th style="padding:9px 12px;text-align:center;">Win Rate</th>
+<th style="padding:9px 12px;text-align:center;">Games</th>
+</tr></thead><tbody>'''
+
+for conf, color in conf_levels:
+    sub = decided[decided['confidence'].astype(str) == conf]
+    w = int((sub['result'] == 'W').sum())
+    l = int((sub['result'] == 'L').sum())
+    n = w + l
+    wr = round(w / n * 100, 1) if n > 0 else None
+    wr_str  = f'{wr}%' if wr is not None else '—'
+    rec_str = f'{w}-{l}' if n > 0 else '—'
+    wr_color = '#22c55e' if (wr or 0) >= 55 else '#eab308' if (wr or 0) >= 50 else '#ef4444' if n > 0 else '#475569'
+    conf_html += f'''<tr style="border-bottom:1px solid #1e293b;">
+<td style="padding:9px 12px;"><span style="background:{color}30;color:{color};border-radius:4px;padding:2px 8px;font-weight:700;">{conf}</span></td>
+<td style="padding:9px 12px;text-align:center;color:#e0f2fe;font-weight:700;">{rec_str}</td>
+<td style="padding:9px 12px;text-align:center;color:{wr_color};font-weight:800;">{wr_str}</td>
+<td style="padding:9px 12px;text-align:center;color:#94a3b8;">{n}</td>
+</tr>'''
+
+# Total row
+conf_html += f'''<tr style="background:#0f172a;border-top:2px solid #38bdf8;">
+<td style="padding:10px 12px;color:#38bdf8;font-weight:800;">TOTAL</td>
+<td style="padding:10px 12px;text-align:center;color:#e0f2fe;font-weight:800;">{wins}-{losses}</td>
+<td style="padding:10px 12px;text-align:center;color:{"#22c55e" if (float(pct.strip("%")) if pct != "—" else 0) >= 55 else "#eab308" if (float(pct.strip("%")) if pct != "—" else 0) >= 50 else "#ef4444" if total > 0 else "#475569"};font-weight:800;">{pct}</td>
+<td style="padding:10px 12px;text-align:center;color:#94a3b8;">{total}</td>
+</tr></tbody></table>'''
+
+st.markdown(conf_html, unsafe_allow_html=True)
+
 st.markdown('---')
 
 # ── Load games ────────────────────────────────────────────────────────────────
