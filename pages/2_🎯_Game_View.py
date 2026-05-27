@@ -55,6 +55,12 @@ MLB_API = 'https://statsapi.mlb.com/api/v1'
 
 # ── Data helpers ──────────────────────────────────────────────────────────────
 
+@st.cache_data(show_spinner=False, ttl=900)
+def _get_lineups(date_str: str):
+    """Cache lineup data for 15 min — survives browser close as long as Railway is running."""
+    return get_todays_lineups(date_str)
+
+
 @st.cache_data(show_spinner=False, ttl=86400)
 def get_player_info(pid: int) -> tuple:
     try:
@@ -698,22 +704,18 @@ with date_col:
 with btn_col:
     if st.button('🔄 Refresh', use_container_width=True):
         # Clear all game view caches
+        _get_lineups.clear()
         for k in list(st.session_state.keys()):
             if k.startswith('gv_'):
                 st.session_state.pop(k, None)
         st.rerun()
 
 date_str = selected_date.strftime('%m/%d/%Y')
-if st.session_state.get('gv_date') != date_str:
-    st.session_state.pop('gv_games', None)
-    st.session_state['gv_date'] = date_str
 
-if 'gv_games' not in st.session_state:
-    with st.spinner(f'Fetching lineups for {selected_date.strftime("%B %d, %Y")}...'):
-        st.session_state['gv_games'] = get_todays_lineups(date_str)
+with st.spinner(f'Fetching lineups for {selected_date.strftime("%B %d, %Y")}...'):
+    games = _get_lineups(date_str)
 
 st.markdown(f"### {selected_date.strftime('%A, %B %d, %Y')}")
-games = st.session_state.get('gv_games', [])
 
 if not games:
     st.warning('No games found.')
