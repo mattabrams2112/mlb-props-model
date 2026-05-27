@@ -97,15 +97,25 @@ def save_preds(df: pd.DataFrame):
     df.to_csv(PREDS_FILE, index=False)
 
 
-def add_game_pred(row: dict, game_date: str):
+def add_game_pred(row: dict, game_date: str, game_started: bool = False):
     df = load_preds()
-    exists = (not df.empty and
-              (df['game_id'].astype(str) == str(row['game_id'])) &
-              (df['date'].astype(str).str[:10] == game_date)).any()
-    if not exists:
-        new = pd.DataFrame([{c: row.get(c, '') for c in COLS}])
-        df  = pd.concat([df, new], ignore_index=True)
-        save_preds(df)
+    today = datetime.now().strftime('%Y-%m-%d')
+    match = (not df.empty and
+             (df['game_id'].astype(str) == str(row['game_id'])) &
+             (df['date'].astype(str).str[:10] == game_date))
+    if match.any():
+        # Overwrite pre-game predictions with updated lineup data
+        if not game_started and game_date >= today:
+            idx = df[match].index[0]
+            for c in ['predicted_winner', 'away_proj', 'home_proj', 'margin',
+                      'confidence', 'away_pitcher', 'home_pitcher']:
+                if c in row:
+                    df.at[idx, c] = row[c]
+            save_preds(df)
+        return
+    new = pd.DataFrame([{c: row.get(c, '') for c in COLS}])
+    df  = pd.concat([df, new], ignore_index=True)
+    save_preds(df)
 
 
 def get_stored_pred(game_id: str, game_date: str):
@@ -460,7 +470,8 @@ if 'gp_rows' not in st.session_state:
             })
 
             add_game_pred({**rows[-1], 'date': date_str,
-                           'actual_winner': '', 'result': ''}, date_str)
+                           'actual_winner': '', 'result': ''}, date_str,
+                          game_started=game_started)
 
     st.session_state['gp_rows'] = rows
 
