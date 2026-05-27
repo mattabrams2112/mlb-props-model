@@ -217,7 +217,6 @@ def margin_to_confidence(margin):
 
 def fetch_actual_winners(game_date: str) -> dict:
     from lineup_fetcher import TEAM_ABBR
-    NAME_TO_ABBR = {v: k for k, v in {n: a for n, a in TEAM_ABBR.items()}.items()}
     results = {}
     try:
         date_fmt = datetime.strptime(game_date, '%Y-%m-%d').strftime('%m/%d/%Y')
@@ -226,8 +225,8 @@ def fetch_actual_winners(game_date: str) -> dict:
                 continue
             away_s = int(g.get('away_score', 0) or 0)
             home_s = int(g.get('home_score', 0) or 0)
-            away_a = NAME_TO_ABBR.get(g.get('away_name',''), g.get('away_name','')[:3].upper())
-            home_a = NAME_TO_ABBR.get(g.get('home_name',''), g.get('home_name','')[:3].upper())
+            away_a = TEAM_ABBR.get(g.get('away_name', ''), g.get('away_name', '')[:3].upper())
+            home_a = TEAM_ABBR.get(g.get('home_name', ''), g.get('home_name', '')[:3].upper())
             results[f'{away_a}_{home_a}'] = home_a if home_s > away_s else away_a
     except Exception:
         pass
@@ -239,8 +238,8 @@ def update_actuals():
     if df.empty:
         return 0
     today   = datetime.now().strftime('%Y-%m-%d')
-    pending = df[(df['result'].astype(str).str.strip() == '') &
-                 (df['date'].astype(str).str[:10] < today)]
+    # Include today — completed games should be fetched even on same day
+    pending = df[df['result'].astype(str).str.strip() == '']
     if pending.empty:
         return 0
     updated = 0
