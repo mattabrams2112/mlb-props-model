@@ -522,14 +522,13 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
             _today = _dt.now().strftime('%Y-%m-%d')
             _r = r_data['total']; _p = _disp_proj
             _qualifies = ((70 <= _r <= 74 and _p >= 3.0) or
-                          (75 <= _r <= 79 and _p >= 1.5) or
-                          (80 <= _r <= 84 and _p >= 2.5) or
+                          (80 <= _r <= 84 and _p >= 1.5) or
                           (85 <= _r <= 89 and _p >= 1.5))
             if _qualifies:
                 _units    = 2.0 if 85 <= _r <= 89 else 1.0
                 _bet      = int(_units * 8)
                 _u_str    = '1.5' if _units == 1.5 else str(int(_units))
-                _max_odds = '-150' if 85 <= _r <= 89 else '-110' if 80 <= _r <= 84 else '-115'
+                _max_odds = '-150' if 85 <= _r <= 89 else '-115' if 80 <= _r <= 84 else '-115'
                 _stake_badge = (f' <span style="font-size:10px;background:#1e3a5f;color:#7dd3fc;'
                                 f'border-radius:3px;padding:1px 4px;font-weight:700;">'
                                 f'{_u_str}u · ${_bet} · max {_max_odds}</span>')
