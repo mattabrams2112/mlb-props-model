@@ -66,10 +66,20 @@ def log_play(player: str, team: str, rating: int, grade: str,
              projected: float, line: float = None, over_odds: int = None,
              vs_pitcher: str = '', is_home: bool = True,
              game_date: str = None):
-    """Log a play. Skips if already logged for this date+player."""
+    """Log a play. Updates rating/projection if already logged for this date+player."""
     df    = load_all()
     today = game_date or datetime.now().strftime('%Y-%m-%d')
-    if not df.empty and ((df['date'].astype(str) == today) & (df['player'] == player)).any():
+    existing = (not df.empty and
+                ((df['date'].astype(str) == today) & (df['player'] == player)))
+    if existing.any():
+        idx = df[existing].index[0]
+        # Update rating and projection if they've changed (e.g. after lineup confirmed)
+        if str(df.at[idx, 'actual']).strip() in ('', 'nan'):
+            df.at[idx, 'rating']     = rating
+            df.at[idx, 'grade']      = grade
+            df.at[idx, 'projected']  = projected
+            df.at[idx, 'vs_pitcher'] = vs_pitcher
+            save_all(df)
         return
     new_row = pd.DataFrame([{
         'date':      today,
