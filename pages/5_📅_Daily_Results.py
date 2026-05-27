@@ -112,8 +112,8 @@ stake_html = '''<table style="width:100%;border-collapse:collapse;font-family:mo
   <td style="padding:8px 12px;text-align:center;color:#e0f2fe;">≥ 1.5</td>
   <td style="padding:8px 12px;text-align:center;color:#fbbf24;font-weight:800;">1u</td>
   <td style="padding:8px 12px;text-align:center;color:#e0f2fe;font-weight:700;">$8</td>
-  <td style="padding:8px 12px;text-align:center;color:#eab308;font-weight:700;">-115</td>
-  <td style="padding:8px 12px;color:#94a3b8;font-size:12px;">Skip if juiced past -115</td>
+  <td style="padding:8px 12px;text-align:center;color:#eab308;font-weight:700;">-125</td>
+  <td style="padding:8px 12px;color:#94a3b8;font-size:12px;">Skip if juiced past -125</td>
 </tr>
 <tr style="background:#1a2744;">
   <td style="padding:8px 12px;color:#eab308;font-weight:700;">70–74</td>
