@@ -73,8 +73,9 @@ def log_play(player: str, team: str, rating: int, grade: str,
                 ((df['date'].astype(str) == today) & (df['player'] == player)))
     if existing.any():
         idx = df[existing].index[0]
-        # Update rating and projection if they've changed (e.g. after lineup confirmed)
-        if str(df.at[idx, 'actual']).strip() in ('', 'nan'):
+        # Only update if game is today and no actual recorded yet
+        is_today = (today == datetime.now().strftime('%Y-%m-%d'))
+        if is_today and str(df.at[idx, 'actual']).strip() in ('', 'nan'):
             df.at[idx, 'rating']     = rating
             df.at[idx, 'grade']      = grade
             df.at[idx, 'projected']  = projected
