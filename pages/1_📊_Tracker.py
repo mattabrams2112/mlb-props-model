@@ -279,6 +279,75 @@ if df.empty:
     st.info('No predictions tracked yet. Open the **🎯 Game View** and let the lineups fully load — qualifying plays are added automatically.')
     st.stop()
 
+# ── Manual add play ───────────────────────────────────────────────────────────
+
+with st.expander('➕ Manually Add a Play', expanded=False):
+    st.caption('Adds to both the Tracker and Daily Results simultaneously.')
+    from full_tracker import log_play as _log_play
+    ma_col1, ma_col2 = st.columns(2)
+    with ma_col1:
+        ma_player  = st.text_input('Player Name', key='ma_player')
+        ma_team    = st.text_input('Team (abbr)', key='ma_team')
+        ma_rating  = st.number_input('Rating', min_value=0, max_value=100, value=75, key='ma_rating')
+        ma_proj    = st.number_input('Projected HRR', min_value=0.0, max_value=10.0, value=2.0, step=0.1, key='ma_proj')
+    with ma_col2:
+        ma_date    = st.date_input('Date', key='ma_date')
+        ma_pitcher = st.text_input('vs Pitcher', key='ma_pitcher')
+        ma_line    = st.number_input('Line', min_value=0.0, max_value=10.0, value=1.5, step=0.5, key='ma_line')
+        ma_actual  = st.number_input('Actual HRR (leave 0 if pending)', min_value=0, max_value=20, value=0, key='ma_actual')
+
+    if st.button('✅ Add Play', type='primary', key='ma_submit'):
+        if ma_player and ma_team:
+            ma_date_str = ma_date.strftime('%Y-%m-%d')
+            ma_grade = ('A+' if ma_rating >= 90 else 'A' if ma_rating >= 85 else 'A-' if ma_rating >= 80
+                        else 'B+' if ma_rating >= 75 else 'B' if ma_rating >= 70 else 'B-')
+            ma_result = ''
+            if ma_actual > 0 and ma_date_str < _today:
+                ma_result = 'W' if ma_actual > ma_line else 'L'
+
+            # Write to full_play_log (Daily Results)
+            try:
+                _log_play(
+                    player=ma_player, team=ma_team, rating=ma_rating,
+                    grade=ma_grade, projected=ma_proj, line=ma_line,
+                    vs_pitcher=ma_pitcher, game_date=ma_date_str,
+                )
+                if ma_actual > 0:
+                    from full_tracker import load_all as _load_all, save_all as _save_all
+                    _fdf = _load_all()
+                    _mask = (_fdf['player'] == ma_player) & (_fdf['date'].astype(str).str[:10] == ma_date_str)
+                    if _mask.any():
+                        _fdf.loc[_mask, 'actual'] = str(ma_actual)
+                        _fdf.loc[_mask, 'result'] = ma_result
+                        _save_all(_fdf)
+            except Exception as e:
+                st.error(f'Daily Results error: {e}')
+
+            # Write to tracker
+            try:
+                add_predictions([{
+                    'player': ma_player, 'team': ma_team,
+                    'rating': ma_rating, 'grade': ma_grade,
+                    'projected': ma_proj, 'line': ma_line,
+                    'vs_pitcher': ma_pitcher,
+                }], game_date=ma_date_str)
+                if ma_actual > 0:
+                    tdf = load()
+                    _tmask = (tdf['player'] == ma_player) & (tdf['date'].astype(str).str[:10] == ma_date_str)
+                    if _tmask.any():
+                        tdf.loc[_tmask, 'actual'] = str(ma_actual)
+                        tdf.loc[_tmask, 'result'] = ma_result
+                        save(tdf)
+            except Exception as e:
+                st.error(f'Tracker error: {e}')
+
+            st.success(f'✅ Added {ma_player} ({ma_date_str}) to both Tracker and Daily Results!')
+            st.rerun()
+        else:
+            st.warning('Player name and team are required.')
+
+st.markdown('---')
+
 # ── Auto-fetch actuals ─────────────────────────────────────────────────────────
 
 col_sync, col_fetch = st.columns(2)
