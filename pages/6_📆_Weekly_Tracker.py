@@ -41,7 +41,8 @@ df['date_str']  = df['date'].astype(str).str[:10]
 
 today_str = datetime.now().strftime('%Y-%m-%d')
 df = df.copy()
-df.loc[df['date_str'] >= today_str, ['actual', 'result']] = ''
+df.loc[df['date_str'] >= today_str, 'actual'] = float('nan')
+df.loc[df['date_str'] >= today_str, 'result'] = ''
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
