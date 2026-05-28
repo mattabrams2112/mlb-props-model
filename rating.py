@@ -75,6 +75,16 @@ def compute_rating(
     opp_k_pct_vs_rhb: float    = None,
     opp_babip_vs_lhb: float    = None,
     opp_babip_vs_rhb: float    = None,
+    # Per-pitch-group whiff% for weighted matchup calculation
+    pitcher_fb_thrown: float   = 0.55,
+    pitcher_bk_thrown: float   = 0.25,
+    pitcher_os_thrown: float   = 0.20,
+    batter_whiff_pct_fb: float = 0.200,
+    batter_whiff_pct_bk: float = 0.330,
+    batter_whiff_pct_os: float = 0.310,
+    pitcher_whiff_pct_fb: float = 0.200,
+    pitcher_whiff_pct_bk: float = 0.330,
+    pitcher_whiff_pct_os: float = 0.310,
     # Contact discipline — batter side
     batter_k_pct: float        = 0.222,
     batter_bb_pct: float       = 0.083,
@@ -185,8 +195,18 @@ def compute_rating(
     hard_hit_edge = batter_hard_hit_pct - pitcher_hard_hit_pct
     xba_edge      = batter_xba - pitcher_xba_allowed
     ev_edge       = (batter_avg_ev - pitcher_avg_ev) / 10.0
-    # Whiff% edge: low batter whiff% = makes contact = good; high pitcher whiff% = dominant = bad
-    whiff_adj = max(-2.0, min(1.5, (0.245 - batter_whiff_pct) * 6 - (opp_whiff_pct - 0.245) * 4))
+    # Pitch-mix-weighted whiff: use pitcher's throw distribution as weights
+    # so a batter's 100% whiff on breaking balls matters only if pitcher throws them
+    _total_thrown = pitcher_fb_thrown + pitcher_bk_thrown + pitcher_os_thrown
+    if _total_thrown > 0:
+        _fb_w = pitcher_fb_thrown / _total_thrown
+        _bk_w = pitcher_bk_thrown / _total_thrown
+        _os_w = pitcher_os_thrown / _total_thrown
+    else:
+        _fb_w, _bk_w, _os_w = 0.55, 0.25, 0.20
+    _eff_batter_whiff  = batter_whiff_pct_fb * _fb_w + batter_whiff_pct_bk * _bk_w + batter_whiff_pct_os * _os_w
+    _eff_pitcher_whiff = pitcher_whiff_pct_fb * _fb_w + pitcher_whiff_pct_bk * _bk_w + pitcher_whiff_pct_os * _os_w
+    whiff_adj = max(-2.5, min(1.5, (0.245 - _eff_batter_whiff) * 6 - (_eff_pitcher_whiff - 0.245) * 4))
     contact_score = max(0.0, min(8.0, 4.0 + hard_hit_edge * 30 + xba_edge * 20 + ev_edge * 2 + whiff_adj))
     scores['Contact Quality'] = (round(contact_score, 1), 8)
 
