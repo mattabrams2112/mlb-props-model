@@ -99,10 +99,19 @@ def recalc_results(df: pd.DataFrame) -> pd.DataFrame:
 def add_predictions(new_rows: list, game_date: str = None) -> int:
     df    = load()
     today = game_date or datetime.now().strftime('%Y-%m-%d')
-    existing = set(zip(df['date'], df['player']))
     added = 0
     for row in new_rows:
-        if (today, row['player']) not in existing:
+        mask = (df['date'] == today) & (df['player'] == row['player'])
+        if mask.any():
+            # Update existing pre-game entry if no actual recorded yet
+            idx = df[mask].index[0]
+            if str(df.at[idx, 'actual']).strip() in ('', 'nan'):
+                df.at[idx, 'rating']     = row['rating']
+                df.at[idx, 'grade']      = row.get('grade', '')
+                df.at[idx, 'projected']  = row['projected']
+                df.at[idx, 'vs_pitcher'] = row.get('vs_pitcher', '')
+                added += 1
+        else:
             df = pd.concat([df, pd.DataFrame([{
                 'date':       today,
                 'player':     row['player'],
