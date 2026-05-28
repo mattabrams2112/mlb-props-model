@@ -35,7 +35,7 @@ from team_logos import get_logo, logo_img_tag
 from bvp_stats import get_bvp
 from stadium_weather import get_stadium_weather
 from bullpen_data import get_bullpen_stats
-from ratings_cache import get_cached_rating, save_rating
+from ratings_cache import get_cached_rating, save_rating, clear_ratings_for_players
 from odds_api import get_todays_event_ids, get_player_line, fair_probability, american_to_prob, prob_to_american, ODDS_API_KEY
 from team_stats import get_team_recent_scoring, get_team_defense_rating
 from umpire_data import get_game_umpire
@@ -803,6 +803,19 @@ for game in games:
         f'</div>',
         unsafe_allow_html=True
     )
+
+    # Recalculate button — clears cached ratings for this game so new weights apply
+    _all_ids = list(ab_ids) + list(hb_ids)
+    _gd = selected_date.strftime('%Y-%m-%d')
+    if st.button(f'🔄 Recalculate {away} @ {home}', key=f'recalc_{date_key}_{away}_{home}'):
+        clear_ratings_for_players(_gd, _all_ids)
+        fetch_cache_key_a = f'gv_fetch_{date_key}_{game.get("game_pk","")}_{int(False)}'
+        fetch_cache_key_h = f'gv_fetch_{date_key}_{game.get("game_pk","")}_{int(True)}'
+        st.session_state.pop(fetch_cache_key_a, None)
+        st.session_state.pop(fetch_cache_key_h, None)
+        for pid in _all_ids:
+            st.session_state.pop(f'locked_{date_key}_{pid}', None)
+        st.rerun()
 
     ac, hc = st.columns(2)
     gk = str(game.get('game_pk', ''))

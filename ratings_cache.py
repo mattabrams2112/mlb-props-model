@@ -55,6 +55,17 @@ def _save(df: pd.DataFrame):
     df.to_csv(CACHE_FILE, index=False)
 
 
+def clear_ratings_for_players(game_date: str, player_ids: list):
+    """Delete cached ratings for a list of players on a given date."""
+    df = _load()
+    if df.empty:
+        return
+    ids = [str(p) for p in player_ids]
+    mask = (df['date'] == game_date) & (df['player_id'].isin(ids))
+    df = df[~mask].reset_index(drop=True)
+    _save(df)
+
+
 def get_cached_rating(game_date: str, player_id: int):
     """Returns cached (rating, grade, projected) or None if not saved yet."""
     df = _load()
