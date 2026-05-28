@@ -238,7 +238,7 @@ def get_batter_statcast(player_id: int, season: int = None) -> dict:
         season = CURRENT_YEAR
     cache = _load_cache()
     key = f'bat_{player_id}_{season}'
-    if key in cache:
+    if key in cache and 'batter_k_pct' in cache[key]:
         return cache[key]
 
     try:
@@ -259,7 +259,7 @@ def get_pitcher_statcast(pitcher_id: int, season: int = None) -> dict:
         season = CURRENT_YEAR
     cache = _load_cache()
     key = f'pit_{pitcher_id}_{season}'
-    if key in cache:
+    if key in cache and 'pitcher_k_pct' in cache[key]:
         return cache[key]
 
     try:
