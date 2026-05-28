@@ -13,6 +13,7 @@ import pandas as pd
 import numpy as np
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
+from eastern_time import today_et, today_str_et, now_et
 from xgboost import XGBRegressor
 try:
     from lightgbm import LGBMRegressor
@@ -527,7 +528,7 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
             # Add qualifying players to the tracker if game is completed or in the past
             _game_finished = status in ('Final', 'Game Over', 'Completed Early')
             from datetime import datetime as _dt
-            _today = _dt.now().strftime('%Y-%m-%d')
+            _today = today_str_et()
             _r = r_data['total']; _p = _disp_proj
             _qualifies = ((70 <= _r <= 74 and _p >= 3.0) or
                           (80 <= _r <= 84 and _p >= 1.5) or
@@ -697,8 +698,8 @@ st.caption('Factors: hit rate · barrel rates · starter · bullpen · live weat
 
 hdr_col, date_col, btn_col = st.columns([3, 2, 1])
 with date_col:
-    selected_date = st.date_input('Date', value=datetime.now().date(),
-                                  max_value=datetime.now().date(),
+    selected_date = st.date_input('Date', value=today_et(),
+                                  max_value=today_et(),
                                   label_visibility='collapsed')
 with btn_col:
     if st.button('🔄 Refresh', use_container_width=True):
@@ -723,7 +724,7 @@ if not games:
 has_lineups = any(g.get('home_batters') or g.get('away_batters') for g in games)
 if not has_lineups:
     msg = ('No lineup data for this date.'
-           if selected_date < datetime.now().date()
+           if selected_date < today_et()
            else 'Lineups not yet posted. Check back 2–3 hours before first pitch.')
     st.info(msg)
     st.stop()

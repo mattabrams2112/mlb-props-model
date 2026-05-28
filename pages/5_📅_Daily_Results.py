@@ -9,6 +9,7 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 from full_tracker import load_all, update_actuals, save_all, log_play
+from eastern_time import today_et, today_str_et
 
 st.set_page_config(page_title="Daily Results | MLB Props", page_icon="📅", layout="wide")
 
@@ -48,7 +49,7 @@ df['actual']    = pd.to_numeric(df['actual'],    errors='coerce')
 df['date_str']  = df['date'].astype(str).str[:10]
 
 # Apply current criteria
-today_str = datetime.now().strftime('%Y-%m-%d')
+today_str = today_str_et()
 criteria = df[
     (
         ((df['rating'] >= 70) & (df['rating'] <= 74) & (df['projected'] >= 3.0)) |
@@ -335,7 +336,7 @@ with st.expander('➕ Manually Add a Play', expanded=False):
         m_proj    = mc4.number_input('Projected HRR', min_value=0.0, max_value=20.0, value=1.5, step=0.1)
         m_line    = mc5.number_input('Line', min_value=0.5, max_value=10.0, value=1.5, step=0.5)
         mc6, mc7 = st.columns(2)
-        m_date    = mc6.date_input('Game Date', value=datetime.now().date())
+        m_date    = mc6.date_input('Game Date', value=today_et())
         m_pitcher = mc7.text_input('vs Pitcher', placeholder='optional')
         m_actual  = st.number_input('Actual HRR (leave -1 if still pending)', min_value=-1, max_value=30, value=-1, step=1)
         submitted = st.form_submit_button('Add Play', type='primary', use_container_width=True)
@@ -366,8 +367,7 @@ with st.expander('➕ Manually Add a Play', expanded=False):
                 if mask.any():
                     idx = _df[mask].index[0]
                     _df.at[idx, 'actual'] = str(m_actual)
-                    today_str2 = datetime.now().strftime('%Y-%m-%d')
-                    if game_date < today_str2:
+                    if game_date < today_str_et():
                         _df.at[idx, 'result'] = 'W' if m_actual > float(m_line) else 'L'
                     save_all(_df)
             st.success(f'Added {m_player.strip()} ({game_date})!')

@@ -21,6 +21,7 @@ import streamlit as st
 import pandas as pd
 import statsapi
 from datetime import datetime
+from eastern_time import today_et, today_str_et
 
 from lineup_fetcher import get_todays_lineups
 from pitcher_data import get_pitcher_season_stats, get_pitcher_name, get_pitcher_rest_days
@@ -286,12 +287,12 @@ def update_actuals():
 st.markdown('## 🏆 Game Predictions')
 st.caption('HRR lineup totals + run differential, defense, bullpen, pitcher rest, and weather adjustments.')
 
-today_str = datetime.now().strftime('%Y-%m-%d')
+today_str = today_str_et()
 
 col_date, col_refresh, col_fetch = st.columns([2, 1, 1])
 with col_date:
-    selected_date = st.date_input('Date', value=datetime.now().date(),
-                                  max_value=datetime.now().date(),
+    selected_date = st.date_input('Date', value=today_et(),
+                                  max_value=today_et(),
                                   label_visibility='collapsed')
 with col_refresh:
     if st.button('🔄 Refresh', use_container_width=True):
