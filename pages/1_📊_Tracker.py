@@ -395,6 +395,30 @@ with st.expander('✏️ Manually Correct an Actual', expanded=False):
             st.success(f'Updated {sel_player} ({sel_date}): actual={new_actual}, result={"W" if new_actual > line else "L"}')
             st.rerun()
 
+# ── Remove a play ─────────────────────────────────────────────────────────────
+
+with st.expander('🗑️ Remove a Play', expanded=False):
+    st.caption('Removes a play from both the tracker and the full play log (Daily Results / Analytics).')
+    from full_tracker import load_all as _fload, save_all as _fsave
+    _all_dates  = sorted(df['date'].astype(str).str[:10].unique(), reverse=True)
+    _rem_date   = st.selectbox('Date', _all_dates, key='rem_date')
+    _day_plays  = df[df['date'].astype(str).str[:10] == _rem_date]['player'].tolist()
+    if _day_plays:
+        _rem_player = st.selectbox('Player', _day_plays, key='rem_player')
+        st.warning(f'This will permanently delete **{_rem_player}** ({_rem_date}) from all tables.')
+        if st.button('🗑️ Remove Play', type='primary', key='rem_btn'):
+            # Remove from tracker
+            _new_df = df[~((df['player'] == _rem_player) & (df['date'].astype(str).str[:10] == _rem_date))].copy()
+            save(_new_df)
+            # Remove from full play log
+            _fdf = _fload()
+            _fdf = _fdf[~((_fdf['player'] == _rem_player) & (_fdf['date'].astype(str).str[:10] == _rem_date))].reset_index(drop=True)
+            _fsave(_fdf)
+            st.success(f'Removed {_rem_player} ({_rem_date}) from all tables.')
+            st.rerun()
+    else:
+        st.info('No plays on this date.')
+
 # ── Editable table ─────────────────────────────────────────────────────────────
 
 st.markdown('### Results')
