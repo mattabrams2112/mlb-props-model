@@ -1,6 +1,6 @@
 """
-Weekly Tracker — rating band × projection breakdown per week.
-One card per week, newest first. Matches Analytics table style.
+Weekly Tracker — one box per week (Mon–Sun), each matching the Analytics table style.
+Updates live as results come in; new box starts each Monday.
 """
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
@@ -16,13 +16,11 @@ st.markdown("""
 <style>
   h1,h2,h3{color:#38bdf8!important;}
   .stMarkdown p,label,.stCaption{color:#7dd3fc!important;}
-  .stMetric label{color:#38bdf8!important;}
-  .stMetric [data-testid="metric-container"]>div{color:#e0f2fe!important;}
 </style>
 """, unsafe_allow_html=True)
 
 st.markdown('## 📆 Weekly Tracker')
-st.caption('Rating band × projection breakdown — one card per week, newest first.')
+st.caption('One box per week (Mon–Sun) — updates daily as results come in.')
 
 if st.button('🔄 Refresh', use_container_width=False):
     st.rerun()
@@ -54,6 +52,17 @@ RATING_BUCKETS = [
 PROJ_THRESHOLDS = [1.5, 2.0, 2.5, 3.0]
 
 
+def week_start(date_str):
+    d = datetime.strptime(date_str, '%Y-%m-%d')
+    return (d - timedelta(days=d.weekday())).strftime('%Y-%m-%d')
+
+
+def week_label(monday_str):
+    mon = datetime.strptime(monday_str, '%Y-%m-%d')
+    sun = mon + timedelta(days=6)
+    return f"Week of {mon.strftime('%b %-d')} – {sun.strftime('%b %-d, %Y')}"
+
+
 def record(sub):
     d = sub[sub['result'].isin(['W', 'L'])]
     if len(d) == 0:
@@ -70,19 +79,7 @@ def fmt(sub):
     return f'{wr}% ({w}-{l})'
 
 
-def week_start(date_str):
-    d = datetime.strptime(date_str, '%Y-%m-%d')
-    return (d - timedelta(days=d.weekday())).strftime('%Y-%m-%d')
-
-
-def week_label(monday_str):
-    mon = datetime.strptime(monday_str, '%Y-%m-%d')
-    sun = mon + timedelta(days=6)
-    return f"Week of {mon.strftime('%b %-d')} – {sun.strftime('%b %-d, %Y')}"
-
-
 def build_table(data_df) -> str:
-    """Return HTML for the rating band × projection table."""
     cols = ['Rating Band', 'Total Plays', 'Total %'] + [f'Proj ≥{pt}' for pt in PROJ_THRESHOLDS]
 
     html = (
@@ -98,8 +95,8 @@ def build_table(data_df) -> str:
     html += '</tr></thead><tbody>'
 
     for lo, hi, label in RATING_BUCKETS:
-        band    = data_df[(data_df['rating'] >= lo) & (data_df['rating'] < hi)]
-        decided = band[band['result'].isin(['W', 'L'])]
+        band    = data_df[(data_df['rating'] >= lo) & (data_df['rating'] < hi)] if not data_df.empty else pd.DataFrame()
+        decided = band[band['result'].isin(['W', 'L'])] if not band.empty else pd.DataFrame()
         total_n = len(decided)
 
         row_vals = {
@@ -108,7 +105,7 @@ def build_table(data_df) -> str:
             'Total %':     fmt(band),
         }
         for pt in PROJ_THRESHOLDS:
-            row_vals[f'Proj ≥{pt}'] = fmt(band[band['projected'] >= pt])
+            row_vals[f'Proj ≥{pt}'] = fmt(band[band['projected'] >= pt]) if not band.empty else '—'
 
         html += '<tr style="border-bottom:1px solid #1e293b;">'
         for c in cols:
@@ -140,74 +137,44 @@ def build_table(data_df) -> str:
 
 df['week'] = df['date_str'].apply(week_start)
 
-# Always include the current week even if no plays logged yet
+# Always include current week even if no plays yet
 current_week = week_start(today_str)
 weeks = sorted(set(df['week'].dropna().unique()) | {current_week}, reverse=True)
 
-if not weeks:
-    st.info('No plays with valid dates found.')
-    st.stop()
+# ── Season totals line ────────────────────────────────────────────────────────
 
-# ── Season totals card ────────────────────────────────────────────────────────
-
-st.markdown('### 📊 Season Totals')
 _, s_n, s_w, s_l = record(df)
 s_wr = f'{round(s_w/s_n*100,1)}%' if s_n > 0 else '—'
-
 st.markdown(
-    f'<div style="background:#1e293b;border:1px solid #1e40af;border-radius:10px;'
-    f'padding:14px 18px;margin-bottom:20px;">'
-    f'<div style="color:#38bdf8;font-weight:700;font-size:15px;margin-bottom:10px;">'
-    f'All Weeks — {s_w}-{s_l} ({s_wr}) · {len(weeks)} weeks tracked</div>'
-    + build_table(df) +
-    '</div>',
+    f'<div style="color:#94a3b8;font-size:13px;margin-bottom:18px;">'
+    f'Season: <b style="color:#38bdf8;">{s_w}-{s_l} ({s_wr})</b> &nbsp;·&nbsp; '
+    f'{len(weeks)} weeks tracked</div>',
     unsafe_allow_html=True
 )
 
-st.markdown('---')
-st.markdown('### Weekly Breakdown')
-
-# ── One card per week ─────────────────────────────────────────────────────────
+# ── One box per week ──────────────────────────────────────────────────────────
 
 for week_mon in weeks:
-    wk_df  = df[df['week'] == week_mon]
+    wk_df = df[df['week'] == week_mon] if not df.empty else pd.DataFrame()
     _, wk_n, wk_w, wk_l = record(wk_df)
     wk_wr  = f'{round(wk_w/wk_n*100,1)}%' if wk_n > 0 else '—'
     label  = week_label(week_mon)
 
-    # Day strip — always show all 7 days Mon-Sun
-    week_mon_dt = datetime.strptime(week_mon, '%Y-%m-%d')
-    all_days    = [(week_mon_dt + timedelta(days=i)).strftime('%Y-%m-%d') for i in range(7)]
-    day_html    = '<div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;">'
-    for day in all_days:
-        day_sub   = wk_df[wk_df['date_str'] == day] if not wk_df.empty else pd.DataFrame()
-        _, dn, dw, dl = record(day_sub)
-        d_label   = datetime.strptime(day, '%Y-%m-%d').strftime('%a %-d')
-        is_future = day > today_str
-        if is_future:
-            d_color  = '#334155'
-            d_text   = '—'
-        elif dn == 0:
-            d_color  = '#475569'
-            d_text   = '—'
-        else:
-            d_color  = ('#22c55e' if dw/dn >= 0.60 else '#eab308' if dw/dn >= 0.524 else '#ef4444')
-            d_text   = f'{dw}-{dl}'
-        day_html += (
-            f'<div style="text-align:center;padding:5px 10px;background:#0f172a;'
-            f'border-radius:5px;border-top:3px solid {d_color};min-width:52px;">'
-            f'<div style="font-size:10px;color:#94a3b8;">{d_label}</div>'
-            f'<div style="font-size:13px;font-weight:700;color:{d_color};">{d_text}</div></div>'
-        )
-    day_html += '</div>'
+    # Status tag
+    is_current = week_mon == current_week
+    status_tag = (
+        '<span style="background:#1e40af;color:#93c5fd;font-size:11px;'
+        'padding:2px 8px;border-radius:4px;margin-left:8px;">CURRENT</span>'
+        if is_current else ''
+    )
 
     st.markdown(
         f'<div style="background:#1e293b;border:1px solid #1e40af;border-radius:10px;'
-        f'padding:14px 18px;margin-bottom:16px;">'
-        f'<div style="color:#38bdf8;font-weight:700;font-size:15px;margin-bottom:8px;">'
-        f'{label} &nbsp;·&nbsp; {wk_w}-{wk_l} ({wk_wr}) &nbsp;·&nbsp; '
-        f'<span style="color:#94a3b8;font-size:13px;">{wk_n} decided</span></div>'
-        + day_html
+        f'padding:16px 18px;margin-bottom:18px;">'
+        f'<div style="color:#38bdf8;font-weight:700;font-size:15px;margin-bottom:12px;">'
+        f'{label}{status_tag}'
+        f'&nbsp;&nbsp;<span style="color:#e0f2fe;font-weight:400;">{wk_w}-{wk_l} ({wk_wr})</span>'
+        f'&nbsp;·&nbsp;<span style="color:#94a3b8;font-size:13px;">{wk_n} decided</span></div>'
         + build_table(wk_df)
         + '</div>',
         unsafe_allow_html=True
