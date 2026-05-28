@@ -108,6 +108,18 @@ def _to_df(rows: list) -> pd.DataFrame:
     return df[df['ab'] > 0].reset_index(drop=True)
 
 
+def _merge(frames: list) -> pd.DataFrame:
+    """Concat non-empty frames, re-parse dates, sort, and filter ab > 0."""
+    if not frames:
+        return pd.DataFrame()
+    df = pd.concat(frames, ignore_index=True)
+    if 'date' not in df.columns:
+        return pd.DataFrame()
+    df['date'] = pd.to_datetime(df['date'], errors='coerce')
+    df = df.dropna(subset=['date']).sort_values('date').reset_index(drop=True)
+    return df[df['ab'] > 0].reset_index(drop=True)
+
+
 def fetch_player_logs(player_id: int) -> pd.DataFrame:
     """
     Returns game logs for a player, current season prioritized.
@@ -136,12 +148,8 @@ def fetch_player_logs(player_id: int) -> pd.DataFrame:
     prev_df   = _to_df(prev_rows)
     prev_tail = prev_df.tail(needed) if not prev_df.empty else pd.DataFrame()
 
-    combined = pd.concat([prev_tail, with_milb], ignore_index=True)
-    combined['date'] = pd.to_datetime(combined['date'], errors='coerce')
-    combined = (combined.dropna(subset=['date'])
-                        .sort_values('date')
-                        .reset_index(drop=True))
-    combined = combined[combined['ab'] > 0].reset_index(drop=True)
+    parts    = [p for p in [prev_tail, with_milb] if not p.empty and 'date' in p.columns]
+    combined = _merge(parts)
     if len(combined) >= MIN_GAMES:
         return combined
 
@@ -152,7 +160,5 @@ def fetch_player_logs(player_id: int) -> pd.DataFrame:
     )
     milb_prev_tail = milb_prev.tail(needed2) if not milb_prev.empty else pd.DataFrame()
 
-    final = pd.concat([milb_prev_tail, combined], ignore_index=True)
-    final['date'] = pd.to_datetime(final['date'], errors='coerce')
-    final = final.dropna(subset=['date']).sort_values('date').reset_index(drop=True)
-    return final[final['ab'] > 0].reset_index(drop=True)
+    parts2 = [p for p in [milb_prev_tail, combined] if not p.empty and 'date' in p.columns]
+    return _merge(parts2)
