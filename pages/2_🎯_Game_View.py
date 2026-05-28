@@ -818,18 +818,25 @@ for game in games:
     _all_ids = list(ab_ids) + list(hb_ids)
     _gd = selected_date.strftime('%Y-%m-%d')
 
-    # Only render lineups when both pitchers are confirmed and lineups are official
-    _game_active   = status in ('In Progress', 'Manager Challenge', 'Final',
-                                'Game Over', 'Completed Early')
+    # Games already underway — ratings were locked before first pitch, no re-render needed
+    _game_active = status in ('In Progress', 'Manager Challenge', 'Final',
+                              'Game Over', 'Completed Early')
+    if _game_active:
+        _label = '🏁 Final' if is_final else '⚾ In Progress'
+        st.info(f'{_label} — ratings locked before first pitch. See Tracker / Daily Results for this game.')
+        st.markdown('---')
+        continue
+
+    # Pre-game: only render when both pitchers are confirmed and lineups are official
     _both_pitchers = away_p != 'TBD' and home_p != 'TBD'
-    _lineups_ready = _both_pitchers and (game.get('lineups_official') or _game_active)
+    _lineups_ready = _both_pitchers and game.get('lineups_official')
 
     if not _lineups_ready:
         _missing = []
         if away_p == 'TBD':
-            _missing.append(f'{home_p if home_p != "TBD" else home} SP')
+            _missing.append(f'{home} SP')
         if home_p == 'TBD':
-            _missing.append(f'{away_p if away_p != "TBD" else away} SP')
+            _missing.append(f'{away} SP')
         if not game.get('lineups_official'):
             _missing.append('official lineups')
         st.info(f'⏳ Waiting for: {", ".join(_missing) if _missing else "official lineups"}')
