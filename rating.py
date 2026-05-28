@@ -6,7 +6,7 @@ Components:
   Model Projection (0-18) — XGBoost projected H+R+RBI (anchors the rating)
   Starter Matchup  (0-18) — opposing starter ERA/WHIP + BvP history
   Bullpen          (0-10) — opposing bullpen ERA/WHIP (later inning opportunity)
-  Barrel Edge      (0-12) — batter barrel rate advantage over starter
+  Barrel Edge      (0-12) — batter barrel rate advantage over starter (lowered from 15)
   Park & Weather   (0-9)  — ballpark factor + live wind/temp
   Batting Order    (0-10) — lineup position 1-5 bonus
 
@@ -189,7 +189,7 @@ def compute_rating(
         batter_bk_seen * (batter_bk_barrel - pitcher_bk_barrel) +
         batter_os_seen * (batter_os_barrel - pitcher_os_barrel)
     )
-    scores['Barrel Edge'] = (round(max(0.0, min(15.0, 7.5 + barrel_edge * 150)), 1), 15)
+    scores['Barrel Edge'] = (round(max(0.0, min(12.0, 6.0 + barrel_edge * 120)), 1), 12)
 
     # ── Contact Quality — xBA + Hard Hit Rate (0-8) ──────────────────────────
     hard_hit_edge = batter_hard_hit_pct - pitcher_hard_hit_pct
