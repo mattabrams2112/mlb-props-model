@@ -108,6 +108,17 @@ def _to_df(rows: list) -> pd.DataFrame:
     return df[df['ab'] > 0].reset_index(drop=True)
 
 
+def _merge(frames: list) -> pd.DataFrame:
+    """Safely concat non-empty frames that have a date column."""
+    valid = [f for f in frames if not f.empty and 'date' in f.columns]
+    if not valid:
+        return pd.DataFrame()
+    df = pd.concat(valid, ignore_index=True)
+    df['date'] = pd.to_datetime(df['date'], errors='coerce')
+    df = df.dropna(subset=['date']).sort_values('date').reset_index(drop=True)
+    return df[df['ab'] > 0].reset_index(drop=True)
+
+
 def fetch_player_logs(player_id: int) -> pd.DataFrame:
     """
     Returns game logs for a player, current season prioritized.
@@ -132,27 +143,17 @@ def fetch_player_logs(player_id: int) -> pd.DataFrame:
 
     # 3. Pull only as many games as needed from prior MLB season
     needed    = MIN_GAMES - len(with_milb)
-    prev_rows = _fetch_mlb_rows(player_id, current_year - 1)
-    prev_df   = _to_df(prev_rows)
+    prev_df   = _to_df(_fetch_mlb_rows(player_id, current_year - 1))
     prev_tail = prev_df.tail(needed) if not prev_df.empty else pd.DataFrame()
 
-    combined = pd.concat([prev_tail, with_milb], ignore_index=True)
-    combined['date'] = pd.to_datetime(combined['date'], errors='coerce')
-    combined = (combined.dropna(subset=['date'])
-                        .sort_values('date')
-                        .reset_index(drop=True))
-    combined = combined[combined['ab'] > 0].reset_index(drop=True)
+    combined = _merge([prev_tail, with_milb])
     if len(combined) >= MIN_GAMES:
         return combined
 
     # 4. Last resort — prior season MiLB tail
     needed2        = MIN_GAMES - len(combined)
-    milb_prev      = _to_df(
-        _fetch_milb_rows(player_id, current_year - 1, sport_id=11, scale=AAA_SCALE)
-    )
+    milb_prev      = _to_df(_fetch_milb_rows(player_id, current_year - 1,
+                                              sport_id=11, scale=AAA_SCALE))
     milb_prev_tail = milb_prev.tail(needed2) if not milb_prev.empty else pd.DataFrame()
 
-    final = pd.concat([milb_prev_tail, combined], ignore_index=True)
-    final['date'] = pd.to_datetime(final['date'], errors='coerce')
-    final = final.dropna(subset=['date']).sort_values('date').reset_index(drop=True)
-    return final[final['ab'] > 0].reset_index(drop=True)
+    return _merge([milb_prev_tail, combined])
