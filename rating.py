@@ -153,7 +153,7 @@ def compute_rating(
                   else batter_babip)
     k_plat     = max(-1.5, min(1.5, (0.222 - _bat_k)    * 7))
     babip_plat = max(-1.0, min(1.0, (_bat_babip - 0.300) * 4))
-    plat_score = max(0.0, min(10.0, 5.0 + (plat_xba - 0.250) * 25 + (plat_hh - 0.360) * 15
+    plat_score = max(-4.0, min(10.0, 5.0 + (plat_xba - 0.250) * 25 + (plat_hh - 0.360) * 15
                                + k_plat + babip_plat))
     scores['Platoon'] = (round(plat_score, 1), 10)
 
