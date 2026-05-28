@@ -470,7 +470,7 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
                                     pitcher_gb_pct=p_sc.get('pitcher_gb_pct', 0.430))
                 _disp_proj = _res_ctx['proj']
                 st.session_state[session_key] = (r_data['total'], r_data['grade'], _disp_proj)
-                if game_date:
+                if game_date and opp_p_name != 'TBD':
                     save_rating(game_date, pid, r_data['total'], r_data['grade'],
                                 _disp_proj, player_name=pname, team=batter_team,
                                 vs_pitcher=opp_p_name)
@@ -503,14 +503,14 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
                 _disp_proj = _res_ctx['proj']
                 # Lock in session state immediately
                 st.session_state[session_key] = (r_data['total'], r_data['grade'], _disp_proj)
-                # Save to database for persistence across sessions
-                if game_date:
+                # Only freeze rating once pitcher is confirmed — TBD ratings may change
+                if game_date and opp_p_name != 'TBD':
                     save_rating(game_date, pid, r_data['total'], r_data['grade'],
                                 _disp_proj, player_name=pname, team=batter_team,
                                 vs_pitcher=opp_p_name)
 
-            # Log ALL plays to analytics tracker
-            if pname and game_date:
+            # Log ALL plays to analytics tracker — only when pitcher is confirmed
+            if pname and game_date and opp_p_name != 'TBD':
                 _pre_game = status in ('Preview', 'Pre-Game', 'Scheduled', 'Warmup')
                 try:
                     log_play(
