@@ -576,6 +576,81 @@ for row in rows:
 
 st.markdown('---')
 
+# ── Day-by-day results tracker ────────────────────────────────────────────────
+
+st.markdown('### Day-by-Day Results')
+
+if decided.empty:
+    st.caption('No completed results yet.')
+else:
+    conf_order = ['Strong', 'Moderate', 'Lean', 'Toss-up']
+    conf_colors = {'Strong': '#22c55e', 'Moderate': '#3b82f6', 'Lean': '#eab308', 'Toss-up': '#475569'}
+
+    day_html = '''<table style="width:100%;border-collapse:collapse;font-family:monospace;font-size:12px;">
+<thead><tr style="background:#1e3a5f;color:#38bdf8;font-size:12px;">
+<th style="padding:8px 10px;text-align:left;">Date</th>
+<th style="padding:8px 10px;text-align:center;">Strong</th>
+<th style="padding:8px 10px;text-align:center;">Moderate</th>
+<th style="padding:8px 10px;text-align:center;">Lean</th>
+<th style="padding:8px 10px;text-align:center;">Toss-up</th>
+<th style="padding:8px 10px;text-align:center;">Total</th>
+<th style="padding:8px 10px;text-align:center;">Win %</th>
+</tr></thead><tbody>'''
+
+    total_by_conf = {c: {'w': 0, 'l': 0} for c in conf_order}
+
+    for date in sorted(decided['date'].astype(str).str[:10].unique(), reverse=True):
+        day = decided[decided['date'].astype(str).str[:10] == date]
+        dw  = int((day['result'] == 'W').sum())
+        dl  = int((day['result'] == 'L').sum())
+        dn  = dw + dl
+        dwr = round(dw / dn * 100, 1) if dn > 0 else None
+        wrc = '#22c55e' if (dwr or 0) >= 55 else '#eab308' if (dwr or 0) >= 50 else '#ef4444' if dn > 0 else '#475569'
+
+        cells = ''
+        for c in conf_order:
+            sub = day[day['confidence'].astype(str) == c]
+            cw  = int((sub['result'] == 'W').sum())
+            cl  = int((sub['result'] == 'L').sum())
+            total_by_conf[c]['w'] += cw
+            total_by_conf[c]['l'] += cl
+            cc  = conf_colors[c]
+            txt = f'{cw}-{cl}' if (cw + cl) > 0 else '—'
+            tc  = '#e0f2fe' if (cw + cl) > 0 else '#334155'
+            cells += f'<td style="padding:8px 10px;text-align:center;color:{tc};">{txt}</td>'
+
+        day_html += (
+            f'<tr style="border-bottom:1px solid #1e293b;">'
+            f'<td style="padding:8px 10px;color:#e0f2fe;">{date}</td>'
+            f'{cells}'
+            f'<td style="padding:8px 10px;text-align:center;color:#e0f2fe;font-weight:700;">{dw}-{dl}</td>'
+            f'<td style="padding:8px 10px;text-align:center;color:{wrc};font-weight:800;">{dwr}%</td>'
+            f'</tr>'
+        )
+
+    # Totals row
+    tot_cells = ''
+    for c in conf_order:
+        tw = total_by_conf[c]['w']; tl = total_by_conf[c]['l']
+        txt = f'{tw}-{tl}' if (tw + tl) > 0 else '—'
+        tc  = '#e0f2fe' if (tw + tl) > 0 else '#334155'
+        tot_cells += f'<td style="padding:9px 10px;text-align:center;color:{tc};font-weight:700;">{txt}</td>'
+
+    tot_wr = round(wins / total * 100, 1) if total > 0 else None
+    tot_wrc = '#22c55e' if (tot_wr or 0) >= 55 else '#eab308' if (tot_wr or 0) >= 50 else '#ef4444' if total > 0 else '#475569'
+    day_html += (
+        f'<tr style="background:#0f172a;border-top:2px solid #38bdf8;">'
+        f'<td style="padding:9px 10px;color:#38bdf8;font-weight:800;">TOTAL</td>'
+        f'{tot_cells}'
+        f'<td style="padding:9px 10px;text-align:center;color:#e0f2fe;font-weight:800;">{wins}-{losses}</td>'
+        f'<td style="padding:9px 10px;text-align:center;color:{tot_wrc};font-weight:800;">{tot_wr}%</td>'
+        f'</tr>'
+    )
+    day_html += '</tbody></table>'
+    st.markdown(day_html, unsafe_allow_html=True)
+
+st.markdown('---')
+
 # ── Past results ──────────────────────────────────────────────────────────────
 
 st.markdown('### Past Results')
