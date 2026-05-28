@@ -66,6 +66,24 @@ def compute_rating(
     opp_def_rating: float    = 0.0,   # positive = bad defense (good for batter)
     pitcher_rest_factor: float = 0.0, # negative = short rest (good for batter)
     pitcher_gb_pct: float    = 0.430, # high GB% = bad for batter (fewer XBH)
+    # Contact discipline — pitcher side
+    opp_k_pct: float           = 0.222,
+    opp_bb_pct: float          = 0.083,
+    opp_babip: float           = 0.300,
+    opp_whiff_pct: float       = 0.245,
+    opp_k_pct_vs_lhb: float    = None,
+    opp_k_pct_vs_rhb: float    = None,
+    opp_babip_vs_lhb: float    = None,
+    opp_babip_vs_rhb: float    = None,
+    # Contact discipline — batter side
+    batter_k_pct: float        = 0.222,
+    batter_bb_pct: float       = 0.083,
+    batter_babip: float        = 0.300,
+    batter_whiff_pct: float    = 0.245,
+    batter_k_pct_vs_rhp: float = None,
+    batter_k_pct_vs_lhp: float = None,
+    batter_babip_vs_rhp: float = None,
+    batter_babip_vs_lhp: float = None,
 ) -> dict:
     scores = {}
 
@@ -96,6 +114,16 @@ def compute_rating(
     era_score = max(0.0, min(20.0, 20.0 * (blended_era - 2.5) / (6.5 - 2.5)))
     if bvp_sample:
         era_score = max(0.0, min(20.0, era_score + (bvp_avg - 0.250) * 15))
+    # K% modifier: elite K% pitcher reduces batter opportunity (-3 to +2 pts)
+    _eff_k_pct   = (opp_k_pct_vs_lhb if pitcher_throws == 'L' and opp_k_pct_vs_lhb is not None
+                    else opp_k_pct_vs_rhb if pitcher_throws == 'R' and opp_k_pct_vs_rhb is not None
+                    else opp_k_pct)
+    _eff_babip   = (opp_babip_vs_lhb if pitcher_throws == 'L' and opp_babip_vs_lhb is not None
+                    else opp_babip_vs_rhb if pitcher_throws == 'R' and opp_babip_vs_rhb is not None
+                    else opp_babip)
+    k_adj    = max(-3.0, min(2.0, (0.222 - _eff_k_pct) * 20))
+    babip_adj = max(-1.5, min(1.5, (_eff_babip - 0.300) * 5))
+    era_score = max(0.0, min(20.0, era_score + k_adj + babip_adj))
     scores['Starter Matchup'] = (round(era_score, 1), 20)
 
     # ── Platoon Advantage (0-6) ──────────────────────────────────────────────
@@ -106,7 +134,17 @@ def compute_rating(
     else:
         plat_xba    = batter_xba_vs_rhp
         plat_hh     = batter_hard_hit_vs_rhp
-    plat_score = max(0.0, min(6.0, 3.0 + (plat_xba - 0.250) * 15 + (plat_hh - 0.360) * 10))
+    # Batter K% and BABIP vs this pitcher's handedness
+    _bat_k    = (batter_k_pct_vs_rhp if pitcher_throws == 'R' and batter_k_pct_vs_rhp is not None
+                 else batter_k_pct_vs_lhp if pitcher_throws == 'L' and batter_k_pct_vs_lhp is not None
+                 else batter_k_pct)
+    _bat_babip = (batter_babip_vs_rhp if pitcher_throws == 'R' and batter_babip_vs_rhp is not None
+                  else batter_babip_vs_lhp if pitcher_throws == 'L' and batter_babip_vs_lhp is not None
+                  else batter_babip)
+    k_plat     = max(-1.5, min(1.5, (0.222 - _bat_k)    * 7))
+    babip_plat = max(-1.0, min(1.0, (_bat_babip - 0.300) * 4))
+    plat_score = max(0.0, min(6.0, 3.0 + (plat_xba - 0.250) * 15 + (plat_hh - 0.360) * 10
+                               + k_plat + babip_plat))
     scores['Platoon'] = (round(plat_score, 1), 6)
 
     # ── Opponent Defense (0-5, can go negative) ──────────────────────────────
@@ -147,7 +185,9 @@ def compute_rating(
     hard_hit_edge = batter_hard_hit_pct - pitcher_hard_hit_pct
     xba_edge      = batter_xba - pitcher_xba_allowed
     ev_edge       = (batter_avg_ev - pitcher_avg_ev) / 10.0
-    contact_score = max(0.0, min(8.0, 4.0 + hard_hit_edge * 30 + xba_edge * 20 + ev_edge * 2))
+    # Whiff% edge: low batter whiff% = makes contact = good; high pitcher whiff% = dominant = bad
+    whiff_adj = max(-2.0, min(1.5, (0.245 - batter_whiff_pct) * 6 - (opp_whiff_pct - 0.245) * 4))
+    contact_score = max(0.0, min(8.0, 4.0 + hard_hit_edge * 30 + xba_edge * 20 + ev_edge * 2 + whiff_adj))
     scores['Contact Quality'] = (round(contact_score, 1), 8)
 
     # ── Park & Weather (0-12) ────────────────────────────────────────────────
