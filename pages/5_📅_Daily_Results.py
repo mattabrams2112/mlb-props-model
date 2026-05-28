@@ -375,6 +375,28 @@ with st.expander('➕ Manually Add a Play', expanded=False):
 
 st.markdown('---')
 
+# ── Remove a play ─────────────────────────────────────────────────────────────
+
+with st.expander('🗑️ Remove a Play', expanded=False):
+    st.caption('Permanently removes a play from the full play log (Daily Results & Analytics).')
+    _all_dates = sorted(df['date_str'].unique(), reverse=True)
+    if _all_dates:
+        _rem_date   = st.selectbox('Date', _all_dates, key='dr_rem_date')
+        _day_plays  = df[df['date_str'] == _rem_date]['player'].tolist()
+        if _day_plays:
+            _rem_player = st.selectbox('Player', _day_plays, key='dr_rem_player')
+            st.warning(f'This will permanently delete **{_rem_player}** ({_rem_date}) from the play log.')
+            if st.button('🗑️ Remove Play', type='primary', key='dr_rem_btn'):
+                _rdf = load_all()
+                _rdf = _rdf[~((_rdf['player'] == _rem_player) & (_rdf['date'].astype(str).str[:10] == _rem_date))].reset_index(drop=True)
+                save_all(_rdf)
+                st.success(f'Removed {_rem_player} ({_rem_date}).')
+                st.rerun()
+        else:
+            st.info('No plays on this date.')
+
+st.markdown('---')
+
 # ── Play log for current criteria ─────────────────────────────────────────────
 
 with st.expander('📋 Full Play Log (current criteria)', expanded=False):
