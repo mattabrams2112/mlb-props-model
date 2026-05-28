@@ -7,7 +7,7 @@ Components:
   Starter Matchup  (0-18) — opposing starter ERA/WHIP + BvP history
   Bullpen          (0-10) — opposing bullpen ERA/WHIP (later inning opportunity)
   Barrel Edge      (0-12) — batter barrel rate advantage over starter
-  Park & Weather   (0-14) — ballpark factor + live wind/temp
+  Park & Weather   (0-9)  — ballpark factor + live wind/temp
   Batting Order    (0-10) — lineup position 1-5 bonus
 
   Line Edge Bonus  (0-10) — projection vs sportsbook line (optional, added on top)
@@ -153,9 +153,9 @@ def compute_rating(
                   else batter_babip)
     k_plat     = max(-1.5, min(1.5, (0.222 - _bat_k)    * 7))
     babip_plat = max(-1.0, min(1.0, (_bat_babip - 0.300) * 4))
-    plat_score = max(0.0, min(6.0, 3.0 + (plat_xba - 0.250) * 15 + (plat_hh - 0.360) * 10
+    plat_score = max(0.0, min(10.0, 5.0 + (plat_xba - 0.250) * 25 + (plat_hh - 0.360) * 15
                                + k_plat + babip_plat))
-    scores['Platoon'] = (round(plat_score, 1), 6)
+    scores['Platoon'] = (round(plat_score, 1), 10)
 
     # ── Opponent Defense (0-5, can go negative) ──────────────────────────────
     # Bad defense (more errors) = more hits reach = good for batter
@@ -174,9 +174,9 @@ def compute_rating(
     team_score = max(0.0, min(5.0, (team_runs_avg - 3.0) / (7.0 - 3.0) * 5.0))
     scores['Team Scoring'] = (round(team_score, 1), 5)
 
-    # ── Umpire (0-3) ─────────────────────────────────────────────────────────
-    ump_score = max(0.0, min(3.0, 1.5 + umpire_tendency))
-    scores['Umpire'] = (round(ump_score, 1), 3)
+    # ── Umpire (0-1) — minimal impact on H+R+RBI ────────────────────────────
+    ump_score = max(0.0, min(1.0, 0.5 + umpire_tendency * 0.33))
+    scores['Umpire'] = (round(ump_score, 1), 1)
 
     # ── Bullpen (0-8) ────────────────────────────────────────────────────────
     bp_era_score  = max(0.0, min(5.0, (bp_era - 3.0) / (5.5 - 3.0) * 5.0))
@@ -210,11 +210,11 @@ def compute_rating(
     contact_score = max(0.0, min(8.0, 4.0 + hard_hit_edge * 30 + xba_edge * 20 + ev_edge * 2 + whiff_adj))
     scores['Contact Quality'] = (round(contact_score, 1), 8)
 
-    # ── Park & Weather (0-12) ────────────────────────────────────────────────
-    park_score = max(0.0, min(7.0, (park_factor - 0.90) / (1.15 - 0.90) * 7.0))
+    # ── Park & Weather (0-9) ────────────────────────────────────────────────
+    park_score = max(0.0, min(5.0, (park_factor - 0.90) / (1.15 - 0.90) * 5.0))
     wind_score = max(-2.0, min(2.0, wind_dir * min(wind_speed, 20) / 20 * 2.0))
     temp_score = max(-1.0, min(1.0, (temp_f - 50) / (85 - 50) * 1.0)) if temp_f > 0 else 0
-    scores['Park & Weather'] = (round(max(0.0, min(12.0, park_score + wind_score + temp_score + 1)), 1), 12)
+    scores['Park & Weather'] = (round(max(0.0, min(9.0, park_score + wind_score + temp_score + 1)), 1), 9)
 
     # ── Batting Order (0-7) — compressed range, spots 7-9 still score meaningfully
     bo_score = BATTING_ORDER_SCORES[batting_order - 1] if 1 <= batting_order <= 9 else 5
