@@ -42,6 +42,16 @@ BATTER_DEFAULTS = {
     'batter_xba_vs_lhp':    0.250,
     'batter_hard_hit_vs_rhp': 0.360,
     'batter_hard_hit_vs_lhp': 0.360,
+    'batter_k_pct':          0.222,
+    'batter_bb_pct':         0.083,
+    'batter_babip':          0.300,
+    'batter_whiff_pct':      0.245,
+    'batter_k_pct_vs_rhp':   0.222,
+    'batter_k_pct_vs_lhp':   0.222,
+    'batter_bb_pct_vs_rhp':  0.083,
+    'batter_bb_pct_vs_lhp':  0.083,
+    'batter_babip_vs_rhp':   0.300,
+    'batter_babip_vs_lhp':   0.300,
 }
 PITCHER_DEFAULTS = {
     'pitcher_fb_barrel_pct': 0.080, 'pitcher_fb_thrown_pct': 0.55,
@@ -51,6 +61,16 @@ PITCHER_DEFAULTS = {
     'pitcher_hard_hit_pct':  0.360,
     'pitcher_avg_ev':        88.0,
     'pitcher_gb_pct':        0.430,  # league avg ~43%
+    'pitcher_k_pct':          0.222,
+    'pitcher_bb_pct':         0.083,
+    'pitcher_babip':          0.300,
+    'pitcher_whiff_pct':      0.245,
+    'pitcher_k_pct_vs_lhb':   0.222,
+    'pitcher_k_pct_vs_rhb':   0.222,
+    'pitcher_bb_pct_vs_lhb':  0.083,
+    'pitcher_bb_pct_vs_rhb':  0.083,
+    'pitcher_babip_vs_lhb':   0.300,
+    'pitcher_babip_vs_rhb':   0.300,
 }
 
 
@@ -150,6 +170,53 @@ def _compute_features(df: pd.DataFrame, role: str) -> dict:
                     ev_s = side_batted['launch_speed'].dropna()
                     if len(ev_s) >= 5:
                         result[f'batter_hard_hit_vs_{suffix}'] = round((ev_s >= 95).sum() / len(ev_s), 4)
+
+    # ── K%, BB%, BABIP, Whiff% (both roles) ──────────────────────────────────
+    pa_rows = df[df['events'].notna() & (df['events'] != '')] if 'events' in df.columns else pd.DataFrame()
+    if not pa_rows.empty:
+        pa_count = pa_rows['at_bat_number'].nunique() if 'at_bat_number' in pa_rows.columns else len(pa_rows)
+        k_count  = pa_rows['events'].isin(['strikeout', 'strikeout_double_play']).sum()
+        bb_count = pa_rows['events'].isin(['walk', 'intent_walk']).sum()
+        if pa_count >= 20:
+            result[f'{role}_k_pct']  = round(k_count  / pa_count, 3)
+            result[f'{role}_bb_pct'] = round(bb_count / pa_count, 3)
+
+    # BABIP: hits on balls in play / (balls in play - HR)
+    if len(batted) >= 20 and 'events' in batted.columns:
+        h_bip  = batted['events'].isin(['single', 'double', 'triple']).sum()
+        hr_ct  = batted['events'].isin(['home_run']).sum()
+        bip    = len(batted) - hr_ct
+        if bip > 0:
+            result[f'{role}_babip'] = round(h_bip / bip, 3)
+
+    # Whiff%: swinging strikes / total pitches
+    if 'description' in df.columns and len(df) >= 50:
+        whiff = df['description'].isin(['swinging_strike', 'swinging_strike_blocked']).sum()
+        result[f'{role}_whiff_pct'] = round(whiff / len(df), 3)
+
+    # Platoon K%, BB%, BABIP (batter side: split by pitcher hand; pitcher side: split by batter hand)
+    split_col   = 'p_throws' if role == 'batter' else 'stand'
+    split_sides = [('R', 'rhp'), ('L', 'lhp')] if role == 'batter' else [('L', 'lhb'), ('R', 'rhb')]
+    if split_col in df.columns:
+        for hand, suffix in split_sides:
+            s_df     = df[df[split_col] == hand]
+            s_batted = s_df[s_df['type'] == 'X'] if 'type' in s_df.columns else pd.DataFrame()
+            # K%, BB%
+            if 'events' in s_df.columns:
+                s_pa = s_df[s_df['events'].notna() & (s_df['events'] != '')]
+                s_pa_count = s_pa['at_bat_number'].nunique() if 'at_bat_number' in s_pa.columns else len(s_pa)
+                if s_pa_count >= 10:
+                    s_k  = s_pa['events'].isin(['strikeout', 'strikeout_double_play']).sum()
+                    s_bb = s_pa['events'].isin(['walk', 'intent_walk']).sum()
+                    result[f'{role}_k_pct_vs_{suffix}']  = round(s_k  / s_pa_count, 3)
+                    result[f'{role}_bb_pct_vs_{suffix}'] = round(s_bb / s_pa_count, 3)
+            # BABIP
+            if len(s_batted) >= 10 and 'events' in s_batted.columns:
+                s_h   = s_batted['events'].isin(['single', 'double', 'triple']).sum()
+                s_hr  = s_batted['events'].isin(['home_run']).sum()
+                s_bip = len(s_batted) - s_hr
+                if s_bip > 0:
+                    result[f'{role}_babip_vs_{suffix}'] = round(s_h / s_bip, 3)
 
     # Fill any missing advanced metrics with defaults
     for k, v in defaults.items():
