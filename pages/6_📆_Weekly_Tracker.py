@@ -139,7 +139,10 @@ def build_table(data_df) -> str:
 # ── Week grouping ─────────────────────────────────────────────────────────────
 
 df['week'] = df['date_str'].apply(week_start)
-weeks      = sorted(df['week'].dropna().unique(), reverse=True)
+
+# Always include the current week even if no plays logged yet
+current_week = week_start(today_str)
+weeks = sorted(set(df['week'].dropna().unique()) | {current_week}, reverse=True)
 
 if not weeks:
     st.info('No plays with valid dates found.')
@@ -172,22 +175,29 @@ for week_mon in weeks:
     wk_wr  = f'{round(wk_w/wk_n*100,1)}%' if wk_n > 0 else '—'
     label  = week_label(week_mon)
 
-    # Day strip
-    days     = sorted(wk_df['date_str'].unique())
-    day_html = '<div style="display:flex;gap:6px;margin-bottom:10px;">'
-    for day in days:
-        day_sub = wk_df[wk_df['date_str'] == day]
+    # Day strip — always show all 7 days Mon-Sun
+    week_mon_dt = datetime.strptime(week_mon, '%Y-%m-%d')
+    all_days    = [(week_mon_dt + timedelta(days=i)).strftime('%Y-%m-%d') for i in range(7)]
+    day_html    = '<div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;">'
+    for day in all_days:
+        day_sub   = wk_df[wk_df['date_str'] == day] if not wk_df.empty else pd.DataFrame()
         _, dn, dw, dl = record(day_sub)
-        d_label = datetime.strptime(day, '%Y-%m-%d').strftime('%a %-d')
-        d_color = ('#22c55e' if dn > 0 and dw/dn >= 0.60 else
-                   '#eab308' if dn > 0 and dw/dn >= 0.524 else
-                   '#ef4444' if dn > 0 else '#475569')
+        d_label   = datetime.strptime(day, '%Y-%m-%d').strftime('%a %-d')
+        is_future = day > today_str
+        if is_future:
+            d_color  = '#334155'
+            d_text   = '—'
+        elif dn == 0:
+            d_color  = '#475569'
+            d_text   = '—'
+        else:
+            d_color  = ('#22c55e' if dw/dn >= 0.60 else '#eab308' if dw/dn >= 0.524 else '#ef4444')
+            d_text   = f'{dw}-{dl}'
         day_html += (
             f'<div style="text-align:center;padding:5px 10px;background:#0f172a;'
             f'border-radius:5px;border-top:3px solid {d_color};min-width:52px;">'
             f'<div style="font-size:10px;color:#94a3b8;">{d_label}</div>'
-            f'<div style="font-size:13px;font-weight:700;color:{d_color};">'
-            f'{"—" if dn == 0 else f"{dw}-{dl}"}</div></div>'
+            f'<div style="font-size:13px;font-weight:700;color:{d_color};">{d_text}</div></div>'
         )
     day_html += '</div>'
 
