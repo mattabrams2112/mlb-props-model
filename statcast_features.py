@@ -34,6 +34,7 @@ BATTER_DEFAULTS = {
     'batter_fb_barrel_pct': 0.080, 'batter_fb_seen_pct': 0.55,
     'batter_bk_barrel_pct': 0.040, 'batter_bk_seen_pct': 0.25,
     'batter_os_barrel_pct': 0.050, 'batter_os_seen_pct': 0.20,
+    'batter_whiff_pct_fb':  0.200, 'batter_whiff_pct_bk': 0.330, 'batter_whiff_pct_os': 0.310,
     'batter_xba':           0.250,
     'batter_xwoba':         0.320,
     'batter_hard_hit_pct':  0.360,
@@ -61,6 +62,7 @@ PITCHER_DEFAULTS = {
     'pitcher_hard_hit_pct':  0.360,
     'pitcher_avg_ev':        88.0,
     'pitcher_gb_pct':        0.430,  # league avg ~43%
+    'pitcher_whiff_pct_fb':  0.200, 'pitcher_whiff_pct_bk': 0.330, 'pitcher_whiff_pct_os': 0.310,
     'pitcher_k_pct':          0.222,
     'pitcher_bb_pct':         0.083,
     'pitcher_babip':          0.300,
@@ -126,6 +128,11 @@ def _compute_features(df: pd.DataFrame, role: str) -> dict:
             result[f'{prefix}_barrel_pct'] = round(int(barrels) / n_batted, 4)
         else:
             result[f'{prefix}_barrel_pct'] = defaults[f'{prefix}_barrel_pct']
+        # Per-pitch-group whiff% (swinging strikes / pitches of that type)
+        if 'description' in group_all.columns and len(group_all) >= 10:
+            g_whiff = group_all['description'].isin(
+                ['swinging_strike', 'swinging_strike_blocked']).sum()
+            result[f'{role}_whiff_pct_{group}'] = round(g_whiff / len(group_all), 4)
 
     # ── Advanced Statcast metrics ─────────────────────────────────────────────
     if len(batted) >= 10:
