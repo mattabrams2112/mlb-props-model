@@ -224,8 +224,13 @@ if 'tracker_lines_filled' not in st.session_state:
         save(df)
     st.session_state['tracker_lines_filled'] = True
 
-st.markdown('## 📊 Prediction Tracker')
-st.caption('Criteria: 70–74 ≥ 3.0 | 80–84 ≥ 1.5 | 85–89 ≥ 1.5 · Lines entered manually · Actuals fetched automatically')
+_hdr, _btn = st.columns([5, 1])
+with _hdr:
+    st.markdown('## 📊 Prediction Tracker')
+    st.caption('Criteria: 70–74 ≥ 3.0 | 80–84 ≥ 1.5 | 85–89 ≥ 1.5 · Lines entered manually · Actuals fetched automatically')
+with _btn:
+    if st.button('🔄 Refresh', use_container_width=True):
+        st.rerun()
 
 # Filter to current criteria only
 df['_r'] = pd.to_numeric(df['rating'],    errors='coerce')
