@@ -815,9 +815,28 @@ for game in games:
         unsafe_allow_html=True
     )
 
-    # Recalculate button — clears cached ratings for this game so new weights apply
     _all_ids = list(ab_ids) + list(hb_ids)
     _gd = selected_date.strftime('%Y-%m-%d')
+
+    # Only render lineups when both pitchers are confirmed and lineups are official
+    _game_active   = status in ('In Progress', 'Manager Challenge', 'Final',
+                                'Game Over', 'Completed Early')
+    _both_pitchers = away_p != 'TBD' and home_p != 'TBD'
+    _lineups_ready = _both_pitchers and (game.get('lineups_official') or _game_active)
+
+    if not _lineups_ready:
+        _missing = []
+        if away_p == 'TBD':
+            _missing.append(f'{home_p if home_p != "TBD" else home} SP')
+        if home_p == 'TBD':
+            _missing.append(f'{away_p if away_p != "TBD" else away} SP')
+        if not game.get('lineups_official'):
+            _missing.append('official lineups')
+        st.info(f'⏳ Waiting for: {", ".join(_missing) if _missing else "official lineups"}')
+        st.markdown('---')
+        continue
+
+    # Recalculate button — clears cached ratings for this game so new weights apply
     if st.button(f'🔄 Recalculate {away} @ {home}', key=f'recalc_{date_key}_{away}_{home}'):
         clear_ratings_for_players(_gd, _all_ids)
         fetch_cache_key_a = f'gv_fetch_{date_key}_{game.get("game_pk","")}_{int(False)}'
