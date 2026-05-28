@@ -162,6 +162,7 @@ st.markdown(
 st.markdown('---')
 st.markdown('### Weekly Breakdown')
 
+
 # ── One box per week ──────────────────────────────────────────────────────────
 
 for week_mon in weeks:
