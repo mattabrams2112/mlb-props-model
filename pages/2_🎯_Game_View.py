@@ -13,6 +13,7 @@ import pandas as pd
 import numpy as np
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
+from eastern_time import today_et, today_str_et, now_et
 from xgboost import XGBRegressor
 try:
     from lightgbm import LGBMRegressor
@@ -34,7 +35,7 @@ from team_logos import get_logo, logo_img_tag
 from bvp_stats import get_bvp
 from stadium_weather import get_stadium_weather
 from bullpen_data import get_bullpen_stats
-from ratings_cache import get_cached_rating, save_rating
+from ratings_cache import get_cached_rating, save_rating, clear_ratings_for_players
 from odds_api import get_todays_event_ids, get_player_line, fair_probability, american_to_prob, prob_to_american, ODDS_API_KEY
 from team_stats import get_team_recent_scoring, get_team_defense_rating
 from umpire_data import get_game_umpire
@@ -54,6 +55,12 @@ MLB_API = 'https://statsapi.mlb.com/api/v1'
 
 
 # ── Data helpers ──────────────────────────────────────────────────────────────
+
+@st.cache_data(show_spinner=False, ttl=900)
+def _get_lineups(date_str: str):
+    """Cache lineup data for 15 min — survives browser close as long as Railway is running."""
+    return get_todays_lineups(date_str)
+
 
 @st.cache_data(show_spinner=False, ttl=86400)
 def get_player_info(pid: int) -> tuple:
@@ -380,6 +387,14 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
     # Sort: starters by spot, subs by spot then sub_idx
     fetched.sort(key=lambda x: (0 if x[5] else 1, x[6], x[7]))
 
+    # ── Lineup context ────────────────────────────────────────────────────────
+    # Build team projection map: spot -> proj for all starters with results
+    _LEAGUE_AVG    = 1.8
+    _starter_projs = {sp: r['proj'] for _, _, _, _, r, is_s, sp, _, _ in fetched
+                      if is_s and r and r.get('proj') is not None}
+    _team_avg      = (sum(_starter_projs.values()) / len(_starter_projs)
+                      if _starter_projs else _LEAGUE_AVG)
+
     # ── Build rows ────────────────────────────────────────────────────────────
     rows_html = []
     totals    = []
@@ -387,6 +402,19 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
     for row_i, (idx, pid, pname, pteam, res, is_starter, spot, sub_idx, odds_data) in enumerate(fetched):
         display_order = str(spot) if is_starter else f'{spot}.{sub_idx}'
         batting_order = spot if is_starter else 0
+
+        # Lineup context — how strong is this player's surrounding lineup?
+        if is_starter and res and spot in _starter_projs:
+            _prev = 9 if spot == 1 else spot - 1
+            _next = 1 if spot == 9 else spot + 1
+            _nbrs = [_starter_projs[s] for s in (_prev, _next) if s in _starter_projs]
+            _nbr_avg  = sum(_nbrs) / len(_nbrs) if _nbrs else _team_avg
+            _ctx_avg  = 0.5 * _team_avg + 0.5 * _nbr_avg
+            _ctx_pct  = max(-0.12, min(0.12, (_ctx_avg - _LEAGUE_AVG) / _LEAGUE_AVG * 0.4))
+        else:
+            _ctx_pct  = 0.0
+        _disp_proj = res['proj'] if res else 0  # updated in each branch below
+
         bg = '#0f172a' if row_i % 2 == 0 else '#1e293b'
         if not is_starter:
             bg = '#111827'
@@ -412,13 +440,16 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
                           'color': '#22c55e' if locked_rating >= 75 else '#eab308' if locked_rating >= 55 else '#ef4444',
                           'components': {}, 'line_label': None}
                 res = dict(res); res['proj'] = locked_proj
+                _disp_proj = locked_proj
             elif game_started:
                 # Game started, no pre-game cache — calculate without odds
                 book_line  = None
                 book_odds  = None
                 season_r   = int(res['df']['season'].iloc[-1])
                 b_sc_local = get_batter_statcast(pid, season_r)
-                r_data = get_rating(res, pid, opp_pitcher_id, park_team, batting_order,
+                _res_ctx   = dict(res)
+                _res_ctx['proj'] = round(max(0.5, res['proj'] * (1 + _ctx_pct)), 2)
+                r_data = get_rating(_res_ctx, pid, opp_pitcher_id, park_team, batting_order,
                                     weather['temp_f'], weather['wind_speed'],
                                     weather['wind_dir_code'],
                                     bp_era=bp_era, bp_whip=bp_whip,
@@ -437,17 +468,20 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
                                     opp_def_rating=opp_defense.get('def_rating', 0.0),
                                     pitcher_rest_factor=p_rest.get('rest_factor', 0.0),
                                     pitcher_gb_pct=p_sc.get('pitcher_gb_pct', 0.430))
-                st.session_state[session_key] = (r_data['total'], r_data['grade'], res['proj'])
-                if game_date:
+                _disp_proj = _res_ctx['proj']
+                st.session_state[session_key] = (r_data['total'], r_data['grade'], _disp_proj)
+                if game_date and opp_p_name != 'TBD':
                     save_rating(game_date, pid, r_data['total'], r_data['grade'],
-                                res['proj'], player_name=pname, team=batter_team,
+                                _disp_proj, player_name=pname, team=batter_team,
                                 vs_pitcher=opp_p_name)
             else:
                 book_line  = odds_data['line']      if odds_data else line_val
                 book_odds  = odds_data['over_odds'] if odds_data else None
                 season_r   = int(res['df']['season'].iloc[-1])
                 b_sc_local = get_batter_statcast(pid, season_r)
-                r_data = get_rating(res, pid, opp_pitcher_id, park_team, batting_order,
+                _res_ctx   = dict(res)
+                _res_ctx['proj'] = round(max(0.5, res['proj'] * (1 + _ctx_pct)), 2)
+                r_data = get_rating(_res_ctx, pid, opp_pitcher_id, park_team, batting_order,
                                     weather['temp_f'], weather['wind_speed'],
                                     weather['wind_dir_code'],
                                     bp_era=bp_era, bp_whip=bp_whip,
@@ -466,24 +500,27 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
                                     opp_def_rating=opp_defense.get('def_rating', 0.0),
                                     pitcher_rest_factor=p_rest.get('rest_factor', 0.0),
                                     pitcher_gb_pct=p_sc.get('pitcher_gb_pct', 0.430))
+                _disp_proj = _res_ctx['proj']
                 # Lock in session state immediately
-                st.session_state[session_key] = (r_data['total'], r_data['grade'], res['proj'])
-                # Save to database for persistence across sessions
-                if game_date:
+                st.session_state[session_key] = (r_data['total'], r_data['grade'], _disp_proj)
+                # Only freeze rating once pitcher is confirmed — TBD ratings may change
+                if game_date and opp_p_name != 'TBD':
                     save_rating(game_date, pid, r_data['total'], r_data['grade'],
-                                res['proj'], player_name=pname, team=batter_team,
+                                _disp_proj, player_name=pname, team=batter_team,
                                 vs_pitcher=opp_p_name)
 
-            # Log ALL plays to analytics tracker
-            if pname and game_date:
+            # Log ALL plays to analytics tracker — only when pitcher is confirmed
+            if pname and game_date and opp_p_name != 'TBD':
+                _pre_game = status in ('Preview', 'Pre-Game', 'Scheduled', 'Warmup')
                 try:
                     log_play(
                         player=pname, team=batter_team,
                         rating=r_data['total'], grade=r_data['grade'],
-                        projected=res['proj'],
+                        projected=_disp_proj,
                         line=disp_line, over_odds=disp_odds,
                         vs_pitcher=opp_p_name, is_home=is_home,
                         game_date=game_date,
+                        game_started=not _pre_game,
                     )
                 except Exception:
                     pass
@@ -491,15 +528,26 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
             # Add qualifying players to the tracker if game is completed or in the past
             _game_finished = status in ('Final', 'Game Over', 'Completed Early')
             from datetime import datetime as _dt
-            _today = _dt.now().strftime('%Y-%m-%d')
-            if r_data['total'] >= 56 and res['proj'] >= 1.9 and pname and game_date and (game_date < _today or _game_finished):
+            _today = today_str_et()
+            _r = r_data['total']; _p = _disp_proj
+            _qualifies = ((70 <= _r <= 74 and _p >= 3.0) or
+                          (80 <= _r <= 84 and _p >= 1.5) or
+                          (85 <= _r <= 89 and _p >= 1.5))
+            if _qualifies:
+                _units    = 2.0 if 85 <= _r <= 89 else 1.0
+                _bet      = int(_units * 8)
+                _u_str    = '1.5' if _units == 1.5 else str(int(_units))
+                _stake_badge = (f' <span style="font-size:10px;background:#1e3a5f;color:#7dd3fc;'
+                                f'border-radius:3px;padding:1px 4px;font-weight:700;">'
+                                f'{_u_str}u · ${_bet}</span>')
+            if _qualifies and pname and game_date and (game_date < _today or _game_finished):
                 try:
                     tracker_add([{
                         'player':     pname,
                         'team':       batter_team,
                         'rating':     r_data['total'],
                         'grade':      r_data['grade'],
-                        'projected':  res['proj'],
+                        'projected':  _disp_proj,
                         'vs_pitcher': opp_p_name,
                         'line':       disp_line,
                         'over_odds':  disp_odds,
@@ -516,7 +564,7 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
             os_s = batter_sc.get('batter_os_seen_pct', 0)
 
             rc = cv(r_data['total'], 75, 55)
-            pc = cv(res['proj'], 3.0, 2.0)
+            pc = cv(_disp_proj, 3.0, 2.0)
             bc = cv(res['ba30'], 0.280, 0.250)
 
             # Line / odds display
@@ -552,16 +600,24 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
                 f'</div>'
             )
 
+            _name_cell_style = (
+                'padding:6px 8px;font-weight:700;white-space:nowrap;color:#fbbf24;'
+                if _qualifies else
+                'padding:6px 8px;color:#e0f2fe;font-weight:600;white-space:nowrap;'
+            )
+            _name_badge = (f' <span style="font-size:10px;background:#f59e0b;color:#000;border-radius:3px;padding:1px 4px;font-weight:800;">BET</span>{_stake_badge}'
+                           if _qualifies else '')
+            _row_border = 'border-left:3px solid #f59e0b;' if _qualifies else ''
             row = (
-                f'<tr style="background:{bg};border-bottom:1px solid #1e293b;">'
+                f'<tr style="background:{bg};border-bottom:1px solid #1e293b;{_row_border}">'
                 f'<td style="padding:6px 8px;color:#475569;font-size:12px;">{display_order}</td>'
                 f'<td style="padding:6px 8px;">{logo}</td>'
-                f'<td style="padding:6px 8px;color:#e0f2fe;font-weight:600;white-space:nowrap;">'
-                f'{pname}<div style="font-size:10px;color:#475569;">{game_label}</div></td>'
+                f'<td style="{_name_cell_style}">'
+                f'{pname}{_name_badge}<div style="font-size:10px;color:#475569;">{game_label}</div></td>'
                 f'<td style="padding:6px 8px;text-align:center;color:{order_color};font-weight:700;">#{batting_order}</td>'
                 f'<td style="padding:6px 8px;text-align:center;font-weight:800;color:{rc};">'
                 f'{r_data["total"]} <span style="font-size:10px;">{r_data["grade"]}</span></td>'
-                f'<td style="padding:6px 8px;text-align:center;font-weight:800;font-size:15px;color:{pc};">{res["proj"]}</td>'
+                f'<td style="padding:6px 8px;text-align:center;font-weight:800;font-size:15px;color:{pc};">{_disp_proj}</td>'
                 f'<td style="padding:6px 8px;text-align:center;">{line_display}</td>'
                 f'<td style="padding:6px 8px;text-align:center;">{odds_display}</td>'
                 f'<td style="padding:6px 8px;text-align:center;">{fair_display}</td>'
@@ -572,7 +628,7 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
                 f'<td style="padding:6px 8px;">{barrel_html}</td>'
                 f'</tr>'
             )
-            totals.append((r_data['total'], res['proj']))
+            totals.append((r_data['total'], _disp_proj))
 
         elif not is_starter:
             row = (
@@ -601,6 +657,8 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
         avg_r = round(sum(t[0] for t in totals) / len(totals))
         tot_p = round(sum(t[1] for t in totals), 2)
         rc    = cv(avg_r, 75, 55); pc = cv(tot_p / max(len(totals), 1), 3.0, 2.0)
+        # Save team HRR total to session state for Game Predictions page
+        st.session_state[f'team_hrr_{date_key}_{batter_team}'] = tot_p
         totals_row = (
             f'<tr style="background:#0f172a;border-top:2px solid #1e40af;">'
             f'<td colspan="3" style="padding:7px;color:#38bdf8;font-weight:700;">LINEUP TOTALS</td>'
@@ -623,7 +681,7 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
             st.caption('Enter the H+R+RBI line for each player. Ratings and Edge update automatically.')
             cols = st.columns(3)
             for i, (_, pid, pname, res) in enumerate(starters_with_data):
-                line_key = f'line_{date_key}_{pid}'
+                line_key = f'line_{date_key}_{game_pk}_{batter_team}_{pid}'
                 with cols[i % 3]:
                     val = st.number_input(
                         pname, min_value=0.5, max_value=6.0,
@@ -640,28 +698,24 @@ st.caption('Factors: hit rate · barrel rates · starter · bullpen · live weat
 
 hdr_col, date_col, btn_col = st.columns([3, 2, 1])
 with date_col:
-    selected_date = st.date_input('Date', value=datetime.now().date(),
-                                  max_value=datetime.now().date(),
+    selected_date = st.date_input('Date', value=today_et(),
+                                  max_value=today_et(),
                                   label_visibility='collapsed')
 with btn_col:
     if st.button('🔄 Refresh', use_container_width=True):
         # Clear all game view caches
+        _get_lineups.clear()
         for k in list(st.session_state.keys()):
             if k.startswith('gv_'):
                 st.session_state.pop(k, None)
         st.rerun()
 
 date_str = selected_date.strftime('%m/%d/%Y')
-if st.session_state.get('gv_date') != date_str:
-    st.session_state.pop('gv_games', None)
-    st.session_state['gv_date'] = date_str
 
-if 'gv_games' not in st.session_state:
-    with st.spinner(f'Fetching lineups for {selected_date.strftime("%B %d, %Y")}...'):
-        st.session_state['gv_games'] = get_todays_lineups(date_str)
+with st.spinner(f'Fetching lineups for {selected_date.strftime("%B %d, %Y")}...'):
+    games = _get_lineups(date_str)
 
 st.markdown(f"### {selected_date.strftime('%A, %B %d, %Y')}")
-games = st.session_state.get('gv_games', [])
 
 if not games:
     st.warning('No games found.')
@@ -670,7 +724,7 @@ if not games:
 has_lineups = any(g.get('home_batters') or g.get('away_batters') for g in games)
 if not has_lineups:
     msg = ('No lineup data for this date.'
-           if selected_date < datetime.now().date()
+           if selected_date < today_et()
            else 'Lineups not yet posted. Check back 2–3 hours before first pitch.')
     st.info(msg)
     st.stop()
@@ -749,6 +803,19 @@ for game in games:
         f'</div>',
         unsafe_allow_html=True
     )
+
+    # Recalculate button — clears cached ratings for this game so new weights apply
+    _all_ids = list(ab_ids) + list(hb_ids)
+    _gd = selected_date.strftime('%Y-%m-%d')
+    if st.button(f'🔄 Recalculate {away} @ {home}', key=f'recalc_{date_key}_{away}_{home}'):
+        clear_ratings_for_players(_gd, _all_ids)
+        fetch_cache_key_a = f'gv_fetch_{date_key}_{game.get("game_pk","")}_{int(False)}'
+        fetch_cache_key_h = f'gv_fetch_{date_key}_{game.get("game_pk","")}_{int(True)}'
+        st.session_state.pop(fetch_cache_key_a, None)
+        st.session_state.pop(fetch_cache_key_h, None)
+        for pid in _all_ids:
+            st.session_state.pop(f'locked_{date_key}_{pid}', None)
+        st.rerun()
 
     ac, hc = st.columns(2)
     gk = str(game.get('game_pk', ''))

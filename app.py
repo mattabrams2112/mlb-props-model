@@ -603,11 +603,12 @@ else:
             all_rows.sort(key=lambda x: x['Rating'], reverse=True)
             st.session_state['lineup_rows'] = all_rows
 
-            # Auto-save 60+ rated predictions to tracker
+            # Auto-save qualifying predictions to tracker
             from tracker import add_predictions
             qualified = [r for r in all_rows if
-                         (65 <= r['Rating'] <= 69 and r['Projected'] >= 2.5) or
-                         r['Rating'] >= 70]
+                         (70 <= r['Rating'] <= 74 and r['Projected'] >= 3.0) or
+                         (80 <= r['Rating'] <= 84 and r['Projected'] >= 1.5) or
+                         (85 <= r['Rating'] <= 89 and r['Projected'] >= 1.5)]
             if qualified:
                 add_predictions([{
                     'player':     r['Player'],

@@ -55,6 +55,17 @@ def _save(df: pd.DataFrame):
     df.to_csv(CACHE_FILE, index=False)
 
 
+def clear_ratings_for_players(game_date: str, player_ids: list):
+    """Delete cached ratings for a list of players on a given date."""
+    df = _load()
+    if df.empty:
+        return
+    ids = [str(p) for p in player_ids]
+    mask = (df['date'] == game_date) & (df['player_id'].isin(ids))
+    df = df[~mask].reset_index(drop=True)
+    _save(df)
+
+
 def get_cached_rating(game_date: str, player_id: int):
     """Returns cached (rating, grade, projected) or None if not saved yet."""
     df = _load()
@@ -90,8 +101,13 @@ def save_rating(game_date: str, player_id: int, rating: int, grade: str,
     df = pd.concat([df, new_row], ignore_index=True)
     _save(df)
 
-    # Auto-add to tracker if rating >= 56 AND projected >= 1.9
-    if rating >= 56 and projected >= 1.9 and player_name:
+    # Auto-add to tracker using current criteria
+    _qualifies = (
+        (70 <= rating <= 74 and projected >= 3.0) or
+        (80 <= rating <= 84 and projected >= 1.5) or
+        (85 <= rating <= 89 and projected >= 1.5)
+    )
+    if _qualifies and player_name:
         try:
             from tracker import add_predictions
             add_predictions([{

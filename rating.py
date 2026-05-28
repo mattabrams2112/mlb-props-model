@@ -77,23 +77,26 @@ def compute_rating(
     scores['Projection'] = (round(proj_score, 1), 30)
 
     # ── Form & Hit Rate (0-15) ────────────────────────────────────────────────
-    # Weighted blend: 7g (50%) + 20g venue-specific (30%) + 30g (20%)
+    # Weighted blend: 7g (20%) + 20g venue-specific (40%) + 30g (40%)
     r20       = recent_20g if recent_20g is not None else recent_30g
-    form_raw  = 0.50 * recent_7g + 0.30 * r20 + 0.20 * recent_30g
+    form_raw  = 0.20 * recent_7g + 0.40 * r20 + 0.40 * recent_30g
     hrr_score = min(11.0, (form_raw / 3.5) * 11)
     # Use venue-specific BA if available for more accurate hit rate
     ba_used   = recent_ba_venue if recent_ba_venue is not None else recent_ba
     ba_bonus  = max(0.0, min(4.0, (ba_used - 0.200) / (0.350 - 0.200) * 4.0))
     scores['Form & Hit Rate'] = (round(hrr_score + ba_bonus, 1), 15)
 
-    # ── Starter Matchup (0-15) ───────────────────────────────────────────────
+    # ── Starter Matchup (0-20) ───────────────────────────────────────────────
     # Higher ERA = worse pitcher = better for batter = higher score
-    # ERA 3.0 (Ohtani) = 0pts, ERA 4.5 (avg) = 7.5pts, ERA 6.0+ = 15pts
-    blended_era = (opp_era * 0.4 + opp_fip * 0.35 + opp_last3_era * 0.25)
-    era_score = max(0.0, min(15.0, 15.0 * (blended_era - 3.0) / (6.0 - 3.0)))
+    # ERA 2.5 (elite) = 0pts, ERA 4.5 (avg) = 10pts, ERA 6.5+ = 20pts
+    # Season ERA (40%) + FIP (35%) carry most weight, last 3 starts (25%) small recency bump
+    # If last3 ERA is the league default (4.30), fall back to season ERA
+    _last3_era  = opp_last3_era if abs(opp_last3_era - 4.30) > 0.05 else opp_era
+    blended_era = (opp_era * 0.40 + opp_fip * 0.35 + _last3_era * 0.25)
+    era_score = max(0.0, min(20.0, 20.0 * (blended_era - 2.5) / (6.5 - 2.5)))
     if bvp_sample:
-        era_score = max(0.0, min(15.0, era_score + (bvp_avg - 0.250) * 12))
-    scores['Starter Matchup'] = (round(era_score, 1), 15)
+        era_score = max(0.0, min(20.0, era_score + (bvp_avg - 0.250) * 15))
+    scores['Starter Matchup'] = (round(era_score, 1), 20)
 
     # ── Platoon Advantage (0-6) ──────────────────────────────────────────────
     # Use the correct split based on pitcher handedness
