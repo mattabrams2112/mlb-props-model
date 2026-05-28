@@ -75,46 +75,8 @@ def get_player_info(pid: int) -> tuple:
 
 @st.cache_data(show_spinner=False, ttl=7200)
 def fetch_logs(player_id: int) -> pd.DataFrame:
-    current_year = datetime.now().year
-    seasons = [current_year - 2, current_year - 1, current_year]
-    rows = []
-    for season in seasons:
-        try:
-            resp = _req.get(f'{MLB_API}/people/{player_id}/stats',
-                            params={'stats': 'gameLog', 'group': 'hitting', 'season': season},
-                            timeout=15)
-            resp.raise_for_status()
-            splits = (resp.json().get('stats') or [{}])[0].get('splits', [])
-            for s in splits:
-                stat = s.get('stat', {}); gi = s.get('game', {})
-                ih = s.get('isHome', True)
-                pt = s.get('team', {}).get('abbreviation', '')
-                op = s.get('opponent', {}).get('abbreviation', '')
-                rows.append({
-                    'player_id': player_id, 'season': season,
-                    'date':      gi.get('gameDate', s.get('date', '')),
-                    'game_pk':   str(gi.get('gamePk', '')),
-                    'opponent':  op, 'home_team': pt if ih else op,
-                    'is_home':   int(ih),
-                    'ab':  int(stat.get('atBats', 0)),
-                    'h':   int(stat.get('hits', 0)),
-                    'r':   int(stat.get('runs', 0)),
-                    'rbi': int(stat.get('rbi', 0)),
-                    'd':   int(stat.get('doubles', 0)),
-                    't':   int(stat.get('triples', 0)),
-                    'hr':  int(stat.get('homeRuns', 0)),
-                    'bb':  int(stat.get('baseOnBalls', 0)),
-                    'k':   int(stat.get('strikeOuts', 0)),
-                    'sb':  int(stat.get('stolenBases', 0)),
-                })
-        except Exception:
-            pass
-    if not rows:
-        return pd.DataFrame()
-    df = pd.DataFrame(rows)
-    df['date'] = pd.to_datetime(df['date'], errors='coerce')
-    df = df.dropna(subset=['date']).sort_values('date').reset_index(drop=True)
-    return df[df['ab'] > 0].reset_index(drop=True)
+    from game_log_fetcher import fetch_player_logs
+    return fetch_player_logs(player_id)
 
 
 @st.cache_data(show_spinner=False, ttl=86400)
