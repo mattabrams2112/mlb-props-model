@@ -818,18 +818,17 @@ for game in games:
     _all_ids = list(ab_ids) + list(hb_ids)
     _gd = selected_date.strftime('%Y-%m-%d')
 
-    # Games already underway — ratings were locked before first pitch, no re-render needed
     _game_active = status in ('In Progress', 'Manager Challenge', 'Final',
                               'Game Over', 'Completed Early')
+
+    # Show in-progress/final banner but still render the full table (ratings are locked)
     if _game_active:
-        _label = '🏁 Final' if is_final else '⚾ In Progress'
-        st.info(f'{_label} — ratings locked before first pitch. See Tracker / Daily Results for this game.')
-        st.markdown('---')
-        continue
+        _label = '🏁 Final — ratings locked' if is_final else '⚾ Game In Progress — ratings locked before first pitch'
+        st.info(_label)
 
     # Pre-game: only render when both pitchers are confirmed and lineups are official
     _both_pitchers = away_p != 'TBD' and home_p != 'TBD'
-    _lineups_ready = _both_pitchers and game.get('lineups_official')
+    _lineups_ready = _both_pitchers and (game.get('lineups_official') or _game_active)
 
     if not _lineups_ready:
         _missing = []
