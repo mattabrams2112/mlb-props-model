@@ -97,7 +97,7 @@ def build_table(data_df) -> str:
     html += '</tr></thead><tbody>'
 
     for lo, hi, label in RATING_BUCKETS:
-        band   = data_df[(data_df['rating'] >= lo) & (data_df['rating'] < hi)]
+        band    = data_df[(data_df['rating'] >= lo) & (data_df['rating'] < hi)]
         decided = band[band['result'].isin(['W', 'L'])]
         total_n = len(decided)
 
@@ -113,19 +113,16 @@ def build_table(data_df) -> str:
         for c in cols:
             val   = row_vals[c]
             align = 'left' if c == 'Rating Band' else 'center'
-            # Color win-rate cells
             color = '#e0f2fe'
             bold  = ''
             if c not in ('Rating Band', 'Total Plays') and val != '—':
                 try:
-                    pct = float(val.split('%')[0])
+                    pct   = float(val.split('%')[0])
                     color = '#22c55e' if pct >= 60 else '#eab308' if pct >= 52.4 else '#ef4444'
                     bold  = 'font-weight:700;'
                 except Exception:
                     pass
-            elif c == 'Rating Band':
-                color = '#e0f2fe'
-            else:
+            elif c == 'Total Plays':
                 color = '#94a3b8'
 
             html += (
