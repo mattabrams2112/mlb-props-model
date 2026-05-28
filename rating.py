@@ -77,9 +77,9 @@ def compute_rating(
     scores['Projection'] = (round(proj_score, 1), 30)
 
     # ── Form & Hit Rate (0-15) ────────────────────────────────────────────────
-    # Weighted blend: 7g (50%) + 20g venue-specific (30%) + 30g (20%)
+    # Weighted blend: 7g (20%) + 20g venue-specific (40%) + 30g (40%)
     r20       = recent_20g if recent_20g is not None else recent_30g
-    form_raw  = 0.50 * recent_7g + 0.30 * r20 + 0.20 * recent_30g
+    form_raw  = 0.20 * recent_7g + 0.40 * r20 + 0.40 * recent_30g
     hrr_score = min(11.0, (form_raw / 3.5) * 11)
     # Use venue-specific BA if available for more accurate hit rate
     ba_used   = recent_ba_venue if recent_ba_venue is not None else recent_ba
