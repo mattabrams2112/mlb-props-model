@@ -89,10 +89,10 @@ def compute_rating(
     # ── Starter Matchup (0-20) ───────────────────────────────────────────────
     # Higher ERA = worse pitcher = better for batter = higher score
     # ERA 2.5 (elite) = 0pts, ERA 4.5 (avg) = 10pts, ERA 6.5+ = 20pts
-    # Recent starts (40%) weighted higher than season ERA (30%) and FIP (30%)
+    # Season ERA (40%) + FIP (35%) carry most weight, last 3 starts (25%) small recency bump
     # If last3 ERA is the league default (4.30), fall back to season ERA
     _last3_era  = opp_last3_era if abs(opp_last3_era - 4.30) > 0.05 else opp_era
-    blended_era = (opp_era * 0.30 + opp_fip * 0.30 + _last3_era * 0.40)
+    blended_era = (opp_era * 0.40 + opp_fip * 0.35 + _last3_era * 0.25)
     era_score = max(0.0, min(20.0, 20.0 * (blended_era - 2.5) / (6.5 - 2.5)))
     if bvp_sample:
         era_score = max(0.0, min(20.0, era_score + (bvp_avg - 0.250) * 15))
