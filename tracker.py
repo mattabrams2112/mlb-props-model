@@ -96,6 +96,25 @@ def recalc_results(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def update_rating_if_exists(player_name: str, game_date: str, rating, grade: str,
+                            projected, vs_pitcher: str = '') -> bool:
+    """Update an existing tracker entry's rating if no actual has been recorded yet.
+    Does NOT add new entries — only updates. Returns True if a row was updated."""
+    df = load()
+    mask = (df['date'] == game_date) & (df['player'] == player_name)
+    if not mask.any():
+        return False
+    idx = df[mask].index[0]
+    if str(df.at[idx, 'actual']).strip() not in ('', 'nan'):
+        return False  # don't touch completed bets
+    df.at[idx, 'rating']     = rating
+    df.at[idx, 'grade']      = grade
+    df.at[idx, 'projected']  = projected
+    df.at[idx, 'vs_pitcher'] = vs_pitcher
+    save(df)
+    return True
+
+
 def add_predictions(new_rows: list, game_date: str = None) -> int:
     df    = load()
     today = game_date or datetime.now().strftime('%Y-%m-%d')

@@ -120,3 +120,13 @@ def save_rating(game_date: str, player_id: int, rating: int, grade: str,
             }], game_date=game_date)
         except Exception:
             pass
+
+    # Always update any existing tracker entry so recalculated ratings are reflected.
+    # If the new rating no longer qualifies, the tracker display filter will hide the row.
+    if player_name:
+        try:
+            from tracker import update_rating_if_exists
+            update_rating_if_exists(player_name, game_date, rating, grade,
+                                    projected, vs_pitcher)
+        except Exception:
+            pass
