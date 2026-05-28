@@ -86,14 +86,15 @@ def compute_rating(
     ba_bonus  = max(0.0, min(4.0, (ba_used - 0.200) / (0.350 - 0.200) * 4.0))
     scores['Form & Hit Rate'] = (round(hrr_score + ba_bonus, 1), 15)
 
-    # ── Starter Matchup (0-15) ───────────────────────────────────────────────
+    # ── Starter Matchup (0-20) ───────────────────────────────────────────────
     # Higher ERA = worse pitcher = better for batter = higher score
-    # ERA 3.0 (Ohtani) = 0pts, ERA 4.5 (avg) = 7.5pts, ERA 6.0+ = 15pts
-    blended_era = (opp_era * 0.4 + opp_fip * 0.35 + opp_last3_era * 0.25)
-    era_score = max(0.0, min(15.0, 15.0 * (blended_era - 3.0) / (6.0 - 3.0)))
+    # ERA 2.5 (elite) = 0pts, ERA 4.5 (avg) = 10pts, ERA 6.5+ = 20pts
+    # Recent starts (40%) weighted higher than season ERA (30%) and FIP (30%)
+    blended_era = (opp_era * 0.30 + opp_fip * 0.30 + opp_last3_era * 0.40)
+    era_score = max(0.0, min(20.0, 20.0 * (blended_era - 2.5) / (6.5 - 2.5)))
     if bvp_sample:
-        era_score = max(0.0, min(15.0, era_score + (bvp_avg - 0.250) * 12))
-    scores['Starter Matchup'] = (round(era_score, 1), 15)
+        era_score = max(0.0, min(20.0, era_score + (bvp_avg - 0.250) * 15))
+    scores['Starter Matchup'] = (round(era_score, 1), 20)
 
     # ── Platoon Advantage (0-6) ──────────────────────────────────────────────
     # Use the correct split based on pitcher handedness
