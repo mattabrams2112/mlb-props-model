@@ -141,16 +141,26 @@ df['week'] = df['date_str'].apply(week_start)
 current_week = week_start(today_str)
 weeks = sorted(set(df['week'].dropna().unique()) | {current_week}, reverse=True)
 
-# ── Season totals line ────────────────────────────────────────────────────────
+# ── Season totals box ────────────────────────────────────────────────────────
 
 _, s_n, s_w, s_l = record(df)
 s_wr = f'{round(s_w/s_n*100,1)}%' if s_n > 0 else '—'
+
+st.markdown('### 📊 Season Totals')
 st.markdown(
-    f'<div style="color:#94a3b8;font-size:13px;margin-bottom:18px;">'
-    f'Season: <b style="color:#38bdf8;">{s_w}-{s_l} ({s_wr})</b> &nbsp;·&nbsp; '
-    f'{len(weeks)} weeks tracked</div>',
+    f'<div style="background:#1e293b;border:1px solid #1e40af;border-radius:10px;'
+    f'padding:16px 18px;margin-bottom:24px;">'
+    f'<div style="color:#38bdf8;font-weight:700;font-size:15px;margin-bottom:12px;">'
+    f'All Weeks &nbsp;·&nbsp; '
+    f'<span style="color:#e0f2fe;font-weight:400;">{s_w}-{s_l} ({s_wr})</span>'
+    f'&nbsp;·&nbsp;<span style="color:#94a3b8;font-size:13px;">{s_n} decided &nbsp;·&nbsp; {len(weeks)} weeks tracked</span></div>'
+    + build_table(df)
+    + '</div>',
     unsafe_allow_html=True
 )
+
+st.markdown('---')
+st.markdown('### Weekly Breakdown')
 
 # ── One box per week ──────────────────────────────────────────────────────────
 
