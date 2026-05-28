@@ -90,7 +90,9 @@ def compute_rating(
     # Higher ERA = worse pitcher = better for batter = higher score
     # ERA 2.5 (elite) = 0pts, ERA 4.5 (avg) = 10pts, ERA 6.5+ = 20pts
     # Recent starts (40%) weighted higher than season ERA (30%) and FIP (30%)
-    blended_era = (opp_era * 0.30 + opp_fip * 0.30 + opp_last3_era * 0.40)
+    # If last3 ERA is the league default (4.30), fall back to season ERA
+    _last3_era  = opp_last3_era if abs(opp_last3_era - 4.30) > 0.05 else opp_era
+    blended_era = (opp_era * 0.30 + opp_fip * 0.30 + _last3_era * 0.40)
     era_score = max(0.0, min(20.0, 20.0 * (blended_era - 2.5) / (6.5 - 2.5)))
     if bvp_sample:
         era_score = max(0.0, min(20.0, era_score + (bvp_avg - 0.250) * 15))
