@@ -555,6 +555,17 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
                 except Exception:
                     pass
 
+            # Always sync tracker with the freshly recalculated rating.
+            # Runs whenever rating was computed (not from cache) so recalculates
+            # update the tracker — including dropping players that no longer qualify.
+            if not cached and pname and game_date and opp_p_name != 'TBD':
+                try:
+                    from tracker import update_rating_if_exists as _tracker_sync
+                    _tracker_sync(pname, game_date, r_data['total'], r_data['grade'],
+                                  _disp_proj, opp_p_name)
+                except Exception:
+                    pass
+
             batter_sc = get_batter_statcast(pid, int(res['df']['season'].iloc[-1]))
             fb_b = batter_sc.get('batter_fb_barrel_pct', 0)
             bk_b = batter_sc.get('batter_bk_barrel_pct', 0)
