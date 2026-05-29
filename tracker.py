@@ -107,9 +107,9 @@ def update_rating_if_exists(player_name: str, game_date: str, rating, grade: str
     idx = df[mask].index[0]
     if str(df.at[idx, 'actual']).strip() not in ('', 'nan'):
         return False  # don't touch completed bets
-    df.at[idx, 'rating']     = rating
+    df.at[idx, 'rating']     = str(rating)
     df.at[idx, 'grade']      = grade
-    df.at[idx, 'projected']  = projected
+    df.at[idx, 'projected']  = str(projected)
     df.at[idx, 'vs_pitcher'] = vs_pitcher
     save(df)
     return True
@@ -125,9 +125,9 @@ def add_predictions(new_rows: list, game_date: str = None) -> int:
             # Update existing pre-game entry if no actual recorded yet
             idx = df[mask].index[0]
             if str(df.at[idx, 'actual']).strip() in ('', 'nan'):
-                df.at[idx, 'rating']     = row['rating']
+                df.at[idx, 'rating']     = str(row['rating'])
                 df.at[idx, 'grade']      = row.get('grade', '')
-                df.at[idx, 'projected']  = row['projected']
+                df.at[idx, 'projected']  = str(row['projected'])
                 df.at[idx, 'vs_pitcher'] = row.get('vs_pitcher', '')
                 added += 1
         else:
