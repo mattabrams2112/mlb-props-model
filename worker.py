@@ -206,8 +206,11 @@ def _run_prediction(player_id, pitcher_id, is_home, park_team,
     if len(dc) < 20:
         return None
 
-    X = dc[fc].apply(pd.to_numeric, errors='coerce').fillna(0)
-    y = dc[TARGET_COL]
+    # Train on all rows except the last — the last row is the prediction template.
+    # Its rolling features (built with shift(1)) represent stats going into that game,
+    # making it a clean out-of-sample prediction row.
+    X = dc.iloc[:-1][fc].apply(pd.to_numeric, errors='coerce').fillna(0)
+    y = dc.iloc[:-1][TARGET_COL]
 
     xgb = XGBRegressor(n_estimators=100, learning_rate=0.08, max_depth=4,
                         subsample=0.8, colsample_bytree=0.8, random_state=42, verbosity=0)
