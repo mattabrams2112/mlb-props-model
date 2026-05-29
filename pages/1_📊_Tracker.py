@@ -1,6 +1,6 @@
 """
 Tracker — logs qualifying predictions and tracks W/L record.
-Criteria: 70-74 >= 3.0 | 75-79 >= 1.5 | 80-84 >= 2.5 | 85-89 >= 1.5
+Criteria: Rating >= 70
 WIN  = actual H+R+RBI > sportsbook line you entered.
 LOSS = actual H+R+RBI ≤ sportsbook line you entered.
 """
@@ -150,10 +150,7 @@ def auto_fill_actuals(df: pd.DataFrame) -> tuple:
 
 # Auto-import qualifying players from today's lineup
 if 'lineup_rows' in st.session_state:
-    qualified = [r for r in st.session_state['lineup_rows'] if
-                 (70 <= r['Rating'] <= 74 and r['Projected'] >= 3.0) or
-                 (80 <= r['Rating'] <= 84 and r['Projected'] >= 1.5) or
-                 (85 <= r['Rating'] <= 89 and r['Projected'] >= 1.5)]
+    qualified = [r for r in st.session_state['lineup_rows'] if r['Rating'] >= 70]
     if qualified:
         add_predictions([{
             'player':     r['Player'],
@@ -178,11 +175,7 @@ def sync_from_ratings_cache():
     _p = pd.to_numeric(ratings['projected'], errors='coerce')
     qualifying = ratings[
         (ratings['date'].astype(str).str[:10] < today) &
-        (
-            ((_r >= 70) & (_r <= 74) & (_p >= 3.0)) |
-            ((_r >= 80) & (_r <= 84) & (_p >= 1.5)) |
-            ((_r >= 85) & (_r <= 89) & (_p >= 1.5))
-        ) &
+        (_r >= 70) &
         (ratings['player_name'].astype(str).str.strip() != '')
     ]
     if qualifying.empty:
@@ -227,20 +220,15 @@ if 'tracker_lines_filled' not in st.session_state:
 _hdr, _btn = st.columns([5, 1])
 with _hdr:
     st.markdown('## 📊 Prediction Tracker')
-    st.caption('Criteria: 70–74 ≥ 3.0 | 80–84 ≥ 1.5 | 85–89 ≥ 1.5 · Lines entered manually · Actuals fetched automatically')
+    st.caption('Criteria: Rating ≥ 70 · Lines entered manually · Actuals fetched automatically')
 with _btn:
     if st.button('🔄 Refresh', use_container_width=True):
         st.rerun()
 
 # Filter to current criteria only
-df['_r'] = pd.to_numeric(df['rating'],    errors='coerce')
-df['_p'] = pd.to_numeric(df['projected'], errors='coerce')
-df = df[
-    ((df['_r'] >= 70) & (df['_r'] <= 74) & (df['_p'] >= 3.0)) |
-    ((df['_r'] >= 80) & (df['_r'] <= 84) & (df['_p'] >= 1.5)) |
-    ((df['_r'] >= 85) & (df['_r'] <= 89) & (df['_p'] >= 1.5))
-].copy()
-df.drop(columns=['_r', '_p'], inplace=True)
+df['_r'] = pd.to_numeric(df['rating'], errors='coerce')
+df = df[df['_r'] >= 70].copy()
+df.drop(columns=['_r'], inplace=True)
 
 # ── Record summary ─────────────────────────────────────────────────────────────
 
