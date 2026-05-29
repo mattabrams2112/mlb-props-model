@@ -243,20 +243,25 @@ def build_features(df: pd.DataFrame, fetch_weather: bool = True,
 
 
 def get_feature_cols(include_pitcher: bool = True) -> list:
+    # Only roll stats that directly predict H+R+RBI — cuts 24 redundant features
+    # (hr, bb, k, ab, d, t rolling avgs already captured inside total_avg)
+    _rolling = ['h', 'r', 'rbi', 'total']
     cols = []
-    for col in STAT_COLS:
+    for col in _rolling:
         for w in WINDOWS:
             cols.append(f'{col}_avg_{w}g')
     for w in WINDOWS:
         cols += [f'ba_{w}g', f'slg_{w}g']
     cols.append('total_season_avg')
-    cols += ['is_home', 'month', 'day_of_week', 'park_factor',
-             'temp_f', 'wind_speed', 'wind_dir', 'home_hrr_avg', 'is_day_game']
+    # Drop day_of_week, is_day_game, wind_speed, wind_dir, temp_f — low signal for H+R+RBI
+    cols += ['is_home', 'month', 'park_factor', 'home_hrr_avg']
     for w in WINDOWS:
         cols += [f'k_pct_{w}g', f'bb_pct_{w}g', f'babip_{w}g']
-    cols += ['hrr_20g_home', 'hrr_20g_away', 'hrr_20g_venue',
-             'ba_20g_home',  'ba_20g_away',  'ba_20g_venue']
-    cols += BATTER_STATCAST_COLS
+    # Drop hrr_20g_home/away and ba_20g_home/away — hrr_20g_venue already picks the right one
+    cols += ['hrr_20g_venue', 'ba_20g_venue']
+    # Drop batter_avg_ev (redundant with hard_hit_pct) and bb_pct splits (low H+R+RBI signal)
+    _exclude = {'batter_avg_ev', 'batter_bb_pct_vs_rhp', 'batter_bb_pct_vs_lhp'}
+    cols += [c for c in BATTER_STATCAST_COLS if c not in _exclude]
     if include_pitcher:
         cols += PITCHER_FEATURE_COLS + BVP_FEATURE_COLS + PITCHER_STATCAST_COLS
     return cols
