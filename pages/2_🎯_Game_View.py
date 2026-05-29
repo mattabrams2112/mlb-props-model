@@ -108,7 +108,10 @@ def run_prediction(player_id: int, pitcher_id, is_home: bool, park_team: str,
     df_feat.at[idx, 'wind_speed']  = wind_speed
     df_feat.at[idx, 'wind_dir']    = wind_dir
 
-    fc = get_feature_cols()
+    # Exclude pitcher features from training — fast_mode fills historical pitcher rows
+    # with league averages (zero variance), making them look like noise to the model.
+    # Pitcher quality is handled by the rating engine (Starter Matchup, Contact Quality, etc.)
+    fc = get_feature_cols(include_pitcher=False)
     dc = df_feat.dropna(subset=fc).reset_index(drop=True)
     if len(dc) < 20:
         return None
