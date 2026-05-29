@@ -171,8 +171,7 @@ def sync_from_ratings_cache():
         return 0
 
     today = datetime.now().strftime('%Y-%m-%d')
-    _r = pd.to_numeric(ratings['rating'],   errors='coerce')
-    _p = pd.to_numeric(ratings['projected'], errors='coerce')
+    _r = pd.to_numeric(ratings['rating'], errors='coerce')
     qualifying = ratings[
         (ratings['date'].astype(str).str[:10] < today) &
         (_r >= 70) &
