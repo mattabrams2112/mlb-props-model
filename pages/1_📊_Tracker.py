@@ -432,6 +432,16 @@ st.caption('Lines must be entered manually. Click **Auto-fetch Actuals** to pull
 df['_sort'] = df['result'].apply(lambda x: 0 if x == '' else 1)
 df = df.sort_values(['_sort', 'date', 'rating'], ascending=[True, False, False]).drop(columns=['_sort'])
 
+def _bet_size(rating):
+    r = float(rating) if rating else 0
+    if r >= 90: return '$24 (3u)'
+    if r >= 85: return '$20 (2.5u)'
+    if r >= 80: return '$16 (2u)'
+    if r >= 75: return '$12 (1.5u)'
+    return '$8 (1u)'
+
+df['bet'] = df['rating'].apply(_bet_size)
+
 edited = st.data_editor(
     df,
     column_config={
@@ -441,6 +451,7 @@ edited = st.data_editor(
         'rating':     st.column_config.NumberColumn('Rating',     disabled=True, width='small'),
         'grade':      st.column_config.TextColumn('Grade',        disabled=True, width='small'),
         'projected':  st.column_config.NumberColumn('Proj HRR',   disabled=True, width='small', format='%.2f'),
+        'bet':        st.column_config.TextColumn('💰 Bet',        disabled=True, width='small'),
         'line':       st.column_config.NumberColumn('📥 Line',      width='small', help='Sportsbook line'),
         'over_odds':  st.column_config.NumberColumn('📊 Over Odds', width='small', disabled=True, help='Book over odds'),
         'actual':     st.column_config.NumberColumn('✏️ Actual',    width='small', help='Actual H+R+RBI (auto-filled after game)'),
@@ -474,11 +485,12 @@ if not decided.empty:
 
         with st.expander(f"**{date}** — {day_w}-{day_l} ({day_pct})", expanded=(date == sorted(decided['date'].unique(), reverse=True)[0])):
             day_display = day_df[['player', 'team', 'rating', 'projected', 'line', 'actual', 'result', 'vs_pitcher']].copy()
+            day_display['bet'] = day_display['rating'].apply(_bet_size)
             day_display['result'] = day_display['result'].map({'W': '✅ W', 'L': '❌ L'})
             st.dataframe(
                 day_display.rename(columns={
                     'player': 'Player', 'team': 'Team', 'rating': 'Rating',
-                    'projected': 'Proj', 'line': 'Line', 'actual': 'Actual',
+                    'projected': 'Proj', 'bet': '💰 Bet', 'line': 'Line', 'actual': 'Actual',
                     'result': 'Result', 'vs_pitcher': 'vs Pitcher'
                 }),
                 hide_index=True, use_container_width=True
