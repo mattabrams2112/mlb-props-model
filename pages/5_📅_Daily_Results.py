@@ -1,6 +1,6 @@
 """
 Daily Results — day-by-day performance filtered by current tracking criteria.
-Criteria: Rating 70-74 + Proj >= 3.0  OR  Rating 75-89 + Proj >= 1.5
+Criteria: Rating >= 70
 """
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
@@ -23,7 +23,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.markdown('## 📅 Daily Results')
-st.caption('Criteria: 70–74 ≥ 3.0 | 80–84 ≥ 1.5 | 85–89 ≥ 1.5')
+st.caption('Criteria: Rating ≥ 70')
 
 col_refresh, col_fetch = st.columns([1, 1])
 with col_refresh:
@@ -50,13 +50,7 @@ df['date_str']  = df['date'].astype(str).str[:10]
 
 # Apply current criteria
 today_str = today_str_et()
-criteria = df[
-    (
-        ((df['rating'] >= 70) & (df['rating'] <= 74) & (df['projected'] >= 3.0)) |
-        ((df['rating'] >= 80) & (df['rating'] <= 84) & (df['projected'] >= 1.5)) |
-        ((df['rating'] >= 85) & (df['rating'] <= 89) & (df['projected'] >= 1.5))
-    )
-]
+criteria = df[df['rating'] >= 70]
 
 decided = criteria[criteria['result'].isin(['W', 'L'])]
 pending = criteria[criteria['result'] == '']
