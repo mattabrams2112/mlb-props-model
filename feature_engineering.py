@@ -259,9 +259,9 @@ def get_feature_cols(include_pitcher: bool = True) -> list:
         cols += [f'k_pct_{w}g', f'bb_pct_{w}g', f'babip_{w}g']
     # Drop hrr_20g_home/away and ba_20g_home/away — hrr_20g_venue already picks the right one
     cols += ['hrr_20g_venue', 'ba_20g_venue']
-    # Drop batter_avg_ev (redundant with hard_hit_pct) and bb_pct splits (low H+R+RBI signal)
-    _exclude = {'batter_avg_ev', 'batter_bb_pct_vs_rhp', 'batter_bb_pct_vs_lhp'}
-    cols += [c for c in BATTER_STATCAST_COLS if c not in _exclude]
+    # Batter Statcast cols (barrel rates, pitch-mix, whiff) are season-level constants —
+    # zero game-to-game variance → XGBoost assigns 0 importance. They're already used
+    # in the rating engine (Barrel Edge, Contact Quality, Platoon). Exclude from XGBoost.
     if include_pitcher:
         cols += PITCHER_FEATURE_COLS + BVP_FEATURE_COLS + PITCHER_STATCAST_COLS
     return cols
