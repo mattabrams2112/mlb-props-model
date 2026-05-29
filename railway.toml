@@ -7,4 +7,4 @@ schedule = "*/30 * * * *"
 
 [[cronJobs]]
 command = "python update_actuals.py"
-schedule = "0 10 * * *"
+schedule = "0 14 * * *"
