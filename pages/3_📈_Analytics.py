@@ -158,6 +158,52 @@ df['rating']    = pd.to_numeric(df['rating'],    errors='coerce')
 df['projected'] = pd.to_numeric(df['projected'], errors='coerce')
 df['line']      = pd.to_numeric(df['line'],      errors='coerce')
 df['actual']    = pd.to_numeric(df['actual'],    errors='coerce')
+df['date_str']  = df['date'].astype(str).str[:10]
+
+# ── Date filter ───────────────────────────────────────────────────────────────
+
+from datetime import datetime as _dt, timedelta as _td
+
+_today_dt           = _dt.now().date()
+_current_week_start = _today_dt - _td(days=_today_dt.weekday())
+
+_PERIODS = ['All Time', 'This Week', 'Last Week', 'Last 2 Weeks',
+            'This Month', 'Last Month', 'Custom Range']
+
+_fc1, _fc2 = st.columns([2, 4])
+with _fc1:
+    _period = st.selectbox('Filter by period', _PERIODS, index=0)
+
+_fstart, _fend = None, None
+if _period == 'This Week':
+    _fstart = _current_week_start.strftime('%Y-%m-%d')
+elif _period == 'Last Week':
+    _fstart = (_current_week_start - _td(days=7)).strftime('%Y-%m-%d')
+    _fend   = (_current_week_start - _td(days=1)).strftime('%Y-%m-%d')
+elif _period == 'Last 2 Weeks':
+    _fstart = (_today_dt - _td(days=14)).strftime('%Y-%m-%d')
+elif _period == 'This Month':
+    _fstart = _today_dt.replace(day=1).strftime('%Y-%m-%d')
+elif _period == 'Last Month':
+    _first_this = _today_dt.replace(day=1)
+    _last_prev  = _first_this - _td(days=1)
+    _fstart = _last_prev.replace(day=1).strftime('%Y-%m-%d')
+    _fend   = _last_prev.strftime('%Y-%m-%d')
+elif _period == 'Custom Range':
+    with _fc2:
+        _cr = st.date_input('Select date range', value=[], key='analytics_custom_range')
+        if len(_cr) == 2:
+            _fstart = _cr[0].strftime('%Y-%m-%d')
+            _fend   = _cr[1].strftime('%Y-%m-%d')
+
+if _fstart:
+    df = df[df['date_str'] >= _fstart]
+if _fend:
+    df = df[df['date_str'] <= _fend]
+
+if _period != 'All Time':
+    _range_label = f"{_fstart} → {_fend or 'today'}"
+    st.caption(f'Showing: **{_period}** ({_range_label}) — {len(df)} plays')
 
 decided = df[df['result'].isin(['W','L'])]
 
