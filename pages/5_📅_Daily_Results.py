@@ -67,9 +67,11 @@ _WIN_MULT = 100 / 125  # payout multiplier for -125
 
 def get_units(rating):
     """Unit size per play based on rating band."""
-    if 85 <= rating <= 89:
-        return 2.0
-    return 1.0  # all other qualifying bands
+    if rating >= 90: return 3.0
+    if rating >= 85: return 2.5
+    if rating >= 80: return 2.0
+    if rating >= 75: return 1.5
+    return 1.0
 
 def play_profit(rating, result):
     """Profit in dollars for a single play at -125."""
@@ -101,20 +103,36 @@ stake_html = '''<table style="width:100%;border-collapse:collapse;font-family:mo
 <th style="padding:9px 12px;text-align:left;">Notes</th>
 </tr></thead><tbody>
 <tr style="background:#1a2744;border-bottom:1px solid #334155;">
+  <td style="padding:8px 12px;color:#22c55e;font-weight:700;">90+</td>
+  <td style="padding:8px 12px;text-align:center;color:#e0f2fe;">≥ 1.5</td>
+  <td style="padding:8px 12px;text-align:center;color:#fbbf24;font-weight:800;">3u</td>
+  <td style="padding:8px 12px;text-align:center;color:#e0f2fe;font-weight:700;">$24</td>
+  <td style="padding:8px 12px;text-align:center;color:#22c55e;font-weight:700;">-160</td>
+  <td style="padding:8px 12px;color:#94a3b8;font-size:12px;">Max bet — very high confidence</td>
+</tr>
+<tr style="background:#1a2744;border-bottom:1px solid #334155;">
   <td style="padding:8px 12px;color:#22c55e;font-weight:700;">85–89</td>
   <td style="padding:8px 12px;text-align:center;color:#e0f2fe;">≥ 1.5</td>
-  <td style="padding:8px 12px;text-align:center;color:#fbbf24;font-weight:800;">2u</td>
-  <td style="padding:8px 12px;text-align:center;color:#e0f2fe;font-weight:700;">$16</td>
+  <td style="padding:8px 12px;text-align:center;color:#fbbf24;font-weight:800;">2.5u</td>
+  <td style="padding:8px 12px;text-align:center;color:#e0f2fe;font-weight:700;">$20</td>
   <td style="padding:8px 12px;text-align:center;color:#22c55e;font-weight:700;">-150</td>
   <td style="padding:8px 12px;color:#94a3b8;font-size:12px;">Bet almost regardless of juice</td>
 </tr>
 <tr style="background:#1a2744;border-bottom:1px solid #334155;">
   <td style="padding:8px 12px;color:#22c55e;font-weight:700;">80–84</td>
   <td style="padding:8px 12px;text-align:center;color:#e0f2fe;">≥ 1.5</td>
-  <td style="padding:8px 12px;text-align:center;color:#fbbf24;font-weight:800;">1u</td>
-  <td style="padding:8px 12px;text-align:center;color:#e0f2fe;font-weight:700;">$8</td>
-  <td style="padding:8px 12px;text-align:center;color:#eab308;font-weight:700;">-125</td>
-  <td style="padding:8px 12px;color:#94a3b8;font-size:12px;">Skip if juiced past -125</td>
+  <td style="padding:8px 12px;text-align:center;color:#fbbf24;font-weight:800;">2u</td>
+  <td style="padding:8px 12px;text-align:center;color:#e0f2fe;font-weight:700;">$16</td>
+  <td style="padding:8px 12px;text-align:center;color:#eab308;font-weight:700;">-130</td>
+  <td style="padding:8px 12px;color:#94a3b8;font-size:12px;">Skip if juiced past -130</td>
+</tr>
+<tr style="background:#1a2744;border-bottom:1px solid #334155;">
+  <td style="padding:8px 12px;color:#eab308;font-weight:700;">75–79</td>
+  <td style="padding:8px 12px;text-align:center;color:#e0f2fe;">≥ 1.5</td>
+  <td style="padding:8px 12px;text-align:center;color:#fbbf24;font-weight:800;">1.5u</td>
+  <td style="padding:8px 12px;text-align:center;color:#e0f2fe;font-weight:700;">$12</td>
+  <td style="padding:8px 12px;text-align:center;color:#eab308;font-weight:700;">-120</td>
+  <td style="padding:8px 12px;color:#94a3b8;font-size:12px;">Skip if -125 or worse</td>
 </tr>
 <tr style="background:#1a2744;">
   <td style="padding:8px 12px;color:#eab308;font-weight:700;">70–74</td>
