@@ -79,7 +79,7 @@ def _add_pitcher_features(df: pd.DataFrame, override_pitcher_id: int = None,
         bvp_rows.append(
             get_bvp(batter_id, int(pitcher_id))
             if batter_id and pitcher_id
-            else {'bvp_avg': 0.250, 'bvp_ab': 0, 'bvp_sample': 0}
+            else {'bvp_avg': 0.0, 'bvp_ab': 0, 'bvp_sample': 0}
         )
 
     for col in PITCHER_FEATURE_COLS:
@@ -134,12 +134,12 @@ def build_features(df: pd.DataFrame, fetch_weather: bool = True,
 
     for col in STAT_COLS:
         for w in WINDOWS:
-            df[f'{col}_avg_{w}g'] = df[col].shift(1).rolling(w, min_periods=max(3, w // 3)).mean()
+            df[f'{col}_avg_{w}g'] = df[col].shift(1).rolling(w, min_periods=max(5, w // 2)).mean()
 
     for w in WINDOWS:
-        hits = df['h'].shift(1).rolling(w, min_periods=3).sum()
-        ab   = df['ab'].shift(1).rolling(w, min_periods=3).sum()
-        tb   = (df['h'] + df['d'] + 2 * df['t'] + 3 * df['hr']).shift(1).rolling(w, min_periods=3).sum()
+        hits = df['h'].shift(1).rolling(w, min_periods=max(5, w // 2)).sum()
+        ab   = df['ab'].shift(1).rolling(w, min_periods=max(5, w // 2)).sum()
+        tb   = (df['h'] + df['d'] + 2 * df['t'] + 3 * df['hr']).shift(1).rolling(w, min_periods=max(5, w // 2)).sum()
         df[f'ba_{w}g']  = hits / ab.replace(0, np.nan)
         df[f'slg_{w}g'] = tb   / ab.replace(0, np.nan)
 
@@ -253,8 +253,8 @@ def get_feature_cols(include_pitcher: bool = True) -> list:
     for w in WINDOWS:
         cols += [f'ba_{w}g', f'slg_{w}g']
     cols.append('total_season_avg')
-    # Drop day_of_week, is_day_game, wind_speed, wind_dir, temp_f — low signal for H+R+RBI
-    cols += ['is_home', 'month', 'park_factor', 'home_hrr_avg']
+    # Drop day_of_week, is_day_game, wind_speed, wind_dir, temp_f, home_hrr_avg — low signal
+    cols += ['is_home', 'month', 'park_factor']
     for w in WINDOWS:
         cols += [f'k_pct_{w}g', f'bb_pct_{w}g', f'babip_{w}g']
     # Drop hrr_20g_home/away and ba_20g_home/away — hrr_20g_venue already picks the right one

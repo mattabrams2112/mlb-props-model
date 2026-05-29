@@ -175,8 +175,16 @@ def _fetch_logs(player_id: int) -> pd.DataFrame:
     return fetch_player_logs(player_id)
 
 
+_PRED_CACHE: dict = {}  # (player_id, pitcher_id, date_str) → result; cleared at midnight
+
+
 def _run_prediction(player_id, pitcher_id, is_home, park_team,
                     temp_f, wind_speed, wind_dir, game_date):
+    date_str  = str(game_date)[:10]
+    cache_key = (player_id, pitcher_id, date_str)
+    if cache_key in _PRED_CACHE:
+        return _PRED_CACHE[cache_key]
+
     df = _fetch_logs(player_id)
     if df.empty or len(df) < 25:
         return None
@@ -241,7 +249,7 @@ def _run_prediction(player_id, pitcher_id, is_home, park_team,
     ab30 = r30['ab'].sum(); h30 = r30['h'].sum()
     hg   = df[df['is_home'] == 1]; ag = df[df['is_home'] == 0]
 
-    return {
+    result = {
         'proj':       round(proj, 2),
         'r7g':        round(float(hrr7), 2),
         'r30g':       round(float(hrr30), 2),
@@ -255,6 +263,8 @@ def _run_prediction(player_id, pitcher_id, is_home, park_team,
                       if 'ba_20g_venue' in dc.columns and not np.isnan(dc['ba_20g_venue'].iloc[-1]) else None,
         'df':         df,
     }
+    _PRED_CACHE[cache_key] = result
+    return result
 
 
 def _get_rating(res, pid, pitcher_id, park_team, batting_order,
@@ -522,6 +532,11 @@ def save_prediction(game, home_hrr, away_hrr, game_date):
 def run():
     game_date = datetime.now().strftime('%Y-%m-%d')
     date_str  = datetime.now().strftime('%m/%d/%Y')
+
+    # Clear stale predictions from previous days
+    stale = [k for k in _PRED_CACHE if k[2] != game_date]
+    for k in stale:
+        del _PRED_CACHE[k]
 
     print(f'\n=== Worker {datetime.now().strftime("%Y-%m-%d %H:%M")} ===')
 
