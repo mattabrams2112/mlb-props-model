@@ -222,19 +222,6 @@ def compute_rating(
 
     base_total = round(min(100, max(0, sum(v[0] for v in scores.values()))))
 
-    # ── Odds Value Edge ───────────────────────────────────────────────────────
-    # Compares model's fair probability vs sportsbook's implied probability
-    # Only applied when we have a line AND odds AND projection
-    if line is not None and over_odds is not None and projection is not None:
-        from odds_api import fair_probability, american_to_prob, edge_rating_bonus, prob_to_american
-        fair_prob    = fair_probability(projection, line)
-        implied_prob = american_to_prob(over_odds)
-        odds_edge    = fair_prob - implied_prob
-        odds_bonus   = edge_rating_bonus(odds_edge)
-        fair_odds_str = str(prob_to_american(fair_prob))
-        if odds_bonus != 0:
-            scores['Odds Edge'] = (round(odds_bonus, 1), 12)
-
     # ── Line Edge Bonus (0-10) — shown separately, added to base ─────────────
     line_score  = None
     line_label  = None
