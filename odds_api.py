@@ -139,7 +139,8 @@ def get_hrr_lines(event_id: str) -> dict:
             if resp.status_code != 200:
                 continue
             data = resp.json()
-            lines = {}
+            # Collect all lines per player across all bookmakers, then average
+            raw: dict = {}
             for book in data.get('bookmakers', []):
                 for mkt in book.get('markets', []):
                     for outcome in mkt.get('outcomes', []):
@@ -147,11 +148,17 @@ def get_hrr_lines(event_id: str) -> dict:
                             player = outcome.get('description', '')
                             line   = outcome.get('point')
                             odds   = outcome.get('price')
-                            if player and line is not None and player not in lines:
-                                lines[player] = {
-                                    'line':      float(line),
-                                    'over_odds': int(odds) if odds else -110,
-                                }
+                            if player and line is not None:
+                                if player not in raw:
+                                    raw[player] = {'lines': [], 'odds': []}
+                                raw[player]['lines'].append(float(line))
+                                if odds is not None:
+                                    raw[player]['odds'].append(int(odds))
+            lines = {}
+            for player, data_p in raw.items():
+                consensus_line = round(sum(data_p['lines']) / len(data_p['lines']) * 2) / 2
+                avg_odds = int(sum(data_p['odds']) / len(data_p['odds'])) if data_p['odds'] else -110
+                lines[player] = {'line': consensus_line, 'over_odds': avg_odds}
             if lines:
                 return lines
         except Exception:

@@ -144,7 +144,8 @@ def _get_adjustments(home, away, home_pid, away_pid, game_date):
     home_rest   = get_pitcher_rest_days(home_pid, SEASON, game_date).get('rest_factor', 0.0) if home_pid else 0.0
     away_rest   = get_pitcher_rest_days(away_pid, SEASON, game_date).get('rest_factor', 0.0) if away_pid else 0.0
     rest_adj    = round((home_rest - away_rest) * 0.15, 2)
-    return form_adj + defense_adj + bp_adj + rest_adj + 0.30  # 0.30 = home field
+    home_pf = get_park_factor(home)
+    return form_adj + defense_adj + bp_adj + rest_adj + (0.30 * home_pf)  # park-adjusted home field
 
 
 def _formula_prediction(home, away, home_pid, away_pid, game_date):
@@ -175,13 +176,13 @@ def _fetch_logs(player_id: int) -> pd.DataFrame:
     return fetch_player_logs(player_id)
 
 
-_PRED_CACHE: dict = {}  # (player_id, pitcher_id, date_str) → result; cleared at midnight
+_PRED_CACHE: dict = {}  # (player_id, pitcher_id, date_str, is_home, park_team) → result; cleared at midnight
 
 
 def _run_prediction(player_id, pitcher_id, is_home, park_team,
                     temp_f, wind_speed, wind_dir, game_date):
     date_str  = str(game_date)[:10]
-    cache_key = (player_id, pitcher_id, date_str)
+    cache_key = (player_id, pitcher_id, date_str, int(is_home), park_team)
     if cache_key in _PRED_CACHE:
         return _PRED_CACHE[cache_key]
 
@@ -242,7 +243,7 @@ def _run_prediction(player_id, pitcher_id, is_home, park_team,
     season_avg = float(dc['total_season_avg'].iloc[-1]) if not np.isnan(dc['total_season_avg'].iloc[-1]) else 0
     r30_avg    = float((df.tail(30)['h'] + df.tail(30)['r'] + df.tail(30)['rbi']).mean())
     proj       = max(proj, max(season_avg * 0.30, r30_avg * 0.30))
-    proj       = min(proj, min(3.5, max(r30_avg * 1.5, season_avg * 1.5, 1.5)))
+    proj       = min(proj, max(r30_avg * 1.8, season_avg * 1.8, 2.0))
 
     r7  = df.tail(7);  hrr7  = (r7['h']  + r7['r']  + r7['rbi']).mean()
     r30 = df.tail(30); hrr30 = (r30['h'] + r30['r'] + r30['rbi']).mean()
@@ -290,7 +291,7 @@ def _get_rating(res, pid, pitcher_id, park_team, batting_order,
         park_factor           = get_park_factor(park_team),
         wind_speed            = wind_speed,
         wind_dir              = wind_dir,
-        bvp_avg               = bvp.get('bvp_avg', 0.250),
+        bvp_avg               = bvp.get('bvp_avg', res['ba30']),
         bvp_sample            = bvp.get('bvp_sample', 0),
         batting_order         = batting_order,
         recent_ba             = res['ba30'],
@@ -447,7 +448,7 @@ def process_game(game, game_date):
                 print(f'    Error on player {pid}: {e}')
                 return None
 
-        with ThreadPoolExecutor(max_workers=3) as exe:
+        with ThreadPoolExecutor(max_workers=8) as exe:
             results = list(exe.map(process_batter, batter_ids))
 
         for pid, result in zip(batter_ids, results):
