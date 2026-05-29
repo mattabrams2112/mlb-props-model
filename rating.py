@@ -271,15 +271,9 @@ def compute_rating(
     max_possible = sum(v[1] for v in scores.values())
 
     # Normalize to 0-100. Several components (hot/cold, home/away, defense, platoon)
-    # score 0 for neutral players, so a league-average player only uses ~65% of
-    # max_possible. We target ~55 for a neutral player, so the factor = 55 / 65% = ~0.846
-    # expressed as: target_neutral / (neutral_raw / max_possible).
-    # Neutral raw ≈ sum of midpoints for components that can't go negative,
-    # plus 0 for components that default to 0 (streak, split, defense).
-    # Empirically this works out to a factor of ~1.25 which we derive analytically:
-    # neutral_pct = neutral_raw / max_possible ≈ 0.44 → 0.44 * 100 * factor = 55 → factor = 1.25
-    # Factor is stable as long as the mix of zero-default vs midpoint components stays similar.
-    _calib = 55.0 / (max_possible * 0.44) if max_possible > 0 else 1.25
+    # score 0 for neutral players, so a neutral player scores ~44% of max_possible.
+    # We target ~55 for a neutral player: 0.44 * 100 * 1.25 = 55.
+    _calib = 1.25
     normalized = (raw_total / max_possible * 100 * _calib) if max_possible > 0 else 0
 
     # Hard cap based on projection — prevents high ratings with garbage projections
