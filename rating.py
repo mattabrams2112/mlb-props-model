@@ -2,21 +2,25 @@
 Player rating engine — scores a batter 0-100 for a given matchup.
 
 Components:
-  Form & Hit Rate  (0-18) — recent HRR rolling averages + 30-day BA
-  Model Projection (0-18) — XGBoost projected H+R+RBI (anchors the rating)
-  Starter Matchup  (0-18) — opposing starter ERA/WHIP + BvP history
-  Bullpen          (0-10) — opposing bullpen ERA/WHIP (later inning opportunity)
-  Barrel Edge      (0-12) — batter barrel rate advantage over starter (lowered from 15)
-  Park & Weather   (0-9)  — ballpark factor + live wind/temp
-  Batting Order    (0-10) — lineup position 1-5 bonus
-
-  Line Edge Bonus  (0-10) — projection vs sportsbook line (optional, added on top)
-  Max with line:   100
+  Model Projection  (0-25) — XGBoost projected H+R+RBI (primary driver)
+  Starter Matchup   (0-22) — opposing starter ERA/FIP/WHIP + BvP history
+  Form & Hit Rate   (0-15) — recent HRR rolling averages + venue BA
+  Platoon           (-4–10) — xBA + hard hit rate vs pitcher handedness
+  Hot/Cold Streak   (-8–10) — last 7g vs last 30g trend
+  Home/Away Split   (-6–8)  — player's venue-specific HRR history
+  Batted Ball Edge  (0-12) — barrel rate + xBA + hard hit + whiff matchup
+  Bullpen           (0-8)  — opposing bullpen ERA/WHIP
+  Park & Weather    (0-9)  — ballpark factor + wind/temp
+  Batting Order     (0-7)  — lineup position (wider spread: 2-7pts)
+  Team Scoring      (0-5)  — team's avg runs scored
+  Opp Defense       (-3–5) — opposing team's defense rating
+  Pitcher Context   (-3–5) — pitcher rest + ground ball %
+  Line Edge         — projection vs sportsbook line (label only, not scored)
 """
 
-# Compressed range — spots 7-9 still get meaningful points
-# Max diff between #1 and #9 is only 3 pts so it doesn't dominate the rating
-BATTING_ORDER_SCORES = [6, 7, 6, 6, 5, 5, 4, 4, 4]
+# Wider spread so batting order actually matters: leadoff/2-hole get max,
+# bottom of order gets meaningfully less
+BATTING_ORDER_SCORES = [7, 7, 6, 6, 5, 4, 3, 2, 2]
 
 
 def compute_rating(
@@ -97,12 +101,12 @@ def compute_rating(
 ) -> dict:
     scores = {}
 
-    # ── Model Projection (0-30) — primary driver ─────────────────────────────
+    # ── Model Projection (0-25) — primary driver ─────────────────────────────
     if projection is not None:
-        proj_score = min(30.0, (max(0.0, projection) / 3.5) * 30)
+        proj_score = min(25.0, (max(0.0, projection) / 3.5) * 25)
     else:
-        proj_score = min(30.0, (season_avg / 3.0) * 30)
-    scores['Projection'] = (round(proj_score, 1), 30)
+        proj_score = min(25.0, (season_avg / 3.0) * 25)
+    scores['Projection'] = (round(proj_score, 1), 25)
 
     # ── Form & Hit Rate (0-15) ────────────────────────────────────────────────
     # Weighted blend: 7g (20%) + 20g venue-specific (40%) + 30g (40%)
@@ -121,9 +125,9 @@ def compute_rating(
     # If last3 ERA is the league default (4.30), fall back to season ERA
     _last3_era  = opp_last3_era if abs(opp_last3_era - 4.30) > 0.05 else opp_era
     blended_era = (opp_era * 0.40 + opp_fip * 0.35 + _last3_era * 0.25)
-    era_score = max(0.0, min(20.0, 20.0 * (blended_era - 2.5) / (6.5 - 2.5)))
+    era_score = max(0.0, min(22.0, 22.0 * (blended_era - 2.5) / (6.5 - 2.5)))
     if bvp_sample:
-        era_score = max(0.0, min(20.0, era_score + (bvp_avg - 0.250) * 15))
+        era_score = max(0.0, min(22.0, era_score + (bvp_avg - 0.250) * 15))
     # K% modifier: elite K% pitcher reduces batter opportunity (-3 to +2 pts)
     _eff_k_pct   = (opp_k_pct_vs_lhb if pitcher_throws == 'L' and opp_k_pct_vs_lhb is not None
                     else opp_k_pct_vs_rhb if pitcher_throws == 'R' and opp_k_pct_vs_rhb is not None
@@ -133,8 +137,8 @@ def compute_rating(
                     else opp_babip)
     k_adj    = max(-3.0, min(2.0, (0.222 - _eff_k_pct) * 20))
     babip_adj = max(-1.5, min(1.5, (_eff_babip - 0.300) * 5))
-    era_score = max(0.0, min(20.0, era_score + k_adj + babip_adj))
-    scores['Starter Matchup'] = (round(era_score, 1), 20)
+    era_score = max(0.0, min(22.0, era_score + k_adj + babip_adj))
+    scores['Starter Matchup'] = (round(era_score, 1), 22)
 
     # ── Platoon Advantage (0-6) ──────────────────────────────────────────────
     # Use the correct split based on pitcher handedness
@@ -174,29 +178,19 @@ def compute_rating(
     team_score = max(0.0, min(5.0, (team_runs_avg - 3.0) / (7.0 - 3.0) * 5.0))
     scores['Team Scoring'] = (round(team_score, 1), 5)
 
-    # ── Umpire (0-1) — minimal impact on H+R+RBI ────────────────────────────
-    ump_score = max(0.0, min(1.0, 0.5 + umpire_tendency * 0.33))
-    scores['Umpire'] = (round(ump_score, 1), 1)
-
     # ── Bullpen (0-8) ────────────────────────────────────────────────────────
     bp_era_score  = max(0.0, min(5.0, (bp_era - 3.0) / (5.5 - 3.0) * 5.0))
     bp_whip_score = max(0.0, min(3.0, (bp_whip - 1.0) / (1.8 - 1.0) * 3.0))
     scores['Bullpen'] = (round(min(8.0, bp_era_score + bp_whip_score), 1), 8)
 
-    # ── Barrel Edge (0-10) ───────────────────────────────────────────────────
+    # ── Batted Ball Edge (0-12) — merged barrel + contact quality ────────────
+    # Barrel rate edge (pitch-mix weighted)
     barrel_edge = (
         batter_fb_seen * (batter_fb_barrel - pitcher_fb_barrel) +
         batter_bk_seen * (batter_bk_barrel - pitcher_bk_barrel) +
         batter_os_seen * (batter_os_barrel - pitcher_os_barrel)
     )
-    scores['Barrel Edge'] = (round(max(0.0, min(12.0, 6.0 + barrel_edge * 120)), 1), 12)
-
-    # ── Contact Quality — xBA + Hard Hit Rate (0-8) ──────────────────────────
-    hard_hit_edge = batter_hard_hit_pct - pitcher_hard_hit_pct
-    xba_edge      = batter_xba - pitcher_xba_allowed
-    ev_edge       = (batter_avg_ev - pitcher_avg_ev) / 10.0
-    # Pitch-mix-weighted whiff: use pitcher's throw distribution as weights
-    # so a batter's 100% whiff on breaking balls matters only if pitcher throws them
+    # Pitch-mix-weighted whiff matchup
     _total_thrown = pitcher_fb_thrown + pitcher_bk_thrown + pitcher_os_thrown
     if _total_thrown > 0:
         _fb_w = pitcher_fb_thrown / _total_thrown
@@ -207,8 +201,14 @@ def compute_rating(
     _eff_batter_whiff  = batter_whiff_pct_fb * _fb_w + batter_whiff_pct_bk * _bk_w + batter_whiff_pct_os * _os_w
     _eff_pitcher_whiff = pitcher_whiff_pct_fb * _fb_w + pitcher_whiff_pct_bk * _bk_w + pitcher_whiff_pct_os * _os_w
     whiff_adj = max(-2.5, min(1.5, (0.245 - _eff_batter_whiff) * 6 - (_eff_pitcher_whiff - 0.245) * 4))
-    contact_score = max(0.0, min(8.0, 4.0 + hard_hit_edge * 30 + xba_edge * 20 + ev_edge * 2 + whiff_adj))
-    scores['Contact Quality'] = (round(contact_score, 1), 8)
+    xba_edge      = batter_xba - pitcher_xba_allowed
+    ev_edge       = (batter_avg_ev - pitcher_avg_ev) / 10.0
+    batted_ball_score = max(0.0, min(12.0, 6.0
+        + barrel_edge * 60
+        + xba_edge * 20
+        + ev_edge * 2
+        + whiff_adj))
+    scores['Batted Ball Edge'] = (round(batted_ball_score, 1), 12)
 
     # ── Park & Weather (0-9) ────────────────────────────────────────────────
     park_score = max(0.0, min(5.0, (park_factor - 0.90) / (1.15 - 0.90) * 5.0))
@@ -216,7 +216,7 @@ def compute_rating(
     temp_score = max(-1.0, min(1.0, (temp_f - 50) / (85 - 50) * 1.0)) if temp_f > 0 else 0
     scores['Park & Weather'] = (round(max(0.0, min(9.0, park_score + wind_score + temp_score + 1)), 1), 9)
 
-    # ── Batting Order (0-7) — compressed range, spots 7-9 still score meaningfully
+    # ── Batting Order (0-7) — wider spread: leadoff/2-hole=7, bottom order=2
     bo_score = BATTING_ORDER_SCORES[batting_order - 1] if 1 <= batting_order <= 9 else 5
     scores['Batting Order'] = (float(bo_score), 7)
 
@@ -245,7 +245,8 @@ def compute_rating(
         else:
             line_score = -8.0
             line_label = f'{edge:.2f} UNDER'
-        scores['Line Edge'] = (round(line_score, 1), 10)
+        # Line Edge is informational only — not added to score (projection already scored directly)
+        pass
 
     # ── Home/Away Split (0-8, can go negative) ───────────────────────────────
     # Boost if player performs significantly better in this venue
