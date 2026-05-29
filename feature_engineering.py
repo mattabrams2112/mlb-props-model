@@ -242,7 +242,7 @@ def build_features(df: pd.DataFrame, fetch_weather: bool = True,
     return df
 
 
-def get_feature_cols() -> list:
+def get_feature_cols(include_pitcher: bool = True) -> list:
     cols = []
     for col in STAT_COLS:
         for w in WINDOWS:
@@ -256,6 +256,7 @@ def get_feature_cols() -> list:
         cols += [f'k_pct_{w}g', f'bb_pct_{w}g', f'babip_{w}g']
     cols += ['hrr_20g_home', 'hrr_20g_away', 'hrr_20g_venue',
              'ba_20g_home',  'ba_20g_away',  'ba_20g_venue']
-    cols += PITCHER_FEATURE_COLS + BVP_FEATURE_COLS
-    cols += BATTER_STATCAST_COLS + PITCHER_STATCAST_COLS
+    cols += BATTER_STATCAST_COLS
+    if include_pitcher:
+        cols += PITCHER_FEATURE_COLS + BVP_FEATURE_COLS + PITCHER_STATCAST_COLS
     return cols
