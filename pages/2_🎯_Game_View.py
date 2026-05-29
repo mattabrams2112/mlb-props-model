@@ -523,7 +523,7 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
             from datetime import datetime as _dt
             _today = today_str_et()
             _r = r_data['total']; _p = _disp_proj
-            _qualifies = _r >= 70
+            _qualifies = _r >= 60
             if _qualifies:
                 _units    = 2.0 if 85 <= _r <= 89 else 1.0
                 _bet      = int(_units * 8)
