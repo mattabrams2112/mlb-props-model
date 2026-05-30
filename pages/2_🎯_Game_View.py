@@ -85,7 +85,9 @@ def run_prediction(player_id: int, pitcher_id, is_home: bool, park_team: str,
                    game_date: str = ''):
     df = fetch_logs(player_id)
     if df.empty or len(df) < 25:
-        return None
+        # Raise instead of returning None — exceptions aren't cached by st.cache_data,
+        # so a failed API fetch retries on the next page load rather than sticking for 24h.
+        raise RuntimeError('insufficient_data')
 
     # Freeze ratings at pre-game state — exclude game day and later
     if game_date:
@@ -97,7 +99,7 @@ def run_prediction(player_id: int, pitcher_id, is_home: bool, park_team: str,
             pass
 
     if len(df) < 25:
-        return None
+        raise RuntimeError('insufficient_data')
 
     df_feat = build_features(df, fetch_weather=False,
                               override_pitcher_id=pitcher_id, fast_mode=True)
@@ -114,7 +116,7 @@ def run_prediction(player_id: int, pitcher_id, is_home: bool, park_team: str,
     fc = get_feature_cols(include_pitcher=False)
     dc = df_feat.dropna(subset=fc).reset_index(drop=True)
     if len(dc) < 20:
-        return None
+        raise RuntimeError('insufficient_data')
 
     # Train on all rows except the last — the last row is the prediction template.
     # Its rolling features (built with shift(1)) represent stats going into that game,
@@ -365,9 +367,12 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
             is_starter = (ocode % 100 == 0)
             spot       = ocode // 100
             sub_idx    = ocode % 100
-            res        = run_prediction(pid, opp_pitcher_id, is_home, park_team,
-                                        weather['temp_f'], weather['wind_speed'],
-                                        weather['wind_dir_code'], game_date=game_date)
+            try:
+                res = run_prediction(pid, opp_pitcher_id, is_home, park_team,
+                                     weather['temp_f'], weather['wind_speed'],
+                                     weather['wind_dir_code'], game_date=game_date)
+            except RuntimeError:
+                res = None
             odds_data = (get_player_line(pname, event_id)
                          if ODDS_API_KEY and event_id and not game_started else None)
             return idx, pid, pname, pteam, res, is_starter, spot, sub_idx, odds_data
