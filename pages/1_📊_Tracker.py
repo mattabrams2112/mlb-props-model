@@ -12,6 +12,7 @@ import pandas as pd
 import requests
 from datetime import datetime
 from tracker import load, save, recalc_results, add_predictions
+from full_tracker import log_play as _log_play_ft, load_all as _load_all_ft
 from odds_api import get_todays_event_ids, get_hrr_lines, ODDS_API_KEY
 from ratings_cache import _load as load_ratings_cache
 
@@ -194,6 +195,14 @@ def sync_from_ratings_cache():
             })
         if rows:
             total_added += add_predictions(rows, game_date=game_date)
+            # Also ensure each play exists in the full play log (Daily Results source)
+            for r in rows:
+                _log_play_ft(
+                    player=r['player'], team=r['team'],
+                    rating=r['rating'], grade=r['grade'],
+                    projected=r['projected'], vs_pitcher=r['vs_pitcher'],
+                    game_date=str(game_date)[:10],
+                )
     return total_added
 
 synced = sync_from_ratings_cache()
