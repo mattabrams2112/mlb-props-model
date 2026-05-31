@@ -164,7 +164,7 @@ if 'lineup_rows' in st.session_state:
 
 df = load()
 
-# Auto-sync qualifying plays from ratings cache on page load
+# Auto-sync qualifying plays from ratings cache on page load (once per session)
 def sync_from_ratings_cache():
     """Pull qualifying plays from ratings cache for all recent dates."""
     ratings = load_ratings_cache()
@@ -181,7 +181,16 @@ def sync_from_ratings_cache():
     if qualifying.empty:
         return 0
 
+    # Load full play log once for batch comparison
+    fpl = _load_all_ft()
+    fpl_keys = set()
+    if not fpl.empty:
+        fpl_keys = set(
+            fpl['date'].astype(str).str[:10] + '|' + fpl['player'].astype(str)
+        )
+
     total_added = 0
+    new_fpl_rows = []
     for game_date in qualifying['date'].unique():
         rows = []
         for _, r in qualifying[qualifying['date'] == game_date].iterrows():
@@ -195,19 +204,34 @@ def sync_from_ratings_cache():
             })
         if rows:
             total_added += add_predictions(rows, game_date=game_date)
-            # Also ensure each play exists in the full play log (Daily Results source)
+            # Collect rows missing from full play log for batch write
+            date_str = str(game_date)[:10]
             for r in rows:
-                _log_play_ft(
-                    player=r['player'], team=r['team'],
-                    rating=r['rating'], grade=r['grade'],
-                    projected=r['projected'], vs_pitcher=r['vs_pitcher'],
-                    game_date=str(game_date)[:10],
-                )
+                key = f"{date_str}|{r['player']}"
+                if key not in fpl_keys:
+                    new_fpl_rows.append({
+                        'date': date_str, 'player': r['player'],
+                        'team': r['team'], 'rating': r['rating'],
+                        'grade': r['grade'], 'projected': r['projected'],
+                        'line': '', 'over_odds': '', 'actual': '',
+                        'result': '', 'vs_pitcher': r['vs_pitcher'], 'is_home': 1,
+                    })
+                    fpl_keys.add(key)
+
+    # Batch write new rows to full play log in one operation
+    if new_fpl_rows:
+        from full_tracker import save_all as _save_all_ft
+        new_df = pd.DataFrame(new_fpl_rows)
+        combined = pd.concat([fpl, new_df], ignore_index=True) if not fpl.empty else new_df
+        _save_all_ft(combined)
+
     return total_added
 
-synced = sync_from_ratings_cache()
-if synced > 0:
-    df = load()
+if 'tracker_cache_synced' not in st.session_state:
+    synced = sync_from_ratings_cache()
+    st.session_state['tracker_cache_synced'] = True
+    if synced > 0:
+        df = load()
 
 # Clear any actuals for today's games (may have been fetched mid-game)
 _today = datetime.now().strftime('%Y-%m-%d')
