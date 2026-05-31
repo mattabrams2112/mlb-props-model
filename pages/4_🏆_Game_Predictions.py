@@ -419,12 +419,15 @@ if 'gp_rows' not in st.session_state:
             stored = get_stored_pred(gid, date_str)
             if stored and game_started:
                 adj = get_adjustments(home, away, home_pid, away_pid, date_str)
+                # Use stored pitcher names — live API drops probablePitcher after first pitch
+                stored_away_p = stored.get('away_pitcher', away_p)
+                stored_home_p = stored.get('home_pitcher', home_p)
                 rows.append({
                     'game_id':          gid,
                     'away_team':        away,
                     'home_team':        home,
-                    'away_pitcher':     away_p,
-                    'home_pitcher':     home_p,
+                    'away_pitcher':     stored_away_p if stored_away_p and stored_away_p != 'TBD' else away_p,
+                    'home_pitcher':     stored_home_p if stored_home_p and stored_home_p != 'TBD' else home_p,
                     'predicted_winner': stored.get('predicted_winner', ''),
                     'away_proj':        float(stored.get('away_proj', 0)),
                     'home_proj':        float(stored.get('home_proj', 0)),
