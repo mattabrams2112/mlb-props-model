@@ -636,6 +636,30 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
             )
             totals.append((r_data['total'], _disp_proj))
 
+            # Component breakdown dropdown
+            _comps = r_data.get('components', {})
+            if _comps:
+                _comp_parts = []
+                for _cname, (_cscore, _cmax) in _comps.items():
+                    _ccolor = '#22c55e' if _cscore >= _cmax * 0.75 else '#eab308' if _cscore >= _cmax * 0.4 else '#94a3b8'
+                    _comp_parts.append(
+                        f'<span style="background:#1e293b;border:1px solid #1e3a5f;border-radius:4px;'
+                        f'padding:2px 6px;white-space:nowrap;">'
+                        f'<span style="color:#7dd3fc;">{_cname}</span> '
+                        f'<span style="color:{_ccolor};font-weight:700;">{_cscore}</span>'
+                        f'<span style="color:#475569;">/{_cmax}</span></span>'
+                    )
+                row += (
+                    f'<tr style="background:{bg};">'
+                    f'<td colspan="14" style="padding:0 8px 6px 36px;">'
+                    f'<details style="font-size:11px;">'
+                    f'<summary style="cursor:pointer;color:#475569;font-size:10px;'
+                    f'user-select:none;list-style:none;">▶ rating breakdown</summary>'
+                    f'<div style="display:flex;flex-wrap:wrap;gap:4px;padding:4px 0;">'
+                    + ''.join(_comp_parts) +
+                    f'</div></details></td></tr>'
+                )
+
         elif not is_starter:
             row = (
                 f'<tr style="background:{bg};opacity:0.6;">'
