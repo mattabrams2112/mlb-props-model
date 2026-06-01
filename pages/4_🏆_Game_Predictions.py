@@ -387,10 +387,18 @@ if not games:
 
 # ── HRR availability banner ───────────────────────────────────────────────────
 
+try:
+    from team_hrr_store import load_team_hrr as _load_hrr_check
+    def _has_hrr(team):
+        return (st.session_state.get(f'team_hrr_{date_key}_{team}') is not None
+                or _load_hrr_check(date_str, team) is not None)
+except Exception:
+    def _has_hrr(team):
+        return st.session_state.get(f'team_hrr_{date_key}_{team}') is not None
+
 _hrr_count = sum(
     1 for g in games
-    if st.session_state.get(f'team_hrr_{date_key}_{g.get("away_team")}') is not None
-    and st.session_state.get(f'team_hrr_{date_key}_{g.get("home_team")}') is not None
+    if _has_hrr(g.get('away_team')) and _has_hrr(g.get('home_team'))
 )
 if _hrr_count == len(games):
     st.success('✅ Using lineup HRR totals from Game View + contextual adjustments.')
@@ -440,6 +448,21 @@ if 'gp_rows' not in st.session_state:
 
             away_hrr = st.session_state.get(f'team_hrr_{date_key}_{away}')
             home_hrr = st.session_state.get(f'team_hrr_{date_key}_{home}')
+
+            # Fall back to persistent store if not in session state
+            if away_hrr is None or home_hrr is None:
+                try:
+                    from team_hrr_store import load_team_hrr as _load_hrr
+                    if away_hrr is None:
+                        away_hrr = _load_hrr(date_str, away)
+                        if away_hrr is not None:
+                            st.session_state[f'team_hrr_{date_key}_{away}'] = away_hrr
+                    if home_hrr is None:
+                        home_hrr = _load_hrr(date_str, home)
+                        if home_hrr is not None:
+                            st.session_state[f'team_hrr_{date_key}_{home}'] = home_hrr
+                except Exception:
+                    pass
 
             adj = get_adjustments(home, away, home_pid, away_pid, date_str)
 

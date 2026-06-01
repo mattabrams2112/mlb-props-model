@@ -713,8 +713,14 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
         avg_r = round(sum(t[0] for t in totals) / len(totals))
         tot_p = round(sum(t[1] for t in totals), 2)
         rc    = cv(avg_r, 75, 55); pc = cv(tot_p / max(len(totals), 1), 3.0, 2.0)
-        # Save team HRR total to session state for Game Predictions page
+        # Save team HRR total to session state and persistent store for Game Predictions page
         st.session_state[f'team_hrr_{date_key}_{batter_team}'] = tot_p
+        try:
+            from team_hrr_store import save_team_hrr as _save_hrr
+            _date_db = datetime.strptime(date_key, '%Y%m%d').strftime('%Y-%m-%d')
+            _save_hrr(_date_db, batter_team, tot_p)
+        except Exception:
+            pass
         totals_row = (
             f'<tr style="background:#0f172a;border-top:2px solid #1e40af;">'
             f'<td colspan="3" style="padding:7px;color:#38bdf8;font-weight:700;">LINEUP TOTALS</td>'
