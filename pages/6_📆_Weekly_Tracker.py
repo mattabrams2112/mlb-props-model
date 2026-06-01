@@ -37,6 +37,11 @@ df['projected'] = pd.to_numeric(df['projected'], errors='coerce')
 df['actual']    = pd.to_numeric(df['actual'],    errors='coerce')
 df['date_str']  = df['date'].astype(str).str[:10]
 
+# Ensure required columns exist
+for _col in ('result', 'actual', 'line'):
+    if _col not in df.columns:
+        df[_col] = ''
+
 today_str = datetime.now().strftime('%Y-%m-%d')
 df = df.copy()
 df.loc[df['date_str'] >= today_str, 'actual'] = float('nan')
