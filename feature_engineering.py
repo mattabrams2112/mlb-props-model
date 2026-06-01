@@ -1,7 +1,8 @@
 import pandas as pd
 import numpy as np
 from weather import fetch_weather_for_games, get_park_factor
-from pitcher_data import get_starting_pitchers_for_games, get_pitcher_season_stats, LEAGUE_AVG
+from pitcher_data import (get_starting_pitchers_for_games, get_pitcher_season_stats,
+                          get_rolling_pitcher_stats, LEAGUE_AVG)
 from bvp_stats import get_bvp
 from statcast_features import (
     get_batter_statcast, get_pitcher_statcast,
@@ -20,9 +21,10 @@ BVP_FEATURE_COLS = ['bvp_avg', 'bvp_ab', 'bvp_sample']
 def _add_pitcher_features(df: pd.DataFrame, override_pitcher_id: int = None,
                           fast_mode: bool = False) -> pd.DataFrame:
     """
-    fast_mode=True skips the 300+ API calls to look up historical starting pitchers.
-    Uses league averages for all training rows, only fetching the override pitcher.
-    Use this for the Game View page where speed matters.
+    fast_mode=False (training): looks up starting pitcher per game from boxscores,
+    then uses rolling stats (last 5 starts) so the model sees real matchup signal.
+    fast_mode=True (live/Game View): fills history with league averages for speed,
+    applies override_pitcher stats to the prediction row only.
     """
     if 'game_pk' not in df.columns or fast_mode:
         # Fill all rows with league averages
@@ -61,6 +63,7 @@ def _add_pitcher_features(df: pd.DataFrame, override_pitcher_id: int = None,
         pk = str(row.get('game_pk', ''))
         season = int(row.get('season', 0))
         is_home = int(row.get('is_home', 1))
+        game_date = row.get('date')
 
         game_pitchers = game_pitcher_map.get(pk, {})
         pitcher_id = (
@@ -70,7 +73,9 @@ def _add_pitcher_features(df: pd.DataFrame, override_pitcher_id: int = None,
 
         if pitcher_id:
             pid = int(pitcher_id)
-            pitcher_stats_rows.append(get_pitcher_season_stats(pid, season))
+            # Rolling stats from pitcher's last 5 starts before this game date —
+            # gives the model real matchup signal instead of static season averages
+            pitcher_stats_rows.append(get_rolling_pitcher_stats(pid, game_date, season))
             pitcher_sc_rows.append(get_pitcher_statcast(pid, season))
         else:
             pitcher_stats_rows.append(LEAGUE_AVG.copy())

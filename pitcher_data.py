@@ -249,3 +249,90 @@ def get_starting_pitchers_for_games(game_pks: list, verbose: bool = True) -> dic
         _save_game_pitcher_cache(cache)
 
     return cache
+
+
+# ── Pitcher game log + rolling stats ─────────────────────────────────────────
+
+_PITCHER_LOG_CACHE: dict = {}   # (pitcher_id, season) → DataFrame, in-memory only
+
+
+def get_pitcher_game_log(pitcher_id: int, season: int = None) -> pd.DataFrame:
+    """Per-start game log for a pitcher. Skips relief appearances (IP < 1)."""
+    if season is None:
+        season = CURRENT_YEAR
+    key = (pitcher_id, season)
+    if key in _PITCHER_LOG_CACHE:
+        return _PITCHER_LOG_CACHE[key]
+
+    import requests as _req
+    result = pd.DataFrame()
+    try:
+        resp = _req.get(
+            f'https://statsapi.mlb.com/api/v1/people/{pitcher_id}/stats',
+            params={'stats': 'gameLog', 'group': 'pitching', 'season': season},
+            timeout=15,
+        )
+        resp.raise_for_status()
+        splits = (resp.json().get('stats') or [{}])[0].get('splits', [])
+        rows = []
+        for s in splits:
+            stat = s.get('stat', {})
+            gi   = s.get('game', {})
+            ip   = _parse_float(stat.get('inningsPitched'), 0)
+            if ip < 1.0:    # skip short relief outings
+                continue
+            bb = _parse_float(stat.get('baseOnBalls'), 0)
+            k  = _parse_float(stat.get('strikeOuts'), 0)
+            h  = _parse_float(stat.get('hits'), 0)
+            er = _parse_float(stat.get('earnedRuns'), 0)
+            bf = _parse_float(stat.get('battersFaced'), max(ip * 3, 1))
+            rows.append({
+                'date':      gi.get('gameDate', s.get('date', ''))[:10],
+                'ip':        ip,
+                'era_game':  round(er * 9 / ip, 2) if ip > 0 else 0.0,
+                'whip_game': round((h + bb) / ip, 2) if ip > 0 else 0.0,
+                'k_pct':     round(k / bf, 3)        if bf > 0 else 0.0,
+                'bb_pct':    round(bb / bf, 3)       if bf > 0 else 0.0,
+                'h_per_9':   round(h * 9 / ip, 2)   if ip > 0 else 0.0,
+            })
+        if rows:
+            result = pd.DataFrame(rows)
+            result['date'] = pd.to_datetime(result['date'], errors='coerce')
+            result = result.dropna(subset=['date']).sort_values('date').reset_index(drop=True)
+    except Exception:
+        pass
+
+    _PITCHER_LOG_CACHE[key] = result
+    return result
+
+
+def get_rolling_pitcher_stats(pitcher_id: int, game_date, season: int,
+                               n: int = 5) -> dict:
+    """
+    Rolling ERA/WHIP/K% from the pitcher's last n starts before game_date.
+    Falls back to prior-season log if not enough current-season starts, then
+    to LEAGUE_AVG if still nothing.
+    """
+    cutoff = pd.Timestamp(game_date).date() if not isinstance(game_date, type(pd.Timestamp(0).date())) else game_date
+
+    def _recent(log, n):
+        if log.empty:
+            return pd.DataFrame()
+        prior = log[log['date'].dt.date < cutoff]
+        return prior.tail(n)
+
+    recent = _recent(get_pitcher_game_log(pitcher_id, season), n)
+    if len(recent) < 2:
+        recent = _recent(get_pitcher_game_log(pitcher_id, season - 1), n)
+
+    if recent.empty:
+        return LEAGUE_AVG.copy()
+
+    return {
+        'opp_era':     round(float(recent['era_game'].mean()),  2),
+        'opp_whip':    round(float(recent['whip_game'].mean()), 2),
+        'opp_k_pct':   round(float(recent['k_pct'].mean()),    3),
+        'opp_bb_pct':  round(float(recent['bb_pct'].mean()),   3),
+        'opp_h_per_9': round(float(recent['h_per_9'].mean()),  2),
+        'opp_fip':     LEAGUE_AVG.get('opp_fip', 4.20),
+    }

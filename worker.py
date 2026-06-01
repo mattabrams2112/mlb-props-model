@@ -198,7 +198,7 @@ def _run_prediction(player_id, pitcher_id, is_home, park_team,
         return None
 
     df_feat = build_features(df, fetch_weather=False,
-                              override_pitcher_id=pitcher_id, fast_mode=True)
+                              override_pitcher_id=pitcher_id, fast_mode=False)
     idx = df_feat.index[-1]
     df_feat.at[idx, 'is_home']     = int(is_home)
     df_feat.at[idx, 'park_factor'] = get_park_factor(park_team)
@@ -206,11 +206,9 @@ def _run_prediction(player_id, pitcher_id, is_home, park_team,
     df_feat.at[idx, 'wind_speed']  = wind_speed
     df_feat.at[idx, 'wind_dir']    = wind_dir
 
-    # Train WITHOUT pitcher features — in fast_mode all historical pitcher rows are
-    # league-average (zero variance), which makes the model treat them as noise.
-    # Pitcher quality is already handled by the rating engine (Starter Matchup,
-    # Contact Quality, Barrel Edge). Batter-only features give the model real signal.
-    fc = get_feature_cols(include_pitcher=False)
+    # Pitcher features now included — each historical row has rolling ERA/K%/WHIP
+    # from the pitcher's last 5 starts (not season averages), giving real signal.
+    fc = get_feature_cols(include_pitcher=True)
     dc = df_feat.dropna(subset=fc).reset_index(drop=True)
     if len(dc) < 20:
         return None
