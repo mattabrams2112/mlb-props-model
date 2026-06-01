@@ -69,6 +69,8 @@ def week_label(monday_str):
 
 
 def record(sub):
+    if sub.empty or 'result' not in sub.columns:
+        return None, 0, 0, 0
     d = sub[sub['result'].isin(['W', 'L'])]
     if len(d) == 0:
         return None, 0, 0, 0
