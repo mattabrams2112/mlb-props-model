@@ -198,7 +198,7 @@ def get_adjustments(home, away, home_pid, away_pid, game_date):
 
 def predict_game_formula(home, away, home_pid, away_pid, game_date):
     """Full formula prediction when Game View HRR totals aren't available."""
-    base = 4.50
+    base = 12.0
     hp   = get_pitcher_season_stats(home_pid) if home_pid else {}
     ap   = get_pitcher_season_stats(away_pid) if away_pid else {}
 
