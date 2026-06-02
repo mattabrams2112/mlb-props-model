@@ -309,9 +309,11 @@ def get_pitcher_game_log(pitcher_id: int, season: int = None) -> pd.DataFrame:
 def get_rolling_pitcher_stats(pitcher_id: int, game_date, season: int,
                                n: int = 5) -> dict:
     """
-    Rolling ERA/WHIP/K% from the pitcher's last n starts before game_date.
-    Falls back to prior-season log if not enough current-season starts, then
-    to LEAGUE_AVG if still nothing.
+    Blend of rolling (last n starts) and season averages.
+    60% rolling + 40% season so elite pitchers aren't over-penalised
+    for 1-2 bad starts while still capturing real recent form.
+    Falls back to prior-season log if not enough current-season starts,
+    then to LEAGUE_AVG if still nothing.
     """
     cutoff = pd.Timestamp(game_date).date() if not isinstance(game_date, type(pd.Timestamp(0).date())) else game_date
 
@@ -328,11 +330,21 @@ def get_rolling_pitcher_stats(pitcher_id: int, game_date, season: int,
     if recent.empty:
         return LEAGUE_AVG.copy()
 
-    return {
+    rolling = {
         'opp_era':     round(float(recent['era_game'].mean()),  2),
         'opp_whip':    round(float(recent['whip_game'].mean()), 2),
         'opp_k_pct':   round(float(recent['k_pct'].mean()),    3),
         'opp_bb_pct':  round(float(recent['bb_pct'].mean()),   3),
         'opp_h_per_9': round(float(recent['h_per_9'].mean()),  2),
         'opp_fip':     LEAGUE_AVG.get('opp_fip', 4.20),
+    }
+
+    season_stats = get_pitcher_season_stats(pitcher_id, season)
+
+    # 60% recent form, 40% season average
+    w_r, w_s = 0.60, 0.40
+    blend_keys = ['opp_era', 'opp_whip', 'opp_k_pct', 'opp_bb_pct', 'opp_h_per_9', 'opp_fip']
+    return {
+        k: round(w_r * rolling[k] + w_s * season_stats.get(k, LEAGUE_AVG.get(k, rolling[k])), 4)
+        for k in blend_keys
     }
