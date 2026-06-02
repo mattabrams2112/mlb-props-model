@@ -1,590 +1,282 @@
-"""MLB Props Model — Streamlit Web App"""
-import warnings
-warnings.filterwarnings('ignore')
+"""Home Dashboard — today's record, season P&L, and best plays at a glance."""
+import sys, os
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import streamlit as st
 import pandas as pd
-import numpy as np
 import plotly.graph_objects as go
-from datetime import datetime
-from xgboost import XGBRegressor
-try:
-    from lightgbm import LGBMRegressor
-    HAS_LGBM = True
-except (ImportError, OSError):
-    HAS_LGBM = False
-from sklearn.model_selection import TimeSeriesSplit
-from sklearn.metrics import mean_absolute_error
-import statsapi
+from datetime import datetime, timedelta
 
-from data_collector import lookup_player, get_game_logs
-from feature_engineering import build_features, get_feature_cols, TARGET_COL
-from pitcher_data import get_pitcher_season_stats, get_pitcher_name
-from bvp_stats import get_bvp
-from statcast_features import get_batter_statcast, get_pitcher_statcast
-from weather import get_park_factor, PARK_FACTORS
-from rating import compute_rating
-from lineup_fetcher import get_todays_lineups
-from team_logos import get_logo, logo_img_tag
+from full_tracker import load_all
+from eastern_time import today_str_et
 from shared_styles import inject_styles
 
-st.set_page_config(page_title="MLB Props Model", page_icon="⚾", layout="wide")
+st.set_page_config(page_title="Dashboard | MLB Props", page_icon="⚾", layout="wide")
 inject_styles()
 
-st.markdown("""
-<style>
-  .player-header { display:flex; align-items:center; gap:10px; }
-  .proj-number   { font-size:52px; font-weight:800; line-height:1; }
-  .grade-label   { font-size:24px; font-weight:600; }
-</style>
-""", unsafe_allow_html=True)
+# ── Staking constants (mirrors Daily Results) ─────────────────────────────────
+UNIT      = 8.0
+_WIN_MULT = 100 / 125
 
-WIND_OPTIONS = {'Calm': 0, 'Out (hitter-friendly)': 1, 'In (pitcher-friendly)': -1, 'Crosswind': 0}
-PARK_LIST    = ['(Auto / Unknown)'] + sorted(PARK_FACTORS.keys())
+def get_units(rating):
+    if rating >= 90: return 3.0
+    if rating >= 85: return 2.5
+    if rating >= 80: return 2.0
+    if rating >= 75: return 1.5
+    return 1.0
 
+def play_profit(rating, result):
+    u = get_units(rating)
+    return round(u * UNIT * _WIN_MULT, 2) if result == 'W' else -(u * UNIT)
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+def play_units_pl(rating, result):
+    u = get_units(rating)
+    return round(u * _WIN_MULT, 3) if result == 'W' else -u
 
-def get_player_team(player_id: int) -> str:
-    try:
-        data = statsapi.lookup_player(player_id)
-        if data:
-            return data[0].get('currentTeam', {}).get('abbreviation', '')
-    except Exception:
-        pass
-    return ''
+def rating_color(r):
+    if r >= 90: return '#22c55e'
+    if r >= 80: return '#38bdf8'
+    if r >= 70: return '#eab308'
+    return '#94a3b8'
 
+# ── Load data ─────────────────────────────────────────────────────────────────
+today_str = today_str_et()
 
-@st.cache_data(show_spinner=False, ttl=3600)
-def fetch_game_logs(player_id: int):
-    errors = []
-    current_year = datetime.now().year
-    seasons = [current_year - 2, current_year - 1, current_year]
-    all_rows = []
+df_raw = load_all()
 
-    for season in seasons:
-        season_err = None
-        try:
-            import requests as _requests
-            resp = _requests.get(
-                f'https://statsapi.mlb.com/api/v1/people/{player_id}/stats',
-                params={'stats': 'gameLog', 'group': 'hitting', 'season': season},
-                timeout=15
-            )
-            resp.raise_for_status()
-            stats_list = resp.json().get('stats', [])
-            splits = stats_list[0].get('splits', []) if stats_list else []
-            errors.append(f"Season {season}: {len(splits)} splits")
-            for split in splits:
-                stat      = split.get('stat', {})
-                game_info = split.get('game', {})
-                all_rows.append({
-                    'player_id': player_id,
-                    'season':    season,
-                    'date':      game_info.get('gameDate', split.get('date', '')),
-                    'game_pk':   str(game_info.get('gamePk', '')),
-                    'opponent':  split.get('opponent', {}).get('abbreviation', ''),
-                    'home_team': (split.get('team', {}).get('abbreviation', '')
-                                  if split.get('isHome', True)
-                                  else split.get('opponent', {}).get('abbreviation', '')),
-                    'is_home':   int(split.get('isHome', True)),
-                    'ab':  int(stat.get('atBats', 0)),
-                    'h':   int(stat.get('hits', 0)),
-                    'r':   int(stat.get('runs', 0)),
-                    'rbi': int(stat.get('rbi', 0)),
-                    'd':   int(stat.get('doubles', 0)),
-                    't':   int(stat.get('triples', 0)),
-                    'hr':  int(stat.get('homeRuns', 0)),
-                    'bb':  int(stat.get('baseOnBalls', 0)),
-                    'k':   int(stat.get('strikeOuts', 0)),
-                    'sb':  int(stat.get('stolenBases', 0)),
-                })
-        except Exception as season_exc:
-            season_err = str(season_exc)
+st.markdown(
+    f'<h1 style="margin-bottom:2px;">⚾ MLB Props Dashboard</h1>'
+    f'<p style="color:#64748b;margin-top:0;font-size:0.95rem;">'
+    f'{datetime.strptime(today_str, "%Y-%m-%d").strftime("%A, %B %d, %Y")}'
+    f'</p>',
+    unsafe_allow_html=True
+)
 
-        if season_err:
-            errors.append(f"Season {season} error: {season_err}")
+if df_raw.empty:
+    st.info('No plays logged yet. Open **Game View** to load today\'s lineups and start tracking.')
+    st.stop()
 
-    if not all_rows:
-        return pd.DataFrame(), ' | '.join(errors)
+df_raw['rating']    = pd.to_numeric(df_raw['rating'],    errors='coerce')
+df_raw['projected'] = pd.to_numeric(df_raw['projected'], errors='coerce')
+df_raw['actual']    = pd.to_numeric(df_raw['actual'],    errors='coerce')
+df_raw['date_str']  = df_raw['date'].astype(str).str[:10]
 
-    df = pd.DataFrame(all_rows)
-    df['date'] = pd.to_datetime(df['date'], errors='coerce')
-    df = df.dropna(subset=['date'])
-    df = df.sort_values('date').reset_index(drop=True)
-    df = df[df['ab'] > 0].reset_index(drop=True)
-    errors.append(f"Final rows: {len(df)}")
-    return df, ' | '.join(errors)
+criteria = df_raw[df_raw['rating'] >= 70]
+decided  = criteria[criteria['result'].isin(['W', 'L'])]
+pending  = criteria[criteria['result'] == '']
 
+# ── Today slice ───────────────────────────────────────────────────────────────
+today_decided = decided[decided['date_str'] == today_str]
+today_pending = pending[pending['date_str'] == today_str]
+today_w = int((today_decided['result'] == 'W').sum())
+today_l = int((today_decided['result'] == 'L').sum())
+today_profit = sum(
+    play_profit(r['rating'], r['result'])
+    for _, r in today_decided.iterrows() if pd.notna(r['rating'])
+)
 
-@st.cache_data(show_spinner=False, ttl=3600)
-def run_model(player_id: int, pitcher_id, is_home: bool,
-              park_override: str, temp: float, wind_speed: float, wind_dir_code: int):
-    df, debug_msg = fetch_game_logs(player_id)
-    if df.empty:
-        return {'error': f'No game data. Debug: {debug_msg}'}
-    if len(df) < 25:
-        return {'error': f'Only {len(df)} games found (need 25). Debug: {debug_msg}'}
+# ── Season totals ─────────────────────────────────────────────────────────────
+total_w = int((decided['result'] == 'W').sum())
+total_l = int((decided['result'] == 'L').sum())
+total_n = len(decided)
+total_wr = round(total_w / total_n * 100, 1) if total_n > 0 else None
+total_units = sum(
+    play_units_pl(r['rating'], r['result'])
+    for _, r in decided.iterrows() if pd.notna(r['rating'])
+)
+total_profit = sum(
+    play_profit(r['rating'], r['result'])
+    for _, r in decided.iterrows() if pd.notna(r['rating'])
+)
+total_risked = sum(
+    get_units(r['rating']) * UNIT
+    for _, r in decided.iterrows() if pd.notna(r['rating'])
+)
+total_roi = round(total_profit / total_risked * 100, 1) if total_risked > 0 else None
 
-    df_feat = build_features(df, fetch_weather=True, override_pitcher_id=pitcher_id)
-    idx = df_feat.index[-1]
-    df_feat.at[idx, 'is_home']    = int(is_home)
-    df_feat.at[idx, 'temp_f']     = temp
-    df_feat.at[idx, 'wind_speed'] = wind_speed
-    df_feat.at[idx, 'wind_dir']   = wind_dir_code
-    if park_override:
-        df_feat.at[idx, 'park_factor'] = get_park_factor(park_override)
+# ── Top metrics row ───────────────────────────────────────────────────────────
+st.markdown('---')
+c1, c2, c3, c4, c5, c6 = st.columns(6)
 
-    feature_cols = get_feature_cols()
-    df_clean = df_feat.dropna(subset=feature_cols).reset_index(drop=True)
-    if len(df_clean) < 20:
-        return {'error': f'Not enough clean rows ({len(df_clean)}) after feature engineering.'}
-
-    X = df_clean[feature_cols]
-    y = df_clean[TARGET_COL]
-
-    tscv = TimeSeriesSplit(n_splits=5)
-    maes = []
-    for ti, vi in tscv.split(X):
-        m = XGBRegressor(n_estimators=300, learning_rate=0.05, max_depth=4,
-                         subsample=0.8, colsample_bytree=0.8, random_state=42, verbosity=0)
-        m.fit(X.iloc[ti], y.iloc[ti])
-        maes.append(mean_absolute_error(y.iloc[vi], m.predict(X.iloc[vi])))
-
-    xgb = XGBRegressor(n_estimators=300, learning_rate=0.05, max_depth=4,
-                        subsample=0.8, colsample_bytree=0.8, random_state=42, verbosity=0)
-    xgb.fit(X, y)
-    if HAS_LGBM:
-        lgb = LGBMRegressor(n_estimators=200, learning_rate=0.05, max_depth=4,
-                             subsample=0.8, colsample_bytree=0.8, random_state=42, verbose=-1)
-        lgb.fit(X, y)
-
-    latest = df_clean.iloc[-1:].copy()
-    latest.at[latest.index[0], 'is_home']    = int(is_home)
-    latest.at[latest.index[0], 'temp_f']     = temp
-    latest.at[latest.index[0], 'wind_speed'] = wind_speed
-    latest.at[latest.index[0], 'wind_dir']   = wind_dir_code
-    if park_override:
-        latest.at[latest.index[0], 'park_factor'] = get_park_factor(park_override)
-
-    xgb_pred = float(xgb.predict(latest[feature_cols])[0])
-    if HAS_LGBM:
-        lgb_pred   = float(lgb.predict(latest[feature_cols])[0])
-        projection = max(0.0, xgb_pred * 0.55 + lgb_pred * 0.45)
-    else:
-        projection = max(0.0, xgb_pred)
-    recent_7g  = (df.tail(7)['h']  + df.tail(7)['r']  + df.tail(7)['rbi']).mean()
-    recent_30g = (df.tail(30)['h'] + df.tail(30)['r'] + df.tail(30)['rbi']).mean()
-    season_avg = df_clean['total_season_avg'].iloc[-1]
-
-    # Floor — can't go below 30% of recent averages
-    s_avg  = float(season_avg) if not np.isnan(season_avg) else 0
-    r30    = float(recent_30g)
-    floor  = max(s_avg * 0.30, r30 * 0.30)
-    projection = max(projection, floor)
-
-    # Ceiling — can't exceed 1.5x the 30g avg or 3.5 absolute max
-    ceiling = min(3.5, max(r30 * 1.5, s_avg * 1.5, 1.5))
-    projection = min(projection, ceiling)
-
-    return {
-        'projection': round(projection, 2),
-        'mae':        round(float(np.mean(maes)), 3),
-        'recent_7g':  round(float(recent_7g), 2),
-        'recent_30g': round(float(recent_30g), 2),
-        'season_avg': round(float(season_avg), 2) if not np.isnan(season_avg) else 0.0,
-        'df':         df,
-    }
-
-
-def build_rating(result, player_id, pitcher_id, park_team, wind_speed=0, wind_dir=0):
-    season = int(result['df']['season'].iloc[-1])
-    b_sc  = get_batter_statcast(player_id, season)
-    p_sc  = get_pitcher_statcast(pitcher_id, season) if pitcher_id else {}
-    p_std = get_pitcher_season_stats(pitcher_id, season) if pitcher_id else {}
-    bvp   = get_bvp(player_id, pitcher_id) if pitcher_id else {}
-    return compute_rating(
-        recent_7g         = result['recent_7g'],
-        recent_30g        = result['recent_30g'],
-        season_avg        = result['season_avg'],
-        opp_era           = p_std.get('opp_era', 4.30),
-        opp_whip          = p_std.get('opp_whip', 1.28),
-        batter_fb_barrel  = b_sc.get('batter_fb_barrel_pct', 0.080),
-        batter_bk_barrel  = b_sc.get('batter_bk_barrel_pct', 0.040),
-        batter_os_barrel  = b_sc.get('batter_os_barrel_pct', 0.050),
-        pitcher_fb_barrel = p_sc.get('pitcher_fb_barrel_pct', 0.080),
-        pitcher_bk_barrel = p_sc.get('pitcher_bk_barrel_pct', 0.040),
-        pitcher_os_barrel = p_sc.get('pitcher_os_barrel_pct', 0.050),
-        batter_fb_seen    = b_sc.get('batter_fb_seen_pct', 0.55),
-        batter_bk_seen    = b_sc.get('batter_bk_seen_pct', 0.25),
-        batter_os_seen    = b_sc.get('batter_os_seen_pct', 0.20),
-        park_factor       = get_park_factor(park_team),
-        wind_speed        = wind_speed,
-        wind_dir          = wind_dir,
-        bvp_avg           = bvp.get('bvp_avg', 0.250),
-        bvp_sample           = bvp.get('bvp_sample', 0),
-        projection           = result.get('projection'),
-        batter_hard_hit_pct  = b_sc.get('batter_hard_hit_pct', 0.360),
-        pitcher_hard_hit_pct = p_sc.get('pitcher_hard_hit_pct', 0.360),
-        batter_xba           = b_sc.get('batter_xba', 0.250),
-        pitcher_xba_allowed  = p_sc.get('pitcher_xba_allowed', 0.250),
-        batter_avg_ev        = b_sc.get('batter_avg_ev', 88.0),
-        pitcher_avg_ev       = p_sc.get('pitcher_avg_ev', 88.0),
-    ), p_std, b_sc, p_sc, bvp
-
-
-def make_gauge(rating, color):
-    fig = go.Figure(go.Indicator(
-        mode='gauge+number', value=rating,
-        number={'font': {'size': 48, 'color': color}},
-        gauge={
-            'axis': {'range': [0, 100], 'tickwidth': 1},
-            'bar':  {'color': color, 'thickness': 0.25},
-            'steps': [
-                {'range': [0,  40], 'color': '#fee2e2'},
-                {'range': [40, 60], 'color': '#fef9c3'},
-                {'range': [60, 75], 'color': '#dcfce7'},
-                {'range': [75, 100],'color': '#bbf7d0'},
-            ],
-        },
-    ))
-    fig.update_layout(height=200, margin=dict(t=20, b=0, l=20, r=20),
-                      paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
-    return fig
-
-
-def rating_bar_chart(components):
-    labels = list(components.keys())
-    scores = [v[0] for v in components.values()]
-    maxes  = [v[1] for v in components.values()]
-    pcts   = [s / m for s, m in zip(scores, maxes)]
-    colors = ['#22c55e' if p >= 0.75 else '#eab308' if p >= 0.50 else '#ef4444' for p in pcts]
-    fig = go.Figure()
-    fig.add_trace(go.Bar(x=scores, y=labels, orientation='h', marker_color=colors,
-                         text=[f'{s}/{m}' for s, m in zip(scores, maxes)],
-                         textposition='outside', cliponaxis=False))
-    fig.add_trace(go.Bar(x=[m - s for s, m in zip(scores, maxes)], y=labels,
-                         orientation='h', marker_color='#f1f5f9', showlegend=False))
-    fig.update_layout(barmode='stack', height=200,
-                      margin=dict(t=10, b=10, l=10, r=60),
-                      xaxis=dict(range=[0, max(maxes) + 5], showticklabels=False, showgrid=False),
-                      yaxis=dict(showgrid=False),
-                      paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
-                      showlegend=False)
-    return fig
-
-
-def render_lineup_table(rows):
-    html = '<table style="width:100%;border-collapse:collapse;font-size:14px;font-family:monospace;">'
-    html += '<tr style="background:#1e3a5f;color:#38bdf8;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;">'
-    for col in ['', 'Player', 'Team', 'Venue', 'vs Pitcher', 'Rating', 'Grade', 'Proj H+R+RBI', '7g Avg', 'Opp ERA']:
-        html += f'<th style="padding:9px 11px;text-align:left;border-bottom:2px solid #2563eb;">{col}</th>'
-    html += '</tr>'
-    for i, row in enumerate(rows):
-        bg    = '#0f1f38' if i % 2 == 0 else '#0a1628'
-        color = row['_color']
-        era   = row['Opp ERA'] if isinstance(row['Opp ERA'], str) else f"{row['Opp ERA']:.2f}"
-        html += f'<tr style="background:{bg};border-bottom:1px solid #1e293b;transition:background 0.12s;">'
-        html += f'<td style="padding:9px 11px;">{logo_img_tag(row["_team"], 26)}</td>'
-        html += f'<td style="padding:9px 11px;font-weight:600;color:#e0f2fe;">{row["Player"]}</td>'
-        html += f'<td style="padding:9px 11px;color:#7dd3fc;">{row["Team"]}</td>'
-        html += f'<td style="padding:9px 11px;color:#7dd3fc;">{row["Venue"]}</td>'
-        html += f'<td style="padding:9px 11px;color:#94a3b8;">{row["vs Pitcher"]}</td>'
-        html += f'<td style="padding:9px 11px;font-size:17px;font-weight:800;color:{color};">{row["Rating"]}</td>'
-        html += f'<td style="padding:9px 11px;font-weight:700;color:{color};">{row["Grade"]}</td>'
-        html += f'<td style="padding:9px 11px;font-weight:700;color:#fbbf24;">{row["Projected"]}</td>'
-        html += f'<td style="padding:9px 11px;color:#94a3b8;">{row["7g Avg"]}</td>'
-        html += f'<td style="padding:9px 11px;color:#94a3b8;">{era}</td>'
-        html += '</tr>'
-    html += '</table>'
-    return html
-
-
-# ── Sidebar ───────────────────────────────────────────────────────────────────
-
-with st.sidebar:
-    st.image('https://a.espncdn.com/i/teamlogos/mlb/500/mlb.png', width=48)
-    st.title('MLB Props Model')
-    st.markdown('---')
-    st.markdown('**Search a Player**')
-    player_input  = st.text_input('Batter', placeholder='e.g. Freddie Freeman')
-    pitcher_input = st.text_input('Pitcher (optional)', placeholder='e.g. Zack Wheeler')
-    venue         = st.radio('Venue', ['Home', 'Away'], horizontal=True)
-    st.markdown('**Game Conditions**')
-    park_sel   = st.selectbox('Ballpark', PARK_LIST)
-    temp       = st.slider('Temperature (°F)', 40, 105, 72)
-    wind_speed = st.slider('Wind Speed (mph)', 0, 30, 0)
-    wind_dir   = st.selectbox('Wind Direction', list(WIND_OPTIONS.keys()))
-    run_btn    = st.button('Search Player ⚾', type='primary', use_container_width=True)
-    st.caption('Data: MLB Stats API · Baseball Savant · Statcast')
-
-
-# ── Main page ─────────────────────────────────────────────────────────────────
-
-st.markdown(f"## ⚾ MLB Props — {datetime.now().strftime('%B %d, %Y')}")
-
-# ── Player detail card (shown when searched) ──────────────────────────────────
-
-if run_btn and player_input:
-    st.session_state['search_player'] = player_input
-    st.session_state['search_pitcher'] = pitcher_input
-    st.session_state['search_venue']   = venue
-    st.session_state['search_park']    = park_sel
-    st.session_state['search_temp']    = temp
-    st.session_state['search_wind_speed'] = wind_speed
-    st.session_state['search_wind_dir']   = wind_dir
-
-if 'search_player' in st.session_state:
-    player_input  = st.session_state['search_player']
-    pitcher_input = st.session_state.get('search_pitcher', '')
-    venue         = st.session_state.get('search_venue', 'Home')
-    park_sel      = st.session_state.get('search_park', '(Auto / Unknown)')
-    temp          = st.session_state.get('search_temp', 72)
-    wind_speed    = st.session_state.get('search_wind_speed', 0)
-    wind_dir      = st.session_state.get('search_wind_dir', 'Calm')
-
-    with st.spinner('Loading player...'):
-        try:
-            player      = lookup_player(player_input)
-            player_id   = player['id']
-            player_name = player['fullName']
-            team_abbr   = get_player_team(player_id)
-        except ValueError as err:
-            st.error(str(err))
-            st.session_state.pop('search_player', None)
-            st.stop()
-
-    pitcher_id   = None
-    pitcher_name = None
-    pitcher_team = None
-    if pitcher_input.strip():
-        try:
-            pi = lookup_player(pitcher_input)
-            pitcher_id   = pi['id']
-            pitcher_name = pi['fullName']
-            pitcher_team = get_player_team(pitcher_id)
-        except ValueError:
-            st.warning(f'Pitcher "{pitcher_input}" not found — using league averages.')
-
-    is_home      = venue == 'Home'
-    park_override = '' if park_sel == '(Auto / Unknown)' else park_sel
-    wind_code    = WIND_OPTIONS[wind_dir]
-
-    with st.spinner('Running model...'):
-        result = run_model(player_id, pitcher_id, is_home,
-                           park_override, temp, wind_speed, wind_code)
-
-    if 'error' in result:
-        st.error(result['error'])
-    else:
-        r_data, p_std, b_sc, p_sc, bvp = build_rating(
-            result, player_id, pitcher_id, park_override or '', wind_speed, wind_code)
-
-        logo_url = get_logo(team_abbr)
-        st.markdown(
-            f'<div class="player-header">'
-            f'<img src="{logo_url}" width="52" height="52">'
-            f'<span style="font-size:26px;font-weight:700;">{player_name}</span>'
-            f'<span style="font-size:15px;color:#888;margin-left:6px;">'
-            f'{team_abbr} · {"Home" if is_home else "Away"}</span>'
-            f'</div>', unsafe_allow_html=True)
-        st.markdown('<br>', unsafe_allow_html=True)
-
-        cg, cp, cb = st.columns([1.2, 1, 1.8])
-        with cg:
-            st.markdown('**Rating**')
-            st.plotly_chart(make_gauge(r_data['total'], r_data['color']),
-                            use_container_width=True, config={'displayModeBar': False})
-            st.markdown(
-                f'<div style="text-align:center;">'
-                f'<span class="grade-label" style="color:{r_data["color"]};">Grade: {r_data["grade"]}</span>'
-                f'</div>', unsafe_allow_html=True)
-
-        with cp:
-            st.markdown('**Projected H + R + RBI**')
-            proj_color = '#22c55e' if result['projection'] >= 3.0 else '#eab308' if result['projection'] >= 2.0 else '#ef4444'
-            st.markdown(
-                f'<div style="text-align:center;padding-top:20px;">'
-                f'<div class="proj-number" style="color:{proj_color};">{result["projection"]}</div>'
-                f'<div style="color:#888;font-size:12px;margin-top:4px;">MAE ±{result["mae"]}</div>'
-                f'</div>', unsafe_allow_html=True)
-            st.markdown('<br>', unsafe_allow_html=True)
-            st.metric('7g avg',     result['recent_7g'])
-            st.metric('30g avg',    result['recent_30g'])
-            st.metric('Season avg', result['season_avg'])
-
-        with cb:
-            st.markdown('**Rating Breakdown**')
-            st.plotly_chart(rating_bar_chart(r_data['components']),
-                            use_container_width=True, config={'displayModeBar': False})
-
-        if pitcher_name:
-            st.markdown('---')
-            sc1, sc2 = st.columns(2)
-            with sc1:
-                st.markdown(f'{logo_img_tag(team_abbr, 20)} **{player_name} vs pitch type**', unsafe_allow_html=True)
-                st.dataframe(pd.DataFrame({
-                    'Pitch': ['FB', 'BK', 'OS'],
-                    '% Seen':   [f"{b_sc.get('batter_fb_seen_pct',0):.0%}", f"{b_sc.get('batter_bk_seen_pct',0):.0%}", f"{b_sc.get('batter_os_seen_pct',0):.0%}"],
-                    'Barrel%':  [f"{b_sc.get('batter_fb_barrel_pct',0):.1%}", f"{b_sc.get('batter_bk_barrel_pct',0):.1%}", f"{b_sc.get('batter_os_barrel_pct',0):.1%}"],
-                }), hide_index=True, use_container_width=True)
-            with sc2:
-                st.markdown(f'{logo_img_tag(pitcher_team or "", 20)} **{pitcher_name} pitch arsenal**', unsafe_allow_html=True)
-                st.dataframe(pd.DataFrame({
-                    'Pitch': ['FB', 'BK', 'OS'],
-                    '% Thrown':       [f"{p_sc.get('pitcher_fb_thrown_pct',0):.0%}", f"{p_sc.get('pitcher_bk_thrown_pct',0):.0%}", f"{p_sc.get('pitcher_os_thrown_pct',0):.0%}"],
-                    'Barrel% Allowed':[f"{p_sc.get('pitcher_fb_barrel_pct',0):.1%}", f"{p_sc.get('pitcher_bk_barrel_pct',0):.1%}", f"{p_sc.get('pitcher_os_barrel_pct',0):.1%}"],
-                }), hide_index=True, use_container_width=True)
-
-            c1, c2, c3, c4, c5 = st.columns(5)
-            c1.metric('ERA',  f"{p_std.get('opp_era',0):.2f}")
-            c2.metric('WHIP', f"{p_std.get('opp_whip',0):.2f}")
-            c3.metric('K%',   f"{p_std.get('opp_k_pct',0):.1%}")
-            c4.metric('BB%',  f"{p_std.get('opp_bb_pct',0):.1%}")
-            c5.metric('H/9',  f"{p_std.get('opp_h_per_9',0):.1f}")
-            if bvp.get('bvp_ab', 0) > 0:
-                st.markdown(f"**Career vs {pitcher_name}:** {bvp['bvp_ab']} AB · .{int(bvp['bvp_avg']*1000):03d} AVG · {bvp['bvp_hr']} HR")
-
-        st.markdown('---')
-        st.markdown('**Last 10 Games**')
-        rec = result['df'].tail(10)[['date','opponent','is_home','ab','h','r','rbi','hr','bb','k']].copy()
-        rec['date']    = rec['date'].dt.strftime('%b %d')
-        rec['H+R+RBI'] = rec['h'] + rec['r'] + rec['rbi']
-        rec['']        = rec['is_home'].map({1: '🏠', 0: '✈'})
-        rec = rec.rename(columns={'date':'Date','opponent':'Opp','ab':'AB','h':'H','r':'R','rbi':'RBI','hr':'HR','bb':'BB','k':'K'})
-        st.dataframe(rec[['Date','Opp','','AB','H','R','RBI','HR','BB','K','H+R+RBI']], hide_index=True, use_container_width=True)
-
-    st.markdown('---')
-
-# ── Today's lineup (auto-loads) ───────────────────────────────────────────────
-
-col_title, col_refresh = st.columns([5, 1])
-with col_title:
-    st.markdown(f"### Today's Batters — Sorted by Rating")
-with col_refresh:
-    if st.button('🔄 Refresh Lineups', use_container_width=True,
-                 help='Reloads all lineups — use this after games start to pull actual batting orders from completed games'):
-        st.session_state.pop('lineup_rows', None)
-        st.session_state.pop('lineup_games', None)
-        st.rerun()
-
-if 'lineup_rows' not in st.session_state:
-    with st.spinner('Fetching today\'s games...'):
-        games = get_todays_lineups()
-        st.session_state['lineup_games'] = games
-
-games = st.session_state.get('lineup_games', [])
-
-if not games:
-    st.warning('No MLB games found for today.')
+if today_w + today_l > 0:
+    c1.metric('Today Record', f'{today_w}-{today_l}')
+    c2.metric('Today Profit', f'{"+" if today_profit >= 0 else ""}${today_profit:.2f}')
 else:
-    total_batters = sum(
-        len(g.get('home_batters', [])) + len(g.get('away_batters', []))
-        for g in games
+    c1.metric('Today Record', '—')
+    c2.metric('Today Profit', '—')
+
+c3.metric('Pending Today', len(today_pending))
+c4.metric('Season Record', f'{total_w}-{total_l}' if total_n > 0 else '—')
+c5.metric('Season Win Rate', f'{total_wr}%' if total_wr else '—')
+c6.metric('Season ROI', f'{total_roi}%' if total_roi else '—')
+
+# ── P&L chart ─────────────────────────────────────────────────────────────────
+st.markdown('---')
+
+ch1, ch2 = st.columns([3, 1])
+with ch1:
+    st.markdown('### Season P&L')
+with ch2:
+    units_str  = f'+{total_units:.2f}u'  if total_units  >= 0 else f'{total_units:.2f}u'
+    profit_str = f'+${total_profit:.2f}' if total_profit >= 0 else f'-${abs(total_profit):.2f}'
+    unit_color  = '#22c55e' if total_units  >= 0 else '#ef4444'
+    profit_color = '#22c55e' if total_profit >= 0 else '#ef4444'
+    st.markdown(
+        f'<div style="text-align:right;padding-top:8px;">'
+        f'<span style="color:{unit_color};font-size:1.4rem;font-weight:800;">{units_str}</span>'
+        f'<span style="color:#475569;font-size:0.85rem;margin-left:10px;">{profit_str} · {total_n} plays</span>'
+        f'</div>',
+        unsafe_allow_html=True
     )
 
-    # Show today's schedule regardless of whether lineups are posted
-    st.caption(f"{len(games)} games today · {total_batters} batters confirmed in lineups")
+if not decided.empty:
+    agg = []
+    for date, grp in decided.sort_values('date_str').groupby('date_str'):
+        du = sum(play_units_pl(r['rating'], r['result']) for _, r in grp.iterrows() if pd.notna(r['rating']))
+        dp = sum(play_profit(r['rating'], r['result'])   for _, r in grp.iterrows() if pd.notna(r['rating']))
+        w  = int((grp['result'] == 'W').sum())
+        l  = int((grp['result'] == 'L').sum())
+        agg.append({'date': date, 'units': du, 'profit': dp, 'w': w, 'l': l})
 
-    # Game matchup cards
-    cols = st.columns(min(len(games), 4))
-    for i, game in enumerate(games):
-        with cols[i % 4]:
-            away = game.get('away_team', '?')
-            home = game.get('home_team', '?')
-            status = game.get('status', '')
-            official = game.get('lineups_official', False)
-            away_p = get_pitcher_name(game.get('away_pitcher_id')) if game.get('away_pitcher_id') else 'TBD'
-            home_p = get_pitcher_name(game.get('home_pitcher_id')) if game.get('home_pitcher_id') else 'TBD'
-            st.markdown(
-                f'<div style="border:1px solid #1e3a5f;border-radius:10px;padding:12px 10px;text-align:center;background:#0f1f38;">'
-                f'<div style="font-size:13px;font-weight:700;color:#e0f2fe;">'
-                f'{logo_img_tag(away,22)}{away} @ {logo_img_tag(home,22)}{home}'
-                f'</div>'
-                f'<div style="font-size:11px;color:#64748b;margin-top:5px;">{away_p} vs {home_p}</div>'
-                f'<div style="font-size:11px;margin-top:4px;color:#7dd3fc;">{"🏁 " + status if status in ("Final","Game Over") else "✅ Official" if official else "⏳ Pending"}</div>'
-                f'</div>',
-                unsafe_allow_html=True
-            )
+    agg_df = pd.DataFrame(agg)
+    agg_df['cum_units']  = agg_df['units'].cumsum()
+    agg_df['cum_profit'] = agg_df['profit'].cumsum()
 
-    st.markdown('<br>', unsafe_allow_html=True)
+    line_color  = '#22c55e' if agg_df['cum_units'].iloc[-1] >= 0 else '#ef4444'
+    fill_color  = 'rgba(34,197,94,0.08)' if agg_df['cum_units'].iloc[-1] >= 0 else 'rgba(239,68,68,0.08)'
 
-    if total_batters == 0:
-        st.info(
-            '**Lineups not yet posted.** MLB teams typically release lineups 2–3 hours before first pitch. '
-            'Click **Refresh Lineup** in the sidebar to check again.'
+    hover_texts = [
+        f"{r['date']}<br><b>{'+' if r['cum_units'] >= 0 else ''}{r['cum_units']:.2f}u</b>"
+        f"<br>{r['w']}-{r['l']} on the day"
+        for _, r in agg_df.iterrows()
+    ]
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=agg_df['date'],
+        y=agg_df['cum_units'],
+        mode='lines+markers',
+        line=dict(color=line_color, width=2.5),
+        marker=dict(size=5, color=line_color),
+        fill='tozeroy',
+        fillcolor=fill_color,
+        hovertext=hover_texts,
+        hoverinfo='text',
+    ))
+    fig.add_hline(y=0, line_dash='dot', line_color='#334155', line_width=1)
+    fig.update_layout(
+        height=240,
+        margin=dict(t=5, b=5, l=5, r=5),
+        paper_bgcolor='rgba(0,0,0,0)',
+        plot_bgcolor='rgba(0,0,0,0)',
+        font=dict(color='#7dd3fc', size=12),
+        xaxis=dict(showgrid=False, showline=False, color='#475569', tickfont=dict(size=11)),
+        yaxis=dict(showgrid=True, gridcolor='#1e293b', zeroline=False,
+                   ticksuffix='u', color='#475569', tickfont=dict(size=11)),
+        showlegend=False,
+        hovermode='closest',
+    )
+    st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
+
+# ── Today's plays ─────────────────────────────────────────────────────────────
+st.markdown('---')
+st.markdown("### Today's Plays")
+
+all_today = pd.concat([today_decided, today_pending]).sort_values('rating', ascending=False) \
+            if not (today_decided.empty and today_pending.empty) else pd.DataFrame()
+
+if all_today.empty:
+    st.info("No plays logged yet today. Open **Game View** to load lineups.")
+else:
+    rows_html = ''
+    for _, row in all_today.iterrows():
+        r      = int(row['rating']) if pd.notna(row['rating']) else 75
+        u      = get_units(r)
+        result = row.get('result', '')
+        rc     = rating_color(r)
+
+        if result == 'W':
+            badge = '<span style="background:#14532d;color:#22c55e;padding:3px 10px;border-radius:5px;font-weight:700;font-size:12px;">WIN</span>'
+        elif result == 'L':
+            badge = '<span style="background:#450a0a;color:#ef4444;padding:3px 10px;border-radius:5px;font-weight:700;font-size:12px;">LOSS</span>'
+        else:
+            badge = '<span style="background:#1e293b;color:#64748b;padding:3px 10px;border-radius:5px;font-size:12px;">Pending</span>'
+
+        p      = play_profit(r, result) if result in ('W', 'L') else None
+        pl_str = (f'<span style="color:{"#22c55e" if p >= 0 else "#ef4444"};font-weight:700;">{"+" if p >= 0 else ""}${p:.2f}</span>'
+                  if p is not None else '<span style="color:#334155;">—</span>')
+
+        rows_html += (
+            f'<tr style="border-bottom:1px solid #1e293b;">'
+            f'<td style="padding:10px 12px;color:#e0f2fe;font-weight:600;">{row.get("player","—")}</td>'
+            f'<td style="padding:10px 12px;color:#7dd3fc;">{row.get("team","—")}</td>'
+            f'<td style="padding:10px 12px;font-size:16px;font-weight:800;color:{rc};">{r}</td>'
+            f'<td style="padding:10px 12px;color:#fbbf24;font-weight:700;">{u}u / ${u*UNIT:.0f}</td>'
+            f'<td style="padding:10px 12px;color:#94a3b8;">{row["projected"] if pd.notna(row.get("projected")) else "—"}</td>'
+            f'<td style="padding:10px 12px;">{badge}</td>'
+            f'<td style="padding:10px 12px;">{pl_str}</td>'
+            f'</tr>'
         )
-    elif 'lineup_rows' not in st.session_state:
-        with st.spinner(f'Building predictions for {total_batters} batters...'):
-            all_rows = []
-            prog = st.progress(0)
-            done = 0
 
-            for game in games:
-                home_team    = game.get('home_team', '')
-                away_team    = game.get('away_team', '')
-                home_pitcher = game.get('home_pitcher_id')
-                away_pitcher = game.get('away_pitcher_id')
-                home_p_name  = get_pitcher_name(home_pitcher) if home_pitcher else 'TBD'
-                away_p_name  = get_pitcher_name(away_pitcher) if away_pitcher else 'TBD'
+    st.markdown(
+        '<table style="width:100%;border-collapse:collapse;font-family:monospace;font-size:13px;">'
+        '<thead><tr style="background:#1e3a5f;color:#38bdf8;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;">'
+        '<th style="padding:9px 12px;text-align:left;">Player</th>'
+        '<th style="padding:9px 12px;text-align:left;">Team</th>'
+        '<th style="padding:9px 12px;text-align:left;">Rating</th>'
+        '<th style="padding:9px 12px;text-align:left;">Stake</th>'
+        '<th style="padding:9px 12px;text-align:left;">Proj</th>'
+        '<th style="padding:9px 12px;text-align:left;">Result</th>'
+        '<th style="padding:9px 12px;text-align:left;">P/L</th>'
+        f'</tr></thead><tbody>{rows_html}</tbody></table>',
+        unsafe_allow_html=True
+    )
 
-                batters = (
-                    [(bid, False, away_pitcher, away_team, home_team) for bid in game.get('away_batters', [])] +
-                    [(bid, True,  home_pitcher, home_team, home_team) for bid in game.get('home_batters', [])]
-                )
+# ── Last 7 days ───────────────────────────────────────────────────────────────
+st.markdown('---')
+st.markdown('### Last 7 Days')
 
-                for pid, is_home, opp_pid, team, park_team in batters:
-                    pname, pteam = str(pid), team
-                    try:
-                        pd_data = statsapi.lookup_player(pid)
-                        if pd_data:
-                            pname = pd_data[0]['fullName']
-                            pteam = pd_data[0].get('currentTeam', {}).get('abbreviation', team)
-                    except Exception:
-                        pass
+if decided.empty:
+    st.info('No decided plays yet this season.')
+else:
+    recent_dates = sorted(decided['date_str'].unique())[-7:]
+    recent = decided[decided['date_str'].isin(recent_dates)]
 
-                    res = run_model(pid, opp_pid, is_home, park_team, 72, 0, 0)
-                    if res and 'error' not in res:
-                        r_data, p_std, _, _, _ = build_rating(res, pid, opp_pid, park_team)
-                        opp_p = away_p_name if is_home else home_p_name
-                        all_rows.append({
-                            '_team':      pteam,
-                            '_color':     r_data['color'],
-                            'Player':     pname,
-                            'Team':       pteam,
-                            'Venue':      '🏠 Home' if is_home else '✈ Away',
-                            'vs Pitcher': opp_p,
-                            'Rating':     r_data['total'],
-                            'Grade':      r_data['grade'],
-                            'Projected':  res['projection'],
-                            '7g Avg':     res['recent_7g'],
-                            'Opp ERA':    p_std.get('opp_era', '—'),
-                        })
+    day_rows = []
+    for date, grp in recent.groupby('date_str'):
+        w  = int((grp['result'] == 'W').sum())
+        l  = int((grp['result'] == 'L').sum())
+        dp = sum(play_profit(r['rating'], r['result'])   for _, r in grp.iterrows() if pd.notna(r['rating']))
+        du = sum(play_units_pl(r['rating'], r['result']) for _, r in grp.iterrows() if pd.notna(r['rating']))
+        wr = round(w / (w + l) * 100, 1) if (w + l) > 0 else 0
+        day_rows.append({'date': date, 'w': w, 'l': l, 'wr': wr, 'du': du, 'dp': dp})
 
-                    done += 1
-                    prog.progress(done / max(total_batters, 1))
+    day_rows_sorted = sorted(day_rows, key=lambda x: x['date'], reverse=True)
 
-            prog.empty()
-            all_rows.sort(key=lambda x: x['Rating'], reverse=True)
-            st.session_state['lineup_rows'] = all_rows
+    rows_html2 = ''
+    for row in day_rows_sorted:
+        wrc  = '#22c55e' if row['wr'] >= 60 else '#eab308' if row['wr'] >= 55.6 else '#ef4444'
+        duc  = '#22c55e' if row['du'] >= 0 else '#ef4444'
+        du_s = f'+{row["du"]:.2f}u' if row['du'] >= 0 else f'{row["du"]:.2f}u'
+        dp_s = f'+${row["dp"]:.2f}' if row['dp'] >= 0 else f'-${abs(row["dp"]):.2f}'
+        rows_html2 += (
+            f'<tr style="border-bottom:1px solid #1e293b;">'
+            f'<td style="padding:9px 12px;color:#e0f2fe;">{row["date"]}</td>'
+            f'<td style="padding:9px 12px;color:#e0f2fe;font-weight:700;">{row["w"]}-{row["l"]}</td>'
+            f'<td style="padding:9px 12px;color:{wrc};font-weight:800;">{row["wr"]}%</td>'
+            f'<td style="padding:9px 12px;color:{duc};font-weight:700;">{du_s}</td>'
+            f'<td style="padding:9px 12px;color:{duc};font-weight:700;">{dp_s}</td>'
+            f'</tr>'
+        )
 
-            # Auto-save qualifying predictions to tracker
-            from tracker import add_predictions
-            qualified = [r for r in all_rows if
-                         (70 <= r['Rating'] <= 74 and r['Projected'] >= 3.0) or
-                         (80 <= r['Rating'] <= 84 and r['Projected'] >= 1.5) or
-                         (85 <= r['Rating'] <= 89 and r['Projected'] >= 1.5)]
-            if qualified:
-                add_predictions([{
-                    'player':     r['Player'],
-                    'team':       r['_team'],
-                    'rating':     r['Rating'],
-                    'grade':      r['Grade'],
-                    'projected':  r['Projected'],
-                    'vs_pitcher': r['vs Pitcher'],
-                } for r in qualified])
-
-    if 'lineup_rows' in st.session_state and st.session_state['lineup_rows']:
-        rows = st.session_state['lineup_rows']
-        st.caption(f'{len(rows)} batters · highest to lowest rating · refresh sidebar to update')
-        st.markdown(render_lineup_table(rows), unsafe_allow_html=True)
+    st.markdown(
+        '<table style="width:100%;border-collapse:collapse;font-family:monospace;font-size:13px;">'
+        '<thead><tr style="background:#1e3a5f;color:#38bdf8;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;">'
+        '<th style="padding:9px 12px;text-align:left;">Date</th>'
+        '<th style="padding:9px 12px;text-align:left;">Record</th>'
+        '<th style="padding:9px 12px;text-align:left;">Win %</th>'
+        '<th style="padding:9px 12px;text-align:left;">Units</th>'
+        '<th style="padding:9px 12px;text-align:left;">Profit</th>'
+        f'</tr></thead><tbody>{rows_html2}</tbody></table>',
+        unsafe_allow_html=True
+    )
