@@ -851,82 +851,79 @@ for game in games:
                   '✅ Official' if game.get('lineups_official') else '⏳ Probable')
     status_color = '#38bdf8' if is_final else '#22c55e' if game.get('lineups_official') else '#eab308'
 
-    st.markdown(
-        f'<div class="game-header">'
-        f'{logo_img_tag(away, 36)}'
-        f'<span style="color:#38bdf8;font-size:20px;font-weight:800;">{away}</span>'
-        f'{score_html}'
-        f'<span style="color:#475569;font-size:16px;margin:0 8px;">@</span>'
-        f'{logo_img_tag(home, 36)}'
-        f'<span style="color:#38bdf8;font-size:20px;font-weight:800;">{home}</span>'
-        f'<span style="color:#7dd3fc;font-size:12px;margin-left:16px;">'
-        f'{w_txt} &nbsp;·&nbsp; Park {pf:.2f}x</span>'
-        f'&nbsp;·&nbsp;<span style="color:{status_color};font-size:12px;">{status_tag}</span>'
-        f'</div>',
-        unsafe_allow_html=True
-    )
+    _exp_label = f'{away} @ {home}  ·  {away_p} vs {home_p}  ·  {status_tag}'
+    with st.expander(_exp_label, expanded=False):
+        st.markdown(
+            f'<div class="game-header">'
+            f'{logo_img_tag(away, 36)}'
+            f'<span style="color:#38bdf8;font-size:20px;font-weight:800;">{away}</span>'
+            f'{score_html}'
+            f'<span style="color:#475569;font-size:16px;margin:0 8px;">@</span>'
+            f'{logo_img_tag(home, 36)}'
+            f'<span style="color:#38bdf8;font-size:20px;font-weight:800;">{home}</span>'
+            f'<span style="color:#7dd3fc;font-size:12px;margin-left:16px;">'
+            f'{w_txt} &nbsp;·&nbsp; Park {pf:.2f}x</span>'
+            f'&nbsp;·&nbsp;<span style="color:{status_color};font-size:12px;">{status_tag}</span>'
+            f'</div>',
+            unsafe_allow_html=True
+        )
 
-    _all_ids = list(ab_ids) + list(hb_ids)
-    _gd = selected_date.strftime('%Y-%m-%d')
+        _all_ids = list(ab_ids) + list(hb_ids)
+        _gd = selected_date.strftime('%Y-%m-%d')
 
-    _game_active = status in ('In Progress', 'Manager Challenge', 'Final',
-                              'Game Over', 'Completed Early')
+        _game_active = status in ('In Progress', 'Manager Challenge', 'Final',
+                                  'Game Over', 'Completed Early')
 
-    # Show in-progress/final banner but still render the full table (ratings are locked)
-    if _game_active:
-        _label = '🏁 Final — ratings locked' if is_final else '⚾ Game In Progress — ratings locked before first pitch'
-        st.info(_label)
+        if _game_active:
+            _label = '🏁 Final — ratings locked' if is_final else '⚾ Game In Progress — ratings locked before first pitch'
+            st.info(_label)
 
-    # Pre-game: only render when both pitchers are confirmed and lineups are official
-    _both_pitchers = away_p != 'TBD' and home_p != 'TBD'
-    _lineups_ready = _both_pitchers and (game.get('lineups_official') or _game_active)
+        _both_pitchers = away_p != 'TBD' and home_p != 'TBD'
+        _lineups_ready = _both_pitchers and (game.get('lineups_official') or _game_active)
 
-    if not _lineups_ready:
-        _missing = []
-        if away_p == 'TBD':
-            _missing.append(f'{home} SP')
-        if home_p == 'TBD':
-            _missing.append(f'{away} SP')
-        if not game.get('lineups_official'):
-            _missing.append('official lineups')
-        st.info(f'⏳ Waiting for: {", ".join(_missing) if _missing else "official lineups"}')
-        st.markdown('---')
-        continue
-
-    # Recalculate button — clears cached ratings for this game so new weights apply
-    if st.button(f'🔄 Recalculate {away} @ {home}', key=f'recalc_{date_key}_{away}_{home}'):
-        clear_ratings_for_players(_gd, _all_ids)
-        fetch_cache_key_a = f'gv_fetch_{date_key}_{game.get("game_pk","")}_{int(False)}'
-        fetch_cache_key_h = f'gv_fetch_{date_key}_{game.get("game_pk","")}_{int(True)}'
-        st.session_state.pop(fetch_cache_key_a, None)
-        st.session_state.pop(fetch_cache_key_h, None)
-        for pid in _all_ids:
-            st.session_state.pop(f'locked_{date_key}_{pid}', None)
-        st.rerun()
-
-    ac, hc = st.columns(2)
-    gk = str(game.get('game_pk', ''))
-
-    with ac:
-        st.markdown(f'**{away} Batting** · vs {home_p}')
-        if ab_ids:
-            render_lineup(ac, ab_ids, a_codes, False, home_pid,
-                          home, home, weather, away + ' @ ' + home,
-                          home_p, date_key, batter_team=away,
-                          game_date=selected_date.strftime('%Y-%m-%d'),
-                          event_id=event_id, game_pk=gk)
+        if not _lineups_ready:
+            _missing = []
+            if away_p == 'TBD':
+                _missing.append(f'{home} SP')
+            if home_p == 'TBD':
+                _missing.append(f'{away} SP')
+            if not game.get('lineups_official'):
+                _missing.append('official lineups')
+            st.info(f'⏳ Waiting for: {", ".join(_missing) if _missing else "official lineups"}')
         else:
-            st.info('Lineup pending.')
+            if st.button(f'🔄 Recalculate {away} @ {home}', key=f'recalc_{date_key}_{away}_{home}'):
+                clear_ratings_for_players(_gd, _all_ids)
+                fetch_cache_key_a = f'gv_fetch_{date_key}_{game.get("game_pk","")}_{int(False)}'
+                fetch_cache_key_h = f'gv_fetch_{date_key}_{game.get("game_pk","")}_{int(True)}'
+                st.session_state.pop(fetch_cache_key_a, None)
+                st.session_state.pop(fetch_cache_key_h, None)
+                for pid in _all_ids:
+                    st.session_state.pop(f'locked_{date_key}_{pid}', None)
+                st.rerun()
 
-    with hc:
-        st.markdown(f'**{home} Batting** · vs {away_p}')
-        if hb_ids:
-            render_lineup(hc, hb_ids, h_codes, True, away_pid,
-                          away, home, weather, away + ' @ ' + home,
-                          away_p, date_key, batter_team=home,
-                          game_date=selected_date.strftime('%Y-%m-%d'),
-                          event_id=event_id, game_pk=gk)
-        else:
-            st.info('Lineup pending.')
+            ac, hc = st.columns(2)
+            gk = str(game.get('game_pk', ''))
 
-    st.markdown('---')
+            with ac:
+                st.markdown(f'**{away} Batting** · vs {home_p}')
+                if ab_ids:
+                    render_lineup(ac, ab_ids, a_codes, False, home_pid,
+                                  home, home, weather, away + ' @ ' + home,
+                                  home_p, date_key, batter_team=away,
+                                  game_date=selected_date.strftime('%Y-%m-%d'),
+                                  event_id=event_id, game_pk=gk)
+                else:
+                    st.info('Lineup pending.')
+
+            with hc:
+                st.markdown(f'**{home} Batting** · vs {away_p}')
+                if hb_ids:
+                    render_lineup(hc, hb_ids, h_codes, True, away_pid,
+                                  away, home, weather, away + ' @ ' + home,
+                                  away_p, date_key, batter_team=home,
+                                  game_date=selected_date.strftime('%Y-%m-%d'),
+                                  event_id=event_id, game_pk=gk)
+                else:
+                    st.info('Lineup pending.')
+
+
