@@ -377,7 +377,7 @@ if st.session_state.get('gp_date') != date_str:
 if 'gp_games' not in st.session_state:
     with st.spinner('Fetching games...'):
         st.session_state['gp_games'] = get_todays_lineups(
-            selected_date.strftime('%m/%d/%Y') if date_str != today_str else None
+            selected_date.strftime('%m/%d/%Y')
         )
 
 games = st.session_state.get('gp_games', [])
