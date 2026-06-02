@@ -377,7 +377,7 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
                          if ODDS_API_KEY and event_id and not game_started else None)
             return idx, pid, pname, pteam, res, is_starter, spot, sub_idx, odds_data
 
-        with ThreadPoolExecutor(max_workers=2) as exe:
+        with ThreadPoolExecutor(max_workers=8) as exe:
             fetched = list(exe.map(fetch, enumerate(batter_ids)))
         st.session_state[fetch_cache_key] = fetched
 

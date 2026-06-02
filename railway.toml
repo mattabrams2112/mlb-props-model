@@ -2,9 +2,5 @@
 startCommand = "streamlit run app.py --server.port=$PORT --server.address=0.0.0.0"
 
 [[cronJobs]]
-command = "python worker.py"
-schedule = "*/30 * * * *"
-
-[[cronJobs]]
 command = "python update_actuals.py"
 schedule = "0 14 * * *"
