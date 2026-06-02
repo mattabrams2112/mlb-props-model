@@ -324,6 +324,7 @@ def get_pitcher_game_log(pitcher_id: int, season: int = None) -> pd.DataFrame:
             rows.append({
                 'date':      gi.get('gameDate', s.get('date', ''))[:10],
                 'ip':        ip,
+                'pitches':   _parse_float(stat.get('pitchesThrown'), 0),
                 'era_game':  round(er * 9 / ip, 2) if ip > 0 else 0.0,
                 'whip_game': round((h + bb) / ip, 2) if ip > 0 else 0.0,
                 'k_pct':     round(k / bf, 3)        if bf > 0 else 0.0,
@@ -339,6 +340,19 @@ def get_pitcher_game_log(pitcher_id: int, season: int = None) -> pd.DataFrame:
 
     _PITCHER_LOG_CACHE[key] = result
     return result
+
+
+def get_pitcher_last_pitch_count(pitcher_id: int, season: int = None) -> int:
+    """Pitches thrown in the most recent start. Returns 0 if unavailable."""
+    if season is None:
+        season = CURRENT_YEAR
+    log = get_pitcher_game_log(pitcher_id, season)
+    if log.empty or 'pitches' not in log.columns:
+        return 0
+    recent = log[log['pitches'] > 0]
+    if recent.empty:
+        return 0
+    return int(recent.iloc[-1]['pitches'])
 
 
 def get_rolling_pitcher_stats(pitcher_id: int, game_date, season: int,

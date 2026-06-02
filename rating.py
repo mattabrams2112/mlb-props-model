@@ -70,6 +70,10 @@ def compute_rating(
     opp_def_rating: float    = 0.0,   # positive = bad defense (good for batter)
     pitcher_rest_factor: float = 0.0, # negative = short rest (good for batter)
     pitcher_gb_pct: float    = 0.430, # high GB% = bad for batter (fewer XBH)
+    pitcher_last_pitch_count: int = 0, # pitches thrown in last start (0 = unknown)
+    park_ba: float           = 0.250,  # batter career BA at this park
+    park_slg: float          = 0.400,  # batter career SLG at this park
+    park_ab: int             = 0,      # career AB at this park (0 = no history)
     # Contact discipline — pitcher side
     opp_k_pct: float           = 0.222,
     opp_bb_pct: float          = 0.083,
@@ -184,11 +188,17 @@ def compute_rating(
     def_score = max(-3.0, min(5.0, 2.5 + opp_def_rating))
     scores['Opp Defense'] = (round(def_score, 1), 5)
 
-    # ── Pitcher Rest & GB% (0-5) ─────────────────────────────────────────────
-    # Short rest hurts pitcher (good for batter), high GB% hurts batter
-    gb_penalty  = max(-3.0, min(0.0, (0.43 - pitcher_gb_pct) * 10))  # high GB = fewer XBH
-    rest_bonus  = max(-3.0, min(3.0, pitcher_rest_factor * 2))        # short rest = good for batter
-    pitcher_ctx = max(-3.0, min(5.0, 2.5 + rest_bonus + gb_penalty))
+    # ── Pitcher Rest, Workload & GB% (0-5) ──────────────────────────────────
+    gb_penalty  = max(-3.0, min(0.0, (0.43 - pitcher_gb_pct) * 10))
+    rest_bonus  = max(-3.0, min(3.0, pitcher_rest_factor * 2))
+    # High pitch count last start → likely exits earlier → batter gets bullpen exposure
+    if pitcher_last_pitch_count >= 110:
+        workload_bonus = 1.0
+    elif pitcher_last_pitch_count >= 95:
+        workload_bonus = 0.5
+    else:
+        workload_bonus = 0.0
+    pitcher_ctx = max(-3.0, min(5.0, 2.5 + rest_bonus + gb_penalty + workload_bonus))
     scores['Pitcher Context'] = (round(pitcher_ctx, 1), 5)
 
     # ── Team Run Environment (0-5) ───────────────────────────────────────────
@@ -232,7 +242,14 @@ def compute_rating(
     park_score = max(0.0, min(5.0, (park_factor - 0.90) / (1.15 - 0.90) * 5.0))
     wind_score = max(-2.0, min(2.0, wind_dir * min(wind_speed, 20) / 20 * 2.0))
     temp_score = max(-1.0, min(1.0, (temp_f - 50) / (85 - 50) * 1.0)) if temp_f > 0 else 0
-    scores['Park & Weather'] = (round(max(0.0, min(9.0, park_score + wind_score + temp_score + 1)), 1), 9)
+    # Career batter splits at this park — only apply when enough AB history (≥20)
+    if park_ab >= 20:
+        park_ba_adj  = max(-1.0, min(1.0, (park_ba  - 0.250) * 10))
+        park_slg_adj = max(-0.5, min(0.5, (park_slg - 0.400) * 3))
+        park_hist    = park_ba_adj + park_slg_adj
+    else:
+        park_hist = 0.0
+    scores['Park & Weather'] = (round(max(0.0, min(9.0, park_score + wind_score + temp_score + park_hist + 1)), 1), 9)
 
     # ── Batting Order (0-7) — wider spread: leadoff/2-hole=7, bottom order=2
     bo_score = BATTING_ORDER_SCORES[batting_order - 1] if 1 <= batting_order <= 9 else 5

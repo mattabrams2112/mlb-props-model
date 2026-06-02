@@ -30,7 +30,7 @@ from feature_engineering import build_features, get_feature_cols, TARGET_COL
 from lineup_fetcher import get_todays_lineups
 from pitcher_data import (get_pitcher_season_stats, get_pitcher_name,
                           get_pitcher_throws, get_pitcher_last_n_starts,
-                          get_pitcher_rest_days)
+                          get_pitcher_rest_days, get_pitcher_last_pitch_count)
 from statcast_features import get_batter_statcast, get_pitcher_statcast
 from weather import get_park_factor
 from rating import compute_rating
@@ -369,7 +369,18 @@ def _get_rating(res, pid, pitcher_id, park_team, batting_order,
         batter_k_pct_vs_lhp = b_sc.get('batter_k_pct_vs_lhp',    None),
         batter_babip_vs_rhp = b_sc.get('batter_babip_vs_rhp',    None),
         batter_babip_vs_lhp = b_sc.get('batter_babip_vs_lhp',    None),
+        pitcher_last_pitch_count = get_pitcher_last_pitch_count(pitcher_id, SEASON) if pitcher_id else 0,
+        **_get_park_splits(pid, park_team),
     )
+
+
+def _get_park_splits(player_id: int, home_team: str) -> dict:
+    try:
+        from park_splits import get_batter_park_splits
+        ps = get_batter_park_splits(player_id, home_team)
+        return {'park_ba': ps['park_ba'], 'park_slg': ps['park_slg'], 'park_ab': ps['park_ab']}
+    except Exception:
+        return {'park_ba': 0.250, 'park_slg': 0.400, 'park_ab': 0}
 
 
 # ── Process one game ──────────────────────────────────────────────────────────
