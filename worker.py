@@ -219,13 +219,34 @@ def _run_prediction(player_id, pitcher_id, is_home, park_team,
     X = dc.iloc[:-1][fc].apply(pd.to_numeric, errors='coerce').fillna(0)
     y = dc.iloc[:-1][TARGET_COL]
 
-    xgb = XGBRegressor(n_estimators=100, learning_rate=0.08, max_depth=4,
-                        subsample=0.8, colsample_bytree=0.8, random_state=42, verbosity=0)
-    xgb.fit(X, y)
+    # Recency weights: recent games count more than older ones
+    # exp(-days_ago / 90) → game from 3 months ago has ~37% weight of today's game
+    _today = pd.Timestamp('today').normalize()
+    _dates = pd.to_datetime(dc.iloc[:-1]['date'], errors='coerce')
+    _days_ago = (_today - _dates).dt.days.fillna(180).clip(lower=0)
+    sample_weights = np.exp(-_days_ago / 90).values
+
+    # Classify batter as power or contact based on HR rate and barrel %
+    # Power: >= 0.04 HR/AB or >= 0.08 barrel%; Contact: everything else
+    hr_rate  = (df['hr'].sum() / df['ab'].sum()) if df['ab'].sum() > 0 else 0.0
+    is_power = hr_rate >= 0.04
+
+    xgb_params = dict(learning_rate=0.08, max_depth=4, subsample=0.8,
+                      colsample_bytree=0.8, random_state=42, verbosity=0)
+    if is_power:
+        # Power hitters: deeper trees, more estimators, emphasise HR/RBI signal
+        xgb_params.update(n_estimators=120, max_depth=5)
+    else:
+        # Contact hitters: shallower trees, focus on H and run frequency
+        xgb_params.update(n_estimators=100, max_depth=4)
+
+    xgb = XGBRegressor(**xgb_params)
+    xgb.fit(X, y, sample_weight=sample_weights)
     if HAS_LGBM:
-        lgb = LGBMRegressor(n_estimators=100, learning_rate=0.08, max_depth=4,
+        lgb = LGBMRegressor(n_estimators=xgb_params['n_estimators'],
+                             learning_rate=0.08, max_depth=xgb_params['max_depth'],
                              subsample=0.8, colsample_bytree=0.8, random_state=42, verbose=-1)
-        lgb.fit(X, y)
+        lgb.fit(X, y, sample_weight=sample_weights)
 
     latest = dc.iloc[-1:].copy()
     latest.at[latest.index[0], 'is_home']     = int(is_home)
@@ -433,6 +454,13 @@ def process_game(game, game_date):
                 rating = r_data['total']
                 grade  = r_data['grade']
                 proj   = round(res['proj'], 2)
+
+                # Apply calibration correction based on historical bias for this rating tier
+                try:
+                    from calibration import get_correction_factor
+                    proj = round(proj * get_correction_factor(rating), 2)
+                except Exception:
+                    pass
 
                 # Look up player name
                 try:

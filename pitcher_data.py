@@ -102,6 +102,41 @@ def get_pitcher_season_stats(pitcher_id: int, season: int = None) -> dict:
     return result
 
 
+_PITCHER_HOME_AWAY_CACHE: dict = {}
+
+def get_pitcher_home_away_splits(pitcher_id: int, season: int = None) -> dict:
+    """Home and away ERA/WHIP for a pitcher this season."""
+    if season is None:
+        season = CURRENT_YEAR
+    cache_key = f"{pitcher_id}_{season}_ha"
+    if cache_key in _PITCHER_HOME_AWAY_CACHE:
+        return _PITCHER_HOME_AWAY_CACHE[cache_key]
+
+    result = {'home_era': None, 'away_era': None, 'home_whip': None, 'away_whip': None}
+    try:
+        import requests as _req
+        for sitCode, side in [('h', 'home'), ('a', 'away')]:
+            resp = _req.get(
+                f'https://statsapi.mlb.com/api/v1/people/{pitcher_id}/stats',
+                params={'stats': 'statSplits', 'group': 'pitching',
+                        'season': season, 'sitCodes': sitCode},
+                timeout=10
+            )
+            resp.raise_for_status()
+            splits = resp.json().get('stats', [{}])[0].get('splits', [])
+            if splits:
+                s = splits[0].get('stat', {})
+                ip = _parse_float(s.get('inningsPitched'), 0)
+                if ip > 0:
+                    result[f'{side}_era']  = _parse_float(s.get('era'),  None)
+                    result[f'{side}_whip'] = _parse_float(s.get('whip'), None)
+    except Exception:
+        pass
+
+    _PITCHER_HOME_AWAY_CACHE[cache_key] = result
+    return result
+
+
 def get_pitcher_rest_days(pitcher_id: int, season: int = None,
                           game_date: str = None) -> dict:
     """Returns days of rest since last appearance and a rest bonus/penalty."""
@@ -307,13 +342,15 @@ def get_pitcher_game_log(pitcher_id: int, season: int = None) -> pd.DataFrame:
 
 
 def get_rolling_pitcher_stats(pitcher_id: int, game_date, season: int,
-                               n: int = 5) -> dict:
+                               n: int = 5, batter_is_home: int = 1) -> dict:
     """
     Blend of rolling (last n starts) and season averages.
     60% rolling + 40% season so elite pitchers aren't over-penalised
     for 1-2 bad starts while still capturing real recent form.
+    Also blends in pitcher's home/away ERA split when available (10% weight).
     Falls back to prior-season log if not enough current-season starts,
     then to LEAGUE_AVG if still nothing.
+    batter_is_home: 1 if batter is home team → pitcher pitching away; 0 → pitcher at home.
     """
     cutoff = pd.Timestamp(game_date).date() if not isinstance(game_date, type(pd.Timestamp(0).date())) else game_date
 
@@ -340,11 +377,29 @@ def get_rolling_pitcher_stats(pitcher_id: int, game_date, season: int,
     }
 
     season_stats = get_pitcher_season_stats(pitcher_id, season)
+    ha_splits    = get_pitcher_home_away_splits(pitcher_id, season)
 
-    # 60% recent form, 40% season average
-    w_r, w_s = 0.60, 0.40
+    # Pitcher is at home when batter is away, and vice versa
+    pitcher_at_home = (batter_is_home == 0)
+    ha_era  = ha_splits.get('home_era' if pitcher_at_home else 'away_era')
+    ha_whip = ha_splits.get('home_whip' if pitcher_at_home else 'away_whip')
+
     blend_keys = ['opp_era', 'opp_whip', 'opp_k_pct', 'opp_bb_pct', 'opp_h_per_9', 'opp_fip']
+
+    if ha_era is not None and ha_whip is not None:
+        # 55% rolling + 35% season + 10% home/away location split
+        blended = {}
+        for k in blend_keys:
+            base = 0.55 * rolling[k] + 0.35 * season_stats.get(k, LEAGUE_AVG.get(k, rolling[k]))
+            if k == 'opp_era':
+                base = base * 0.90 + ha_era  * 0.10
+            elif k == 'opp_whip':
+                base = base * 0.90 + ha_whip * 0.10
+            blended[k] = round(base, 4)
+        return blended
+
+    # No home/away split available — 60/40 blend
     return {
-        k: round(w_r * rolling[k] + w_s * season_stats.get(k, LEAGUE_AVG.get(k, rolling[k])), 4)
+        k: round(0.60 * rolling[k] + 0.40 * season_stats.get(k, LEAGUE_AVG.get(k, rolling[k])), 4)
         for k in blend_keys
     }

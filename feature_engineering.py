@@ -73,9 +73,9 @@ def _add_pitcher_features(df: pd.DataFrame, override_pitcher_id: int = None,
 
         if pitcher_id:
             pid = int(pitcher_id)
-            # Rolling stats from pitcher's last 5 starts before this game date —
-            # gives the model real matchup signal instead of static season averages
-            pitcher_stats_rows.append(get_rolling_pitcher_stats(pid, game_date, season))
+            pitcher_stats_rows.append(
+                get_rolling_pitcher_stats(pid, game_date, season, batter_is_home=is_home)
+            )
             pitcher_sc_rows.append(get_pitcher_statcast(pid, season))
         else:
             pitcher_stats_rows.append(LEAGUE_AVG.copy())
@@ -244,6 +244,24 @@ def build_features(df: pd.DataFrame, fetch_weather: bool = True,
     # Pitcher season stats + Statcast (barrel rates + pitch-mix thrown) + BvP
     df = _add_pitcher_features(df, override_pitcher_id=override_pitcher_id, fast_mode=fast_mode)
 
+    # Quality-adjusted rolling HRR — games vs tough pitchers weighted more
+    # Uses opp_era per row (already filled above); lower ERA = tougher opponent = higher weight
+    LEAGUE_ERA = 4.30
+    if 'opp_era' in df.columns:
+        opp_era_safe = df['opp_era'].replace(0, LEAGUE_ERA).fillna(LEAGUE_ERA)
+        quality_weight = LEAGUE_ERA / opp_era_safe  # >1 for tough pitchers, <1 for easy ones
+        weighted_total = df['total'] * quality_weight
+        for w in [7, 14, 20]:
+            df[f'qa_hrr_{w}g'] = (
+                weighted_total.shift(1).rolling(w, min_periods=max(3, w // 2)).mean()
+            )
+        df['qa_hrr_7g']  = df['qa_hrr_7g'].fillna(df['total_avg_7g'])
+        df['qa_hrr_14g'] = df['qa_hrr_14g'].fillna(df['total_avg_14g'])
+        df['qa_hrr_20g'] = df['qa_hrr_20g'].fillna(df['total_avg_20g'])
+    else:
+        for w in [7, 14, 20]:
+            df[f'qa_hrr_{w}g'] = df[f'total_avg_{w}g']
+
     return df
 
 
@@ -264,6 +282,8 @@ def get_feature_cols(include_pitcher: bool = True) -> list:
         cols += [f'k_pct_{w}g', f'bb_pct_{w}g', f'babip_{w}g']
     # Drop hrr_20g_home/away and ba_20g_home/away — hrr_20g_venue already picks the right one
     cols += ['hrr_20g_venue', 'ba_20g_venue']
+    # Quality-adjusted HRR — performance weighted by opposing pitcher ERA
+    cols += ['qa_hrr_7g', 'qa_hrr_14g', 'qa_hrr_20g']
     # Batter Statcast cols (barrel rates, pitch-mix, whiff) are season-level constants —
     # zero game-to-game variance → XGBoost assigns 0 importance. They're already used
     # in the rating engine (Barrel Edge, Contact Quality, Platoon). Exclude from XGBoost.

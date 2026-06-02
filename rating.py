@@ -157,8 +157,26 @@ def compute_rating(
                   else batter_babip)
     k_plat     = max(-1.5, min(1.5, (0.222 - _bat_k)    * 7))
     babip_plat = max(-1.0, min(1.0, (_bat_babip - 0.300) * 4))
+
+    # Pitch-mix-weighted barrel edge: batter's barrel rate vs pitch type ×
+    # pitcher's actual usage of that pitch type — captures e.g. "lefty who
+    # throws 70% sliders against a batter who barrels sliders at 12%"
+    _total_thrown = pitcher_fb_thrown + pitcher_bk_thrown + pitcher_os_thrown
+    if _total_thrown > 0:
+        _fb_w = pitcher_fb_thrown / _total_thrown
+        _bk_w = pitcher_bk_thrown / _total_thrown
+        _os_w = pitcher_os_thrown / _total_thrown
+    else:
+        _fb_w, _bk_w, _os_w = 0.55, 0.25, 0.20
+    pitch_mix_barrel_edge = (
+        _fb_w * (batter_fb_barrel - pitcher_fb_barrel) +
+        _bk_w * (batter_bk_barrel - pitcher_bk_barrel) +
+        _os_w * (batter_os_barrel - pitcher_os_barrel)
+    )
+    pitch_mix_adj = max(-1.5, min(1.5, pitch_mix_barrel_edge * 30))
+
     plat_score = max(-4.0, min(10.0, 5.0 + (plat_xba - 0.250) * 25 + (plat_hh - 0.360) * 15
-                               + k_plat + babip_plat))
+                               + k_plat + babip_plat + pitch_mix_adj))
     scores['Platoon'] = (round(plat_score, 1), 10)
 
     # ── Opponent Defense (0-5, can go negative) ──────────────────────────────
