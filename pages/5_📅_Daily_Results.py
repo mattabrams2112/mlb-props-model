@@ -329,6 +329,52 @@ if not pending.empty:
 
 st.markdown('---')
 
+# ── Correct a pending play ────────────────────────────────────────────────────
+
+with st.expander('✏️ Correct a Pending Play', expanded=False):
+    st.caption('Enter the actual HRR for a pending play to mark it W or L.')
+    if pending.empty:
+        st.info('No pending plays to correct.')
+    else:
+        _pend_dates = sorted(pending['date_str'].unique(), reverse=True)
+        _corr_date = st.selectbox('Date', _pend_dates, key='dr_corr_date')
+        _day_pend = pending[pending['date_str'] == _corr_date]
+        _corr_player = st.selectbox('Player', _day_pend['player'].tolist(), key='dr_corr_player')
+
+        _corr_row = _day_pend[_day_pend['player'] == _corr_player].iloc[0]
+        _proj = _corr_row['projected'] if pd.notna(_corr_row['projected']) else '—'
+        _line_raw = _corr_row.get('line', None)
+        try:
+            _line_val = float(_line_raw) if _line_raw not in (None, '', 'nan', '—') else 1.5
+        except (ValueError, TypeError):
+            _line_val = 1.5
+
+        cc1, cc2 = st.columns(2)
+        cc1.metric('Projected', str(_proj))
+        cc2.metric('Line', str(_line_val))
+
+        _actual_val = st.number_input('Actual HRR', min_value=0, max_value=30, value=0, step=1, key='dr_corr_actual')
+        _auto_result = 'W' if _actual_val > _line_val else 'L'
+        st.info(f'Result will be marked: **{_auto_result}** (actual {_actual_val} vs line {_line_val})')
+
+        if st.button('✅ Save Correction', type='primary', key='dr_corr_btn'):
+            _cdf = load_all()
+            _mask = (
+                (_cdf['player'] == _corr_player) &
+                (_cdf['date'].astype(str).str[:10] == _corr_date)
+            )
+            if _mask.any():
+                _idx = _cdf[_mask].index[0]
+                _cdf.at[_idx, 'actual'] = str(_actual_val)
+                _cdf.at[_idx, 'result'] = _auto_result
+                save_all(_cdf)
+                st.success(f'Updated {_corr_player} ({_corr_date}): actual={_actual_val}, result={_auto_result}')
+                st.rerun()
+            else:
+                st.error('Play not found in log.')
+
+st.markdown('---')
+
 # ── Manual add ────────────────────────────────────────────────────────────────
 
 with st.expander('➕ Manually Add a Play', expanded=False):
