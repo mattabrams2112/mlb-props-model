@@ -10,6 +10,13 @@ from datetime import datetime, timedelta
 from full_tracker import load_all
 from eastern_time import today_str_et
 from shared_styles import inject_styles
+from team_logos import logo_img_tag
+from lineup_fetcher import get_todays_lineups
+from pitcher_data import get_pitcher_name
+from game_pred_engine import (
+    load_preds, add_game_pred, get_stored_pred,
+    get_adjustments, predict_game_formula, margin_to_confidence,
+)
 
 st.set_page_config(page_title="Dashboard | MLB Props", page_icon="⚾", layout="wide")
 inject_styles()
@@ -280,3 +287,182 @@ else:
         f'</tr></thead><tbody>{rows_html2}</tbody></table>',
         unsafe_allow_html=True
     )
+
+# ── ML Game Picks ─────────────────────────────────────────────────────────────
+st.markdown('---')
+
+_gp_header_col, _gp_refresh_col = st.columns([5, 1])
+with _gp_header_col:
+    st.markdown('### ML Game Picks — Today')
+    st.caption('Predicted winners based on lineup HRR totals + run differential, bullpen, rest, and home-field.')
+with _gp_refresh_col:
+    if st.button('🔄 Refresh Picks', use_container_width=True, key='dash_gp_refresh'):
+        st.session_state.pop('dash_gp_rows', None)
+        st.rerun()
+
+CONF_COLOR = {'Strong': '#22c55e', 'Moderate': '#3b82f6', 'Lean': '#eab308', 'Toss-up': '#475569'}
+
+if 'dash_gp_rows' not in st.session_state:
+    with st.spinner('Building game picks...'):
+        _gp_games = get_todays_lineups()
+        _gp_rows  = []
+
+        for _g in _gp_games:
+            _home    = _g.get('home_team', '')
+            _away    = _g.get('away_team', '')
+            _home_pid = _g.get('home_pitcher_id')
+            _away_pid = _g.get('away_pitcher_id')
+            _home_p  = get_pitcher_name(_home_pid) if _home_pid else 'TBD'
+            _away_p  = get_pitcher_name(_away_pid) if _away_pid else 'TBD'
+            _gid     = f'{_away}_{_home}'
+            _status  = _g.get('status', '')
+            _started = _status not in ('Preview', 'Pre-Game', 'Scheduled', 'Warmup', '')
+
+            _stored = get_stored_pred(_gid, today_str)
+            if _stored and _started:
+                _gp_rows.append({
+                    'game_id':   _gid,
+                    'away':      _away,  'home':      _home,
+                    'away_p':    _stored.get('away_pitcher', _away_p),
+                    'home_p':    _stored.get('home_pitcher', _home_p),
+                    'winner':    _stored.get('predicted_winner', ''),
+                    'away_proj': float(_stored.get('away_proj', 0) or 0),
+                    'home_proj': float(_stored.get('home_proj', 0) or 0),
+                    'margin':    float(_stored.get('margin', 0) or 0),
+                    'conf':      _stored.get('confidence', 'Toss-up'),
+                    'result':    _stored.get('result', ''),
+                    'actual':    _stored.get('actual_winner', ''),
+                })
+                continue
+
+            # Check HRR store then run formula
+            _date_key = today_str.replace('-', '')
+            _away_hrr = st.session_state.get(f'team_hrr_{_date_key}_{_away}')
+            _home_hrr = st.session_state.get(f'team_hrr_{_date_key}_{_home}')
+            if _away_hrr is None or _home_hrr is None:
+                try:
+                    from team_hrr_store import load_team_hrr as _lhrr
+                    _away_hrr = _away_hrr or _lhrr(today_str, _away)
+                    _home_hrr = _home_hrr or _lhrr(today_str, _home)
+                except Exception:
+                    pass
+
+            _adj = get_adjustments(_home, _away, _home_pid, _away_pid, today_str)
+
+            if _away_hrr is not None and _home_hrr is not None:
+                _hp = round(_home_hrr + _adj['total_adj'], 1)
+                _ap = round(_away_hrr, 1)
+                _margin = round(_hp - _ap, 1)
+                _winner = _home if _margin >= 0 else _away
+            else:
+                _winner, _ap, _hp, _margin, _adj = predict_game_formula(
+                    _home, _away, _home_pid, _away_pid, today_str
+                )
+
+            _conf = margin_to_confidence(_margin)
+            _row  = {
+                'game_id':   _gid,
+                'away':      _away,  'home':      _home,
+                'away_p':    _away_p, 'home_p':    _home_p,
+                'winner':    _winner,
+                'away_proj': _ap,    'home_proj': _hp,
+                'margin':    _margin, 'conf':      _conf,
+                'result':    '', 'actual': '',
+            }
+            _gp_rows.append(_row)
+            add_game_pred({
+                'game_id': _gid, 'date': today_str,
+                'away_team': _away, 'home_team': _home,
+                'away_pitcher': _away_p, 'home_pitcher': _home_p,
+                'predicted_winner': _winner,
+                'away_proj': _ap, 'home_proj': _hp,
+                'margin': _margin, 'confidence': _conf,
+                'actual_winner': '', 'result': '',
+            }, today_str, game_started=_started)
+
+        st.session_state['dash_gp_rows'] = _gp_rows
+
+_gp_rows = st.session_state.get('dash_gp_rows', [])
+
+if not _gp_rows:
+    st.info('No games found for today.')
+else:
+    # Also show season record for picks
+    _preds_all = load_preds()
+    _pd        = _preds_all[_preds_all['result'].isin(['W', 'L'])] if not _preds_all.empty else pd.DataFrame()
+    _gp_w      = int((_pd['result'] == 'W').sum()) if not _pd.empty else 0
+    _gp_l      = int((_pd['result'] == 'L').sum()) if not _pd.empty else 0
+    _gp_pct    = f'{_gp_w/(_gp_w+_gp_l):.0%}' if (_gp_w + _gp_l) > 0 else '—'
+    st.caption(f'Season picks record: **{_gp_w}-{_gp_l}** ({_gp_pct})')
+
+    # Render as a responsive card grid — 2 per row on wide screens
+    _pairs = [_gp_rows[i:i+2] for i in range(0, len(_gp_rows), 2)]
+    for _pair in _pairs:
+        _cols = st.columns(len(_pair))
+        for _ci, (_col, _r) in enumerate(zip(_cols, _pair)):
+            with _col:
+                _away   = _r['away'];  _home   = _r['home']
+                _winner = _r['winner']
+                _ap     = _r['away_proj']; _hp = _r['home_proj']
+                _margin = _r['margin'];    _conf = _r['conf']
+                _cc     = CONF_COLOR.get(_conf, '#475569')
+
+                # Result overlay
+                _res_html = ''
+                if _r['result'] == 'W':
+                    _res_html = f'<div style="color:#22c55e;font-size:11px;font-weight:700;margin-top:4px;">✅ {_r["actual"]} won — CORRECT</div>'
+                elif _r['result'] == 'L':
+                    _res_html = f'<div style="color:#ef4444;font-size:11px;font-weight:700;margin-top:4px;">❌ {_r["actual"]} won — WRONG</div>'
+
+                _away_bold = 'font-weight:800;font-size:15px;' if _winner == _away else 'font-weight:400;font-size:13px;'
+                _home_bold = 'font-weight:800;font-size:15px;' if _winner == _home else 'font-weight:400;font-size:13px;'
+                _away_col  = '#e0f2fe' if _winner == _away else '#475569'
+                _home_col  = '#e0f2fe' if _winner == _home else '#475569'
+                _ap_col    = '#22c55e' if _winner == _away else '#64748b'
+                _hp_col    = '#22c55e' if _winner == _home else '#64748b'
+
+                st.markdown(
+                    f'<div style="background:#0f1f38;border:1px solid #1e3a5f;border-radius:12px;'
+                    f'padding:14px 12px;margin-bottom:10px;">'
+
+                    # Matchup row
+                    f'<div style="display:flex;align-items:center;justify-content:space-between;gap:6px;">'
+
+                    # Away team
+                    f'<div style="text-align:center;flex:1;">'
+                    f'{logo_img_tag(_away, 40)}'
+                    f'<div style="color:{_away_col};{_away_bold}margin-top:4px;">{_away}</div>'
+                    f'<div style="font-size:10px;color:#475569;margin-top:1px;">{_r["away_p"]}</div>'
+                    f'<div style="font-size:20px;font-weight:800;color:{_ap_col};margin-top:3px;">{_ap}</div>'
+                    f'<div style="font-size:9px;color:#334155;">proj HRR</div>'
+                    f'</div>'
+
+                    # Center
+                    f'<div style="text-align:center;flex:0 0 70px;">'
+                    f'<div style="font-size:11px;color:#334155;margin-bottom:4px;">@</div>'
+                    f'<span style="background:{_cc};color:#000;border-radius:5px;'
+                    f'padding:2px 7px;font-size:10px;font-weight:800;">{_conf}</span>'
+                    f'<div style="font-size:10px;color:#475569;margin-top:4px;">gap {abs(_margin):.1f}</div>'
+                    f'{_res_html}'
+                    f'</div>'
+
+                    # Home team
+                    f'<div style="text-align:center;flex:1;">'
+                    f'{logo_img_tag(_home, 40)}'
+                    f'<div style="color:{_home_col};{_home_bold}margin-top:4px;">{_home}</div>'
+                    f'<div style="font-size:10px;color:#475569;margin-top:1px;">{_r["home_p"]}</div>'
+                    f'<div style="font-size:20px;font-weight:800;color:{_hp_col};margin-top:3px;">{_hp}</div>'
+                    f'<div style="font-size:9px;color:#334155;">proj HRR</div>'
+                    f'</div>'
+
+                    f'</div>'
+
+                    # Winner banner
+                    f'<div style="text-align:center;margin-top:10px;padding-top:8px;'
+                    f'border-top:1px solid #1e293b;">'
+                    f'<span style="font-size:11px;color:#64748b;">Pick: </span>'
+                    f'<span style="font-size:13px;font-weight:800;color:#38bdf8;">{_winner}</span>'
+                    f'</div>'
+                    f'</div>',
+                    unsafe_allow_html=True
+                )
