@@ -40,14 +40,13 @@ from odds_api import get_todays_event_ids, get_player_line, fair_probability, am
 from team_stats import get_team_recent_scoring, get_team_defense_rating
 from umpire_data import get_game_umpire
 from pitcher_data import get_pitcher_throws, get_pitcher_last_n_starts, get_pitcher_rest_days
+from shared_styles import inject_styles
 
 st.set_page_config(page_title="Game View | MLB Props", page_icon="🎯", layout="wide")
+inject_styles()
 st.markdown("""
 <style>
-  .block-container{padding-top:1rem;}
-  h1,h2,h3,h4{color:#38bdf8!important;}
-  .stMarkdown p,label,.stCaption{color:#7dd3fc!important;}
-  .game-header{background:#1e293b;border:1px solid #1e40af;border-radius:10px;
+  .game-header{background:#111f38;border:1px solid #1e3a5f;border-radius:10px;
                padding:12px 18px;margin-bottom:4px;}
 </style>""", unsafe_allow_html=True)
 

@@ -11,17 +11,10 @@ import numpy as np
 import plotly.graph_objects as go
 import plotly.express as px
 from full_tracker import load_all, update_actuals, save_all
+from shared_styles import inject_styles
 
 st.set_page_config(page_title="Analytics | MLB Props", page_icon="📈", layout="wide")
-
-st.markdown("""
-<style>
-  h1,h2,h3{color:#38bdf8!important;}
-  .stMarkdown p,label,.stCaption{color:#7dd3fc!important;}
-  .stMetric label{color:#38bdf8!important;}
-  .stMetric [data-testid="metric-container"]>div{color:#e0f2fe!important;}
-</style>
-""", unsafe_allow_html=True)
+inject_styles()
 
 
 def win_rate(df):

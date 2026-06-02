@@ -26,51 +26,16 @@ from weather import get_park_factor, PARK_FACTORS
 from rating import compute_rating
 from lineup_fetcher import get_todays_lineups
 from team_logos import get_logo, logo_img_tag
+from shared_styles import inject_styles
 
 st.set_page_config(page_title="MLB Props Model", page_icon="⚾", layout="wide")
+inject_styles()
 
 st.markdown("""
 <style>
-  /* Bigger sidebar nav links */
-  [data-testid="stSidebarNav"] a {
-    font-size: 1.15rem !important;
-    padding: 0.6rem 1rem !important;
-    font-weight: 600 !important;
-  }
-  [data-testid="stSidebarNav"] span {
-    font-size: 1.15rem !important;
-  }
-  [data-testid="stSidebarNavItems"] {
-    gap: 0.3rem !important;
-  }
-  .block-container { padding-top: 1.5rem; }
   .player-header { display:flex; align-items:center; gap:10px; }
   .proj-number   { font-size:52px; font-weight:800; line-height:1; }
   .grade-label   { font-size:24px; font-weight:600; }
-
-  /* Dark theme overrides */
-  h1, h2, h3, h4, h5, h6 { color: #38bdf8 !important; }
-  .stMarkdown p, .stMarkdown li { color: #7dd3fc; }
-  label, .stSelectbox label, .stSlider label,
-  .stRadio label, .stTextInput label { color: #7dd3fc !important; }
-  .stMetric label { color: #38bdf8 !important; }
-  .stMetric [data-testid="metric-container"] > div { color: #e0f2fe !important; }
-  .stCaption { color: #7dd3fc !important; }
-  div[data-testid="stSidebar"] { background-color: #0f172a; }
-  div[data-testid="stSidebar"] * { color: #7dd3fc; }
-
-  /* Lineup table */
-  table { background-color: #0f172a; color: #7dd3fc; }
-  th { color: #38bdf8 !important; border-bottom: 2px solid #1e40af !important; }
-  tr:nth-child(even) { background-color: #1e293b; }
-  tr:nth-child(odd)  { background-color: #0f172a; }
-
-  /* Game cards */
-  div[style*="border:1px solid"] {
-    border-color: #1e40af !important;
-    background-color: #1e293b;
-    color: #7dd3fc;
-  }
 </style>
 """, unsafe_allow_html=True)
 
@@ -310,26 +275,26 @@ def rating_bar_chart(components):
 
 
 def render_lineup_table(rows):
-    html = '<table style="width:100%;border-collapse:collapse;font-size:14px;">'
-    html += '<tr style="background:#f1f5f9;color:#555;font-size:12px;font-weight:600;">'
+    html = '<table style="width:100%;border-collapse:collapse;font-size:14px;font-family:monospace;">'
+    html += '<tr style="background:#1e3a5f;color:#38bdf8;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;">'
     for col in ['', 'Player', 'Team', 'Venue', 'vs Pitcher', 'Rating', 'Grade', 'Proj H+R+RBI', '7g Avg', 'Opp ERA']:
-        html += f'<th style="padding:8px 10px;text-align:left;border-bottom:2px solid #e2e8f0;">{col}</th>'
+        html += f'<th style="padding:9px 11px;text-align:left;border-bottom:2px solid #2563eb;">{col}</th>'
     html += '</tr>'
     for i, row in enumerate(rows):
-        bg    = '#ffffff' if i % 2 == 0 else '#f8fafc'
+        bg    = '#0f1f38' if i % 2 == 0 else '#0a1628'
         color = row['_color']
         era   = row['Opp ERA'] if isinstance(row['Opp ERA'], str) else f"{row['Opp ERA']:.2f}"
-        html += f'<tr style="background:{bg};">'
-        html += f'<td style="padding:8px 10px;">{logo_img_tag(row["_team"], 28)}</td>'
-        html += f'<td style="padding:8px 10px;font-weight:600;">{row["Player"]}</td>'
-        html += f'<td style="padding:8px 10px;">{row["Team"]}</td>'
-        html += f'<td style="padding:8px 10px;">{row["Venue"]}</td>'
-        html += f'<td style="padding:8px 10px;">{row["vs Pitcher"]}</td>'
-        html += f'<td style="padding:8px 10px;font-size:18px;font-weight:800;color:{color};">{row["Rating"]}</td>'
-        html += f'<td style="padding:8px 10px;font-weight:700;color:{color};">{row["Grade"]}</td>'
-        html += f'<td style="padding:8px 10px;font-weight:700;">{row["Projected"]}</td>'
-        html += f'<td style="padding:8px 10px;">{row["7g Avg"]}</td>'
-        html += f'<td style="padding:8px 10px;">{era}</td>'
+        html += f'<tr style="background:{bg};border-bottom:1px solid #1e293b;transition:background 0.12s;">'
+        html += f'<td style="padding:9px 11px;">{logo_img_tag(row["_team"], 26)}</td>'
+        html += f'<td style="padding:9px 11px;font-weight:600;color:#e0f2fe;">{row["Player"]}</td>'
+        html += f'<td style="padding:9px 11px;color:#7dd3fc;">{row["Team"]}</td>'
+        html += f'<td style="padding:9px 11px;color:#7dd3fc;">{row["Venue"]}</td>'
+        html += f'<td style="padding:9px 11px;color:#94a3b8;">{row["vs Pitcher"]}</td>'
+        html += f'<td style="padding:9px 11px;font-size:17px;font-weight:800;color:{color};">{row["Rating"]}</td>'
+        html += f'<td style="padding:9px 11px;font-weight:700;color:{color};">{row["Grade"]}</td>'
+        html += f'<td style="padding:9px 11px;font-weight:700;color:#fbbf24;">{row["Projected"]}</td>'
+        html += f'<td style="padding:9px 11px;color:#94a3b8;">{row["7g Avg"]}</td>'
+        html += f'<td style="padding:9px 11px;color:#94a3b8;">{era}</td>'
         html += '</tr>'
     html += '</table>'
     return html
@@ -532,12 +497,12 @@ else:
             away_p = get_pitcher_name(game.get('away_pitcher_id')) if game.get('away_pitcher_id') else 'TBD'
             home_p = get_pitcher_name(game.get('home_pitcher_id')) if game.get('home_pitcher_id') else 'TBD'
             st.markdown(
-                f'<div style="border:1px solid #e2e8f0;border-radius:8px;padding:10px;text-align:center;">'
-                f'<div style="font-size:13px;font-weight:700;">'
+                f'<div style="border:1px solid #1e3a5f;border-radius:10px;padding:12px 10px;text-align:center;background:#0f1f38;">'
+                f'<div style="font-size:13px;font-weight:700;color:#e0f2fe;">'
                 f'{logo_img_tag(away,22)}{away} @ {logo_img_tag(home,22)}{home}'
                 f'</div>'
-                f'<div style="font-size:11px;color:#888;margin-top:4px;">{away_p} vs {home_p}</div>'
-                f'<div style="font-size:11px;margin-top:2px;">{"🏁 " + status if status in ("Final","Game Over") else "✅ Lineup official" if official else "⏳ Lineup pending"}</div>'
+                f'<div style="font-size:11px;color:#64748b;margin-top:5px;">{away_p} vs {home_p}</div>'
+                f'<div style="font-size:11px;margin-top:4px;color:#7dd3fc;">{"🏁 " + status if status in ("Final","Game Over") else "✅ Official" if official else "⏳ Pending"}</div>'
                 f'</div>',
                 unsafe_allow_html=True
             )

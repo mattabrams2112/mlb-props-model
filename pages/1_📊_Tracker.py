@@ -15,17 +15,10 @@ from tracker import load, save, recalc_results, add_predictions
 from full_tracker import log_play as _log_play_ft, load_all as _load_all_ft
 from odds_api import get_todays_event_ids, get_hrr_lines, ODDS_API_KEY
 from ratings_cache import _load as load_ratings_cache
+from shared_styles import inject_styles
 
 st.set_page_config(page_title="Tracker | MLB Props", page_icon="📊", layout="wide")
-
-st.markdown("""
-<style>
-  h1, h2, h3 { color: #38bdf8 !important; }
-  .stMarkdown p, label, .stCaption { color: #7dd3fc !important; }
-  .stMetric label { color: #38bdf8 !important; }
-  .stMetric [data-testid="metric-container"] > div { color: #e0f2fe !important; }
-</style>
-""", unsafe_allow_html=True)
+inject_styles()
 
 MLB_API = 'https://statsapi.mlb.com/api/v1'
 

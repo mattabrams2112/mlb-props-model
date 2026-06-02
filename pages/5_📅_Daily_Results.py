@@ -10,17 +10,10 @@ import pandas as pd
 from datetime import datetime
 from full_tracker import load_all, update_actuals, save_all, log_play
 from eastern_time import today_et, today_str_et
+from shared_styles import inject_styles
 
 st.set_page_config(page_title="Daily Results | MLB Props", page_icon="📅", layout="wide")
-
-st.markdown("""
-<style>
-  h1,h2,h3{color:#38bdf8!important;}
-  .stMarkdown p,label,.stCaption{color:#7dd3fc!important;}
-  .stMetric label{color:#38bdf8!important;}
-  .stMetric [data-testid="metric-container"]>div{color:#e0f2fe!important;}
-</style>
-""", unsafe_allow_html=True)
+inject_styles()
 
 st.markdown('## 📅 Daily Results')
 st.caption('Criteria: Rating ≥ 70')

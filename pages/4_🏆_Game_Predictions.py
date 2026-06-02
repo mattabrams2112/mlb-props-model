@@ -30,18 +30,10 @@ from team_stats import get_team_recent_scoring, get_team_defense_rating
 from bullpen_data import get_bullpen_stats
 from stadium_weather import get_stadium_weather
 from team_logos import logo_img_tag
+from shared_styles import inject_styles
 
 st.set_page_config(page_title="Game Predictions | MLB Props", page_icon="🏆", layout="wide")
-
-st.markdown("""
-<style>
-  h1,h2,h3{color:#38bdf8!important;}
-  .stMarkdown p,label,.stCaption{color:#7dd3fc!important;}
-  .stMetric label{color:#38bdf8!important;}
-  .stMetric [data-testid="metric-container"]>div{color:#e0f2fe!important;}
-  .block-container{padding-top:1rem;}
-</style>
-""", unsafe_allow_html=True)
+inject_styles()
 
 DATABASE_URL = os.environ.get('DATABASE_URL', '')
 PREDS_FILE   = 'game_preds.csv'
