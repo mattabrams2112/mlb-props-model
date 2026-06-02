@@ -174,7 +174,7 @@ def sync_from_ratings_cache():
     today = datetime.now().strftime('%Y-%m-%d')
     _r = pd.to_numeric(ratings['rating'], errors='coerce')
     qualifying = ratings[
-        (ratings['date'].astype(str).str[:10] < today) &
+        (ratings['date'].astype(str).str[:10] <= today) &
         (_r >= 70) &
         (ratings['player_name'].astype(str).str.strip() != '')
     ]
