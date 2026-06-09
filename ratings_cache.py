@@ -82,7 +82,7 @@ def save_rating(game_date: str, player_id: int, rating: int, grade: str,
                 projected: float, player_name: str = '', team: str = '',
                 vs_pitcher: str = ''):
     """Save a rating — only if not already saved for this date+player.
-    Also auto-adds 60+ rated players to the tracker."""
+    Also auto-adds 75+ rated players to the tracker."""
     df = _load()
     key = (df['date'] == game_date) & (df['player_id'] == str(player_id))
     if not df.empty and key.any():
@@ -102,11 +102,7 @@ def save_rating(game_date: str, player_id: int, rating: int, grade: str,
     _save(df)
 
     # Auto-add to tracker using current criteria
-    _qualifies = (
-        (70 <= rating <= 74 and projected >= 3.0) or
-        (80 <= rating <= 84 and projected >= 1.5) or
-        (85 <= rating <= 89 and projected >= 1.5)
-    )
+    _qualifies = rating >= 75
     if _qualifies and player_name:
         try:
             from tracker import add_predictions
