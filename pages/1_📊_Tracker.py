@@ -157,7 +157,7 @@ if 'lineup_rows' in st.session_state:
 
 df = load()
 
-# Auto-sync qualifying plays from ratings cache on page load
+# Auto-sync qualifying plays from ratings cache on page load (once per session)
 def sync_from_ratings_cache():
     """Pull qualifying plays from ratings cache for all recent dates."""
     ratings = load_ratings_cache()
