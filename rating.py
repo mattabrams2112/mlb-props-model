@@ -17,11 +17,30 @@ Components:
   Pitcher Context   (-3–5) — pitcher rest + ground ball %
   Batter Rest       (-2–1) — days since last game
   Line Edge         — projection vs sportsbook line (label only, not scored)
+
+Also returns 'matchup_pct' (±15%): a projection adjustment derived from the
+matchup-quality components (Starter Matchup, Platoon, Opp Defense, Pitcher
+Context, Team Scoring, Batter Rest, Bullpen, Batted Ball Edge, Park & Weather)
+relative to an average matchup. Callers should apply this to the projection
+itself so a brutal/great matchup shifts the displayed projection and Edge,
+not just the rating.
 """
 
 # Wider spread so batting order actually matters: leadoff/2-hole get max,
 # bottom of order gets meaningfully less
 BATTING_ORDER_SCORES = [7, 7, 6, 6, 5, 4, 3, 2, 2]
+
+# Components representing *today's specific matchup* (opponent pitcher/bullpen,
+# park/weather, today's rest, team support, batted-ball/platoon edge) — used to
+# nudge the projection itself, not just the rating, so a brutal or great matchup
+# moves the expected HRR, not just the confidence score.
+_MATCHUP_COMPONENTS = ('Starter Matchup', 'Platoon', 'Opp Defense', 'Pitcher Context',
+                       'Team Scoring', 'Batter Rest', 'Bullpen', 'Batted Ball Edge',
+                       'Park & Weather')
+# Sum of the components above under "average matchup" inputs (opp ERA 4.30,
+# park factor 1.0, bullpen ERA 4.20/WHIP 1.30, team runs 4.5, etc.) — the
+# zero-point for the projection adjustment below.
+_MATCHUP_NEUTRAL = 34.64
 
 
 def compute_rating(
@@ -352,11 +371,21 @@ def compute_rating(
         '#ef4444'
     )
 
+    # ── Matchup Adjustment for Projection (±15%) ─────────────────────────────
+    # The same matchup-quality components that can now push the rating below
+    # neutral (elite pitcher, tough bullpen, pitcher's park, bad barrel/platoon
+    # matchup, no rest, weak offensive support) also nudge the projected HRR
+    # up or down — so "Edge" reflects the matchup, not just the rating badge.
+    _matchup_max = sum(scores[n][1] for n in _MATCHUP_COMPONENTS)
+    _matchup_sum = sum(scores[n][0] for n in _MATCHUP_COMPONENTS)
+    matchup_pct  = max(-0.15, min(0.15, (_matchup_sum - _MATCHUP_NEUTRAL) / _matchup_max)) if _matchup_max else 0.0
+
     return {
-        'total':      total,
-        'base_total': base_total,
-        'grade':      grade,
-        'color':      color,
-        'components': scores,
-        'line_label': line_label,
+        'total':       total,
+        'base_total':  base_total,
+        'grade':       grade,
+        'color':       color,
+        'components':  scores,
+        'line_label':  line_label,
+        'matchup_pct': round(matchup_pct, 4),
     }

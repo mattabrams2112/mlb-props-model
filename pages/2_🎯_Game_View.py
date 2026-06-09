@@ -451,6 +451,35 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
             except Exception:
                 _batter_rest = 1
 
+            season_r   = int(res['df']['season'].iloc[-1])
+            b_sc_local = get_batter_statcast(pid, season_r)
+
+            def _rate(proj, line, odds):
+                _ctx = dict(res)
+                _ctx['proj'] = proj
+                return get_rating(_ctx, pid, opp_pitcher_id, park_team, batting_order,
+                                  weather['temp_f'], weather['wind_speed'],
+                                  weather['wind_dir_code'],
+                                  bp_era=bp_era, bp_whip=bp_whip,
+                                  line=line, over_odds=odds,
+                                  is_home=is_home,
+                                  opp_fip=p_std.get('opp_fip', 4.20),
+                                  opp_last3_era=p_last3.get('opp_last3_era', 4.30),
+                                  opp_last3_whip=p_last3.get('opp_last3_whip', 1.28),
+                                  pitcher_throws=p_throws,
+                                  batter_xba_vs_rhp=b_sc_local.get('batter_xba_vs_rhp', 0.250),
+                                  batter_xba_vs_lhp=b_sc_local.get('batter_xba_vs_lhp', 0.250),
+                                  batter_hard_hit_vs_rhp=b_sc_local.get('batter_hard_hit_vs_rhp', 0.360),
+                                  batter_hard_hit_vs_lhp=b_sc_local.get('batter_hard_hit_vs_lhp', 0.360),
+                                  team_runs_avg=team_score.get('team_runs_avg', 4.5),
+                                  umpire_tendency=ump_data.get('umpire_tendency', 0.0),
+                                  opp_def_rating=opp_defense.get('def_rating', 0.0),
+                                  pitcher_rest_factor=p_rest.get('rest_factor', 0.0),
+                                  pitcher_gb_pct=p_sc.get('pitcher_gb_pct', 0.430),
+                                  batter_rest_days=_batter_rest,
+                                  batter_obp=res.get('obp30', 0.320),
+                                  batter_sb_rate=res.get('sb_rate', 0.05))
+
             # Try cache sources in order
             cached = (st.session_state.get(session_key) or
                       (get_cached_rating(game_date, pid) if game_date else None))
@@ -458,71 +487,23 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
             if cached:
                 # Always use locked pre-game rating — never recalculate totals
                 locked_rating, locked_grade, locked_proj = cached
-                res = dict(res); res['proj'] = locked_proj
                 _disp_proj = locked_proj
                 # Still compute rating for component breakdown display only
-                season_r   = int(res['df']['season'].iloc[-1])
-                b_sc_local = get_batter_statcast(pid, season_r)
-                _res_ctx   = dict(res)
                 book_line  = odds_data['line']      if odds_data else line_val
                 book_odds  = odds_data['over_odds'] if odds_data else None
-                _r_display = get_rating(_res_ctx, pid, opp_pitcher_id, park_team, batting_order,
-                                        weather['temp_f'], weather['wind_speed'],
-                                        weather['wind_dir_code'],
-                                        bp_era=bp_era, bp_whip=bp_whip,
-                                        line=book_line, over_odds=book_odds,
-                                        is_home=is_home,
-                                        opp_fip=p_std.get('opp_fip', 4.20),
-                                        opp_last3_era=p_last3.get('opp_last3_era', 4.30),
-                                        opp_last3_whip=p_last3.get('opp_last3_whip', 1.28),
-                                        pitcher_throws=p_throws,
-                                        batter_xba_vs_rhp=b_sc_local.get('batter_xba_vs_rhp', 0.250),
-                                        batter_xba_vs_lhp=b_sc_local.get('batter_xba_vs_lhp', 0.250),
-                                        batter_hard_hit_vs_rhp=b_sc_local.get('batter_hard_hit_vs_rhp', 0.360),
-                                        batter_hard_hit_vs_lhp=b_sc_local.get('batter_hard_hit_vs_lhp', 0.360),
-                                        team_runs_avg=team_score.get('team_runs_avg', 4.5),
-                                        umpire_tendency=ump_data.get('umpire_tendency', 0.0),
-                                        opp_def_rating=opp_defense.get('def_rating', 0.0),
-                                        pitcher_rest_factor=p_rest.get('rest_factor', 0.0),
-                                        pitcher_gb_pct=p_sc.get('pitcher_gb_pct', 0.430),
-                                        batter_rest_days=_batter_rest,
-                                        batter_obp=_res_ctx.get('obp30', 0.320),
-                                        batter_sb_rate=_res_ctx.get('sb_rate', 0.05))
+                _r_display = _rate(locked_proj, book_line, book_odds)
                 r_data = {'total': locked_rating, 'grade': locked_grade,
                           'color': '#22c55e' if locked_rating >= 75 else '#eab308' if locked_rating >= 55 else '#ef4444',
                           'components': _r_display.get('components', {}),
                           'line_label': _r_display.get('line_label')}
             elif game_started:
-                # Game started, no pre-game cache — calculate without odds
-                book_line  = None
-                book_odds  = None
-                season_r   = int(res['df']['season'].iloc[-1])
-                b_sc_local = get_batter_statcast(pid, season_r)
-                _res_ctx   = dict(res)
-                _res_ctx['proj'] = round(max(0.5, res['proj'] * (1 + _ctx_pct)), 2)
-                r_data = get_rating(_res_ctx, pid, opp_pitcher_id, park_team, batting_order,
-                                    weather['temp_f'], weather['wind_speed'],
-                                    weather['wind_dir_code'],
-                                    bp_era=bp_era, bp_whip=bp_whip,
-                                    line=None, over_odds=None,
-                                    is_home=is_home,
-                                    opp_fip=p_std.get('opp_fip', 4.20),
-                                    opp_last3_era=p_last3.get('opp_last3_era', 4.30),
-                                    opp_last3_whip=p_last3.get('opp_last3_whip', 1.28),
-                                    pitcher_throws=p_throws,
-                                    batter_xba_vs_rhp=b_sc_local.get('batter_xba_vs_rhp', 0.250),
-                                    batter_xba_vs_lhp=b_sc_local.get('batter_xba_vs_lhp', 0.250),
-                                    batter_hard_hit_vs_rhp=b_sc_local.get('batter_hard_hit_vs_rhp', 0.360),
-                                    batter_hard_hit_vs_lhp=b_sc_local.get('batter_hard_hit_vs_lhp', 0.360),
-                                    team_runs_avg=team_score.get('team_runs_avg', 4.5),
-                                    umpire_tendency=ump_data.get('umpire_tendency', 0.0),
-                                    opp_def_rating=opp_defense.get('def_rating', 0.0),
-                                    pitcher_rest_factor=p_rest.get('rest_factor', 0.0),
-                                    pitcher_gb_pct=p_sc.get('pitcher_gb_pct', 0.430),
-                                    batter_rest_days=_batter_rest,
-                                    batter_obp=_res_ctx.get('obp30', 0.320),
-                                    batter_sb_rate=_res_ctx.get('sb_rate', 0.05))
-                _disp_proj = _res_ctx['proj']
+                # Game started, no pre-game cache — calculate without odds.
+                # Two passes: the first derives the matchup adjustment, which
+                # is then applied to the projection before the final rating/Edge.
+                _base_proj = round(max(0.5, res['proj'] * (1 + _ctx_pct)), 2)
+                _pass1     = _rate(_base_proj, None, None)
+                _disp_proj = round(max(0.5, _base_proj * (1 + _pass1.get('matchup_pct', 0.0))), 2)
+                r_data     = _rate(_disp_proj, None, None)
                 st.session_state[session_key] = (r_data['total'], r_data['grade'], _disp_proj)
                 if game_date and opp_p_name != 'TBD':
                     save_rating(game_date, pid, r_data['total'], r_data['grade'],
@@ -531,33 +512,12 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
             else:
                 book_line  = odds_data['line']      if odds_data else line_val
                 book_odds  = odds_data['over_odds'] if odds_data else None
-                season_r   = int(res['df']['season'].iloc[-1])
-                b_sc_local = get_batter_statcast(pid, season_r)
-                _res_ctx   = dict(res)
-                _res_ctx['proj'] = round(max(0.5, res['proj'] * (1 + _ctx_pct)), 2)
-                r_data = get_rating(_res_ctx, pid, opp_pitcher_id, park_team, batting_order,
-                                    weather['temp_f'], weather['wind_speed'],
-                                    weather['wind_dir_code'],
-                                    bp_era=bp_era, bp_whip=bp_whip,
-                                    line=book_line, over_odds=book_odds,
-                                    is_home=is_home,
-                                    opp_fip=p_std.get('opp_fip', 4.20),
-                                    opp_last3_era=p_last3.get('opp_last3_era', 4.30),
-                                    opp_last3_whip=p_last3.get('opp_last3_whip', 1.28),
-                                    pitcher_throws=p_throws,
-                                    batter_xba_vs_rhp=b_sc_local.get('batter_xba_vs_rhp', 0.250),
-                                    batter_xba_vs_lhp=b_sc_local.get('batter_xba_vs_lhp', 0.250),
-                                    batter_hard_hit_vs_rhp=b_sc_local.get('batter_hard_hit_vs_rhp', 0.360),
-                                    batter_hard_hit_vs_lhp=b_sc_local.get('batter_hard_hit_vs_lhp', 0.360),
-                                    team_runs_avg=team_score.get('team_runs_avg', 4.5),
-                                    umpire_tendency=ump_data.get('umpire_tendency', 0.0),
-                                    opp_def_rating=opp_defense.get('def_rating', 0.0),
-                                    pitcher_rest_factor=p_rest.get('rest_factor', 0.0),
-                                    pitcher_gb_pct=p_sc.get('pitcher_gb_pct', 0.430),
-                                    batter_rest_days=_batter_rest,
-                                    batter_obp=_res_ctx.get('obp30', 0.320),
-                                    batter_sb_rate=_res_ctx.get('sb_rate', 0.05))
-                _disp_proj = _res_ctx['proj']
+                # Two passes: the first derives the matchup adjustment, which
+                # is then applied to the projection before the final rating/Edge.
+                _base_proj = round(max(0.5, res['proj'] * (1 + _ctx_pct)), 2)
+                _pass1     = _rate(_base_proj, book_line, book_odds)
+                _disp_proj = round(max(0.5, _base_proj * (1 + _pass1.get('matchup_pct', 0.0))), 2)
+                r_data     = _rate(_disp_proj, book_line, book_odds)
                 # Lock in session state immediately
                 st.session_state[session_key] = (r_data['total'], r_data['grade'], _disp_proj)
                 # Only freeze rating once pitcher is confirmed — TBD ratings may change
@@ -639,7 +599,7 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
             disp_odds = odds_data['over_odds'] if odds_data else None
 
             if disp_line is not None:
-                edge      = round(res['proj'] - disp_line, 2)
+                edge      = round(_disp_proj - disp_line, 2)
                 edge_str  = f'{edge:+.2f}'
                 ec        = '#22c55e' if edge > 0.25 else '#eab308' if edge > 0 else '#ef4444'
                 line_display = f'<span style="color:#e0f2fe;">{disp_line}</span>'
@@ -651,7 +611,7 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
             if disp_odds is not None:
                 odds_color   = '#22c55e' if disp_odds > 0 else '#7dd3fc'
                 odds_display = f'<span style="color:{odds_color};font-weight:700;">{disp_odds:+d}</span>'
-                fair_p       = fair_probability(res['proj'], disp_line) if disp_line else 0
+                fair_p       = fair_probability(_disp_proj, disp_line) if disp_line else 0
                 fair_o       = prob_to_american(fair_p)
                 fair_color   = '#22c55e' if fair_p > american_to_prob(disp_odds) else '#94a3b8'
                 fair_display = f'<span style="color:{fair_color};">{fair_o:+d}</span>'
