@@ -453,6 +453,10 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
 
             season_r   = int(res['df']['season'].iloc[-1])
             b_sc_local = get_batter_statcast(pid, season_r)
+            # Projection before the matchup adjustment — model output + lineup
+            # context only. Logged alongside the final projection so we can
+            # later check whether matchup_pct actually improves accuracy.
+            _base_proj = round(max(0.5, res['proj'] * (1 + _ctx_pct)), 2)
 
             def _rate(proj, line, odds):
                 _ctx = dict(res)
@@ -500,7 +504,6 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
                 # Game started, no pre-game cache — calculate without odds.
                 # Two passes: the first derives the matchup adjustment, which
                 # is then applied to the projection before the final rating/Edge.
-                _base_proj = round(max(0.5, res['proj'] * (1 + _ctx_pct)), 2)
                 _pass1     = _rate(_base_proj, None, None)
                 _disp_proj = round(max(0.5, _base_proj * (1 + _pass1.get('matchup_pct', 0.0))), 2)
                 r_data     = _rate(_disp_proj, None, None)
@@ -514,7 +517,6 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
                 book_odds  = odds_data['over_odds'] if odds_data else None
                 # Two passes: the first derives the matchup adjustment, which
                 # is then applied to the projection before the final rating/Edge.
-                _base_proj = round(max(0.5, res['proj'] * (1 + _ctx_pct)), 2)
                 _pass1     = _rate(_base_proj, book_line, book_odds)
                 _disp_proj = round(max(0.5, _base_proj * (1 + _pass1.get('matchup_pct', 0.0))), 2)
                 r_data     = _rate(_disp_proj, book_line, book_odds)
@@ -534,6 +536,7 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
                         player=pname, team=batter_team,
                         rating=r_data['total'], grade=r_data['grade'],
                         projected=_disp_proj,
+                        base_proj=_base_proj,
                         line=disp_line, over_odds=disp_odds,
                         vs_pitcher=opp_p_name, is_home=is_home,
                         game_date=game_date,

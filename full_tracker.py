@@ -12,7 +12,7 @@ from data_dir import data_path
 
 LOG_FILE     = data_path('full_play_log.csv')
 DATABASE_URL = os.environ.get('DATABASE_URL', '')
-COLS = ['date', 'player', 'team', 'rating', 'grade', 'projected',
+COLS = ['date', 'player', 'team', 'rating', 'grade', 'projected', 'base_proj',
         'line', 'over_odds', 'actual', 'result', 'vs_pitcher', 'is_home', 'pitcher_throws']
 
 
@@ -63,7 +63,8 @@ def save_all(df: pd.DataFrame):
 
 
 def log_play(player: str, team: str, rating: int, grade: str,
-             projected: float, line: float = None, over_odds: int = None,
+             projected: float, base_proj: float = None,
+             line: float = None, over_odds: int = None,
              vs_pitcher: str = '', is_home: bool = True,
              game_date: str = None, game_started: bool = False,
              pitcher_throws: str = ''):
@@ -80,6 +81,7 @@ def log_play(player: str, team: str, rating: int, grade: str,
             df.at[idx, 'rating']     = rating
             df.at[idx, 'grade']      = grade
             df.at[idx, 'projected']  = projected
+            df.at[idx, 'base_proj']  = base_proj if base_proj is not None else ''
             df.at[idx, 'vs_pitcher'] = vs_pitcher
             save_all(df)
         return
@@ -90,6 +92,7 @@ def log_play(player: str, team: str, rating: int, grade: str,
         'rating':    rating,
         'grade':     grade,
         'projected': projected,
+        'base_proj': base_proj if base_proj is not None else '',
         'line':      line or '',
         'over_odds': over_odds or '',
         'actual':    '',
