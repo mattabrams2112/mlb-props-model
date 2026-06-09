@@ -193,6 +193,17 @@ def build_features(df: pd.DataFrame, fetch_weather: bool = True,
     else:
         df['is_day_game'] = 0
 
+    # Rolling OBP — (H+BB)/(AB+BB), more predictive than BA for runs scored
+    for w in WINDOWS:
+        _h  = df['h'].shift(1).rolling(w, min_periods=max(3, w // 2)).sum()
+        _bb = df['bb'].shift(1).rolling(w, min_periods=max(3, w // 2)).sum()
+        _ab = df['ab'].shift(1).rolling(w, min_periods=max(3, w // 2)).sum()
+        df[f'obp_{w}g'] = (_h + _bb) / (_ab + _bb).replace(0, np.nan)
+
+    # Rolling SB rate — stolen bases per game, direct R-component signal
+    for w in [7, 30]:
+        df[f'sb_avg_{w}g'] = df['sb'].shift(1).rolling(w, min_periods=max(2, w // 4)).mean()
+
     # Rolling K% and BB% for batter
     for w in WINDOWS:
         pa = (df['ab'] + df['bb']).shift(1).rolling(w, min_periods=3).sum()
@@ -286,6 +297,7 @@ def get_feature_cols(include_pitcher: bool = True) -> list:
     # Drop hrr_20g_home/away and ba_20g_home/away — hrr_20g_venue already picks the right one
     cols += ['hrr_20g_venue', 'ba_20g_venue']
     cols.append('days_since_last_game')
+    cols += ['obp_7g', 'obp_14g', 'obp_30g', 'sb_avg_7g', 'sb_avg_30g']
     # Quality-adjusted HRR — performance weighted by opposing pitcher ERA
     cols += ['qa_hrr_7g', 'qa_hrr_14g', 'qa_hrr_20g']
     # Batter Statcast cols (barrel rates, pitch-mix, whiff) are season-level constants —

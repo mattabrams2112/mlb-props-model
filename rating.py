@@ -72,6 +72,8 @@ def compute_rating(
     pitcher_rest_factor: float = 0.0, # negative = short rest (good for batter)
     pitcher_gb_pct: float    = 0.430, # high GB% = bad for batter (fewer XBH)
     batter_rest_days: int    = 1,     # days since last game (0=back-to-back, 1=normal)
+    batter_obp: float        = 0.320, # rolling OBP (H+BB)/(AB+BB)
+    batter_sb_rate: float    = 0.05,  # average stolen bases per game (30g)
     pitcher_last_pitch_count: int = 0, # pitches thrown in last start (0 = unknown)
     park_ba: float           = 0.250,  # batter career BA at this park
     park_slg: float          = 0.400,  # batter career SLG at this park
@@ -119,10 +121,11 @@ def compute_rating(
     r20       = recent_20g if recent_20g is not None else recent_30g
     form_raw  = 0.20 * recent_7g + 0.40 * r20 + 0.40 * recent_30g
     hrr_score = min(11.0, (form_raw / 3.5) * 11)
-    # Use venue-specific BA if available for more accurate hit rate
-    ba_used   = recent_ba_venue if recent_ba_venue is not None else recent_ba
-    ba_bonus  = max(0.0, min(4.0, (ba_used - 0.200) / (0.350 - 0.200) * 4.0))
-    scores['Form & Hit Rate'] = (round(hrr_score + ba_bonus, 1), 15)
+    # OBP is more predictive than BA for runs (captures walk-drawing); SB directly creates runs
+    _obp      = batter_obp if batter_obp > 0 else (recent_ba * 1.05 + 0.03)
+    _obp_bonus = max(0.0, min(3.5, (_obp - 0.280) / (0.420 - 0.280) * 3.5))
+    _sb_bonus  = min(0.5, batter_sb_rate * 3.0)
+    scores['Form & Hit Rate'] = (round(min(15.0, hrr_score + _obp_bonus + _sb_bonus), 1), 15)
 
     # ── Starter Matchup (0-20) ───────────────────────────────────────────────
     # Higher ERA = worse pitcher = better for batter = higher score

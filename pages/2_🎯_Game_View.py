@@ -172,7 +172,8 @@ def run_prediction(player_id: int, pitcher_id, is_home: bool, park_team: str,
 
     r7  = df.tail(7);  hrr7  = (r7['h']  + r7['r']  + r7['rbi']).mean()
     r30 = df.tail(30); hrr30 = (r30['h'] + r30['r'] + r30['rbi']).mean()
-    ab30 = r30['ab'].sum(); h30 = r30['h'].sum()
+    ab30 = r30['ab'].sum(); h30 = r30['h'].sum(); bb30 = r30['bb'].sum()
+    sb30 = r30['sb'].sum() if 'sb' in r30.columns else 0
 
     # Home/away splits
     home_games = df[df['is_home'] == 1]
@@ -187,6 +188,8 @@ def run_prediction(player_id: int, pitcher_id, is_home: bool, park_team: str,
         'savg':     round(float(dc['total_season_avg'].iloc[-1]), 2)
                     if not np.isnan(dc['total_season_avg'].iloc[-1]) else 0.0,
         'ba30':     round(h30 / ab30, 3) if ab30 > 0 else 0.250,
+        'obp30':    round((h30 + bb30) / (ab30 + bb30), 3) if (ab30 + bb30) > 0 else 0.320,
+        'sb_rate':  round(sb30 / 30, 3),
         'home_hrr': round(float(home_hrr), 2) if home_hrr else None,
         'away_hrr': round(float(away_hrr), 2) if away_hrr else None,
         'df':       df,
@@ -206,7 +209,8 @@ def get_rating(res, player_id, pitcher_id, park_team, batting_order,
                batter_hard_hit_vs_rhp=0.360, batter_hard_hit_vs_lhp=0.360,
                team_runs_avg=4.5, umpire_tendency=0.0,
                opp_def_rating=0.0, pitcher_rest_factor=0.0,
-               pitcher_gb_pct=0.430, batter_rest_days=1):
+               pitcher_gb_pct=0.430, batter_rest_days=1,
+               batter_obp=0.320, batter_sb_rate=0.05):
     season = int(res['df']['season'].iloc[-1])
     b_sc   = get_batter_statcast(player_id, season)
     p_sc   = get_pitcher_statcast(pitcher_id, season) if pitcher_id else {}
@@ -265,6 +269,8 @@ def get_rating(res, player_id, pitcher_id, park_team, batting_order,
         pitcher_rest_factor     = pitcher_rest_factor,
         pitcher_gb_pct          = pitcher_gb_pct,
         batter_rest_days        = batter_rest_days,
+        batter_obp              = batter_obp,
+        batter_sb_rate          = batter_sb_rate,
         pitcher_fb_thrown    = p_sc.get('pitcher_fb_thrown_pct',   0.55),
         pitcher_bk_thrown    = p_sc.get('pitcher_bk_thrown_pct',   0.25),
         pitcher_os_thrown    = p_sc.get('pitcher_os_thrown_pct',   0.20),
@@ -479,7 +485,9 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
                                         opp_def_rating=opp_defense.get('def_rating', 0.0),
                                         pitcher_rest_factor=p_rest.get('rest_factor', 0.0),
                                         pitcher_gb_pct=p_sc.get('pitcher_gb_pct', 0.430),
-                                        batter_rest_days=_batter_rest)
+                                        batter_rest_days=_batter_rest,
+                                        batter_obp=_res_ctx.get('obp30', 0.320),
+                                        batter_sb_rate=_res_ctx.get('sb_rate', 0.05))
                 r_data = {'total': locked_rating, 'grade': locked_grade,
                           'color': '#22c55e' if locked_rating >= 75 else '#eab308' if locked_rating >= 55 else '#ef4444',
                           'components': _r_display.get('components', {}),
@@ -511,7 +519,9 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
                                     opp_def_rating=opp_defense.get('def_rating', 0.0),
                                     pitcher_rest_factor=p_rest.get('rest_factor', 0.0),
                                     pitcher_gb_pct=p_sc.get('pitcher_gb_pct', 0.430),
-                                    batter_rest_days=_batter_rest)
+                                    batter_rest_days=_batter_rest,
+                                    batter_obp=_res_ctx.get('obp30', 0.320),
+                                    batter_sb_rate=_res_ctx.get('sb_rate', 0.05))
                 _disp_proj = _res_ctx['proj']
                 st.session_state[session_key] = (r_data['total'], r_data['grade'], _disp_proj)
                 if game_date and opp_p_name != 'TBD':
@@ -544,7 +554,9 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
                                     opp_def_rating=opp_defense.get('def_rating', 0.0),
                                     pitcher_rest_factor=p_rest.get('rest_factor', 0.0),
                                     pitcher_gb_pct=p_sc.get('pitcher_gb_pct', 0.430),
-                                    batter_rest_days=_batter_rest)
+                                    batter_rest_days=_batter_rest,
+                                    batter_obp=_res_ctx.get('obp30', 0.320),
+                                    batter_sb_rate=_res_ctx.get('sb_rate', 0.05))
                 _disp_proj = _res_ctx['proj']
                 # Lock in session state immediately
                 st.session_state[session_key] = (r_data['total'], r_data['grade'], _disp_proj)
