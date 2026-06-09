@@ -123,7 +123,7 @@ def compute_rating(
     hrr_score = min(11.0, (form_raw / 3.5) * 11)
     # OBP is more predictive than BA for runs (captures walk-drawing); SB directly creates runs
     _obp      = batter_obp if batter_obp > 0 else (recent_ba * 1.05 + 0.03)
-    _obp_bonus = max(0.0, min(3.5, (_obp - 0.280) / (0.420 - 0.280) * 3.5))
+    _obp_bonus = max(-2.0, min(3.5, (_obp - 0.280) / (0.420 - 0.280) * 3.5))
     _sb_bonus  = min(0.5, batter_sb_rate * 3.0)
     scores['Form & Hit Rate'] = (round(min(15.0, hrr_score + _obp_bonus + _sb_bonus), 1), 15)
 
@@ -134,9 +134,9 @@ def compute_rating(
     # If last3 ERA is the league default (4.30), fall back to season ERA
     _last3_era  = opp_last3_era if abs(opp_last3_era - 4.30) > 0.05 else opp_era
     blended_era = (opp_era * 0.40 + opp_fip * 0.35 + _last3_era * 0.25)
-    era_score = max(0.0, min(22.0, 22.0 * (blended_era - 2.5) / (6.5 - 2.5)))
+    era_score = max(-5.0, min(22.0, 22.0 * (blended_era - 2.5) / (6.5 - 2.5)))
     if bvp_sample:
-        era_score = max(0.0, min(22.0, era_score + (bvp_avg - 0.250) * 15))
+        era_score = max(-5.0, min(22.0, era_score + (bvp_avg - 0.250) * 15))
     # K% modifier: elite K% pitcher reduces batter opportunity (-3 to +2 pts)
     _eff_k_pct   = (opp_k_pct_vs_lhb if pitcher_throws == 'L' and opp_k_pct_vs_lhb is not None
                     else opp_k_pct_vs_rhb if pitcher_throws == 'R' and opp_k_pct_vs_rhb is not None
@@ -146,7 +146,7 @@ def compute_rating(
                     else opp_babip)
     k_adj    = max(-3.0, min(2.0, (0.222 - _eff_k_pct) * 20))
     babip_adj = max(-1.5, min(1.5, (_eff_babip - 0.300) * 5))
-    era_score = max(0.0, min(22.0, era_score + k_adj + babip_adj))
+    era_score = max(-5.0, min(22.0, era_score + k_adj + babip_adj))
     scores['Starter Matchup'] = (round(era_score, 1), 22)
 
     # ── Platoon Advantage (0-6) ──────────────────────────────────────────────
@@ -208,7 +208,7 @@ def compute_rating(
 
     # ── Team Run Environment (0-5) ───────────────────────────────────────────
     # High-scoring team = more RBI/run opportunities
-    team_score = max(0.0, min(5.0, (team_runs_avg - 3.0) / (7.0 - 3.0) * 5.0))
+    team_score = max(-2.0, min(5.0, (team_runs_avg - 3.0) / (7.0 - 3.0) * 5.0))
     scores['Team Scoring'] = (round(team_score, 1), 5)
 
     # ── Batter Rest (-2 to +1) ───────────────────────────────────────────────
@@ -224,9 +224,9 @@ def compute_rating(
     scores['Batter Rest'] = (round(_brest, 1), 1)
 
     # ── Bullpen (0-8) ────────────────────────────────────────────────────────
-    bp_era_score  = max(0.0, min(5.0, (bp_era - 3.0) / (5.5 - 3.0) * 5.0))
-    bp_whip_score = max(0.0, min(3.0, (bp_whip - 1.0) / (1.8 - 1.0) * 3.0))
-    scores['Bullpen'] = (round(min(8.0, bp_era_score + bp_whip_score), 1), 8)
+    bp_era_score  = max(-3.0, min(5.0, (bp_era - 3.0) / (5.5 - 3.0) * 5.0))
+    bp_whip_score = max(-2.0, min(3.0, (bp_whip - 1.0) / (1.8 - 1.0) * 3.0))
+    scores['Bullpen'] = (round(max(-4.0, min(8.0, bp_era_score + bp_whip_score)), 1), 8)
 
     # ── Batted Ball Edge (0-12) — merged barrel + contact quality ────────────
     # Barrel rate edge (pitch-mix weighted)
@@ -248,7 +248,7 @@ def compute_rating(
     whiff_adj = max(-2.5, min(1.5, (0.245 - _eff_batter_whiff) * 6 - (_eff_pitcher_whiff - 0.245) * 4))
     xba_edge      = batter_xba - pitcher_xba_allowed
     ev_edge       = (batter_avg_ev - pitcher_avg_ev) / 10.0
-    batted_ball_score = max(0.0, min(12.0, 6.0
+    batted_ball_score = max(-6.0, min(12.0, 6.0
         + barrel_edge * 60
         + xba_edge * 20
         + ev_edge * 2
@@ -256,7 +256,7 @@ def compute_rating(
     scores['Batted Ball Edge'] = (round(batted_ball_score, 1), 12)
 
     # ── Park & Weather (0-9) ────────────────────────────────────────────────
-    park_score = max(0.0, min(5.0, (park_factor - 0.90) / (1.15 - 0.90) * 5.0))
+    park_score = max(-3.0, min(5.0, (park_factor - 0.90) / (1.15 - 0.90) * 5.0))
     wind_score = max(-2.0, min(2.0, wind_dir * min(wind_speed, 20) / 20 * 2.0))
     temp_score = max(-1.0, min(1.0, (temp_f - 50) / (85 - 50) * 1.0)) if temp_f > 0 else 0
     # Career batter splits at this park — only apply when enough AB history (≥20)
@@ -266,7 +266,7 @@ def compute_rating(
         park_hist    = park_ba_adj + park_slg_adj
     else:
         park_hist = 0.0
-    scores['Park & Weather'] = (round(max(0.0, min(9.0, park_score + wind_score + temp_score + park_hist + 1)), 1), 9)
+    scores['Park & Weather'] = (round(max(-3.0, min(9.0, park_score + wind_score + temp_score + park_hist + 1)), 1), 9)
 
     # ── Batting Order (0-7) — wider spread: leadoff/2-hole=7, bottom order=2
     bo_score = BATTING_ORDER_SCORES[batting_order - 1] if 1 <= batting_order <= 9 else 5
