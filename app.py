@@ -26,10 +26,6 @@ UNIT      = 8.0
 _WIN_MULT = 100 / 125
 
 def get_units(rating):
-    if rating >= 90: return 3.0
-    if rating >= 85: return 2.5
-    if rating >= 80: return 2.0
-    if rating >= 75: return 1.5
     return 1.0
 
 def play_profit(rating, result):
