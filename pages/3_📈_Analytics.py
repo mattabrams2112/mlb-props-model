@@ -391,6 +391,81 @@ if len(decided) >= 5:
 
 st.markdown('---')
 
+# ── Home vs Away ──────────────────────────────────────────────────────────────
+
+st.markdown('### Home vs Away')
+
+_is_home_num = pd.to_numeric(df['is_home'], errors='coerce')
+_home_d = decided[_is_home_num[decided.index] == 1]
+_away_d = decided[_is_home_num[decided.index] == 0]
+
+_hwr, _hn = win_rate(_home_d)
+_awr, _an = win_rate(_away_d)
+_hroi = roi(_home_d)
+_aroi = roi(_away_d)
+
+_ha_cols = st.columns(2)
+with _ha_cols[0]:
+    _hw = int((_home_d['result'] == 'W').sum())
+    _hl = int((_home_d['result'] == 'L').sum())
+    st.markdown(
+        f'<div style="background:#0f1f38;border:1px solid #1e3a5f;border-radius:10px;padding:14px 18px;">'
+        f'<div style="font-size:13px;color:#38bdf8;font-weight:700;margin-bottom:8px;">🏠 Home Games</div>'
+        f'<div style="font-size:28px;font-weight:800;color:{color_wr(_hwr)};">'
+        f'{_hwr}%</div>' if _hwr else '<div style="font-size:28px;color:#475569;">—</div>'
+        f'<div style="color:#94a3b8;font-size:13px;">{_hw}–{_hl} · {_hn} plays'
+        f'{(" · ROI " + str(_hroi) + "%") if _hroi else ""}</div></div>',
+        unsafe_allow_html=True
+    )
+with _ha_cols[1]:
+    _aw = int((_away_d['result'] == 'W').sum())
+    _al = int((_away_d['result'] == 'L').sum())
+    st.markdown(
+        f'<div style="background:#0f1f38;border:1px solid #1e3a5f;border-radius:10px;padding:14px 18px;">'
+        f'<div style="font-size:13px;color:#38bdf8;font-weight:700;margin-bottom:8px;">✈️ Away Games</div>'
+        f'<div style="font-size:28px;font-weight:800;color:{color_wr(_awr)};">'
+        f'{_awr}%</div>' if _awr else '<div style="font-size:28px;color:#475569;">—</div>'
+        f'<div style="color:#94a3b8;font-size:13px;">{_aw}–{_al} · {_an} plays'
+        f'{(" · ROI " + str(_aroi) + "%") if _aroi else ""}</div></div>',
+        unsafe_allow_html=True
+    )
+
+st.markdown('---')
+
+# ── Win Rate by Pitcher Handedness ───────────────────────────────────────────
+
+st.markdown('### Win Rate by Pitcher Handedness')
+
+_pt_col = 'pitcher_throws'
+if _pt_col not in df.columns or df[_pt_col].dropna().eq('').all():
+    st.info('Pitcher handedness data is logged from today\'s games onwards — check back after the next set of results.')
+else:
+    _rh_d = decided[decided[_pt_col].astype(str).str.strip() == 'R']
+    _lh_d = decided[decided[_pt_col].astype(str).str.strip() == 'L']
+    _rwr, _rn = win_rate(_rh_d)
+    _lwr, _ln = win_rate(_lh_d)
+    _rroi = roi(_rh_d)
+    _lroi = roi(_lh_d)
+
+    _pt_cols = st.columns(2)
+    for _col, _d, _wr, _n, _r, _label in [
+        (_pt_cols[0], _rh_d, _rwr, _rn, _rroi, '🤜 vs RHP (Right-Handed)'),
+        (_pt_cols[1], _lh_d, _lwr, _ln, _lroi, '🤛 vs LHP (Left-Handed)'),
+    ]:
+        _w = int((_d['result'] == 'W').sum()); _l = int((_d['result'] == 'L').sum())
+        with _col:
+            st.markdown(
+                f'<div style="background:#0f1f38;border:1px solid #1e3a5f;border-radius:10px;padding:14px 18px;">'
+                f'<div style="font-size:13px;color:#38bdf8;font-weight:700;margin-bottom:8px;">{_label}</div>'
+                f'<div style="font-size:28px;font-weight:800;color:{color_wr(_wr)};">'
+                f'{_wr}%</div>' if _wr else '<div style="font-size:28px;color:#475569;">—</div>'
+                f'<div style="color:#94a3b8;font-size:13px;">{_w}–{_l} · {_n} plays'
+                f'{(" · ROI " + str(_r) + "%") if _r else ""}</div></div>',
+                unsafe_allow_html=True
+            )
+
+st.markdown('---')
+
 # ── Backup ────────────────────────────────────────────────────────────────────
 
 st.markdown('### Backup')

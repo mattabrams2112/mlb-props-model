@@ -139,6 +139,15 @@ def run_prediction(player_id: int, pitcher_id, is_home: bool, park_team: str,
     latest.at[latest.index[0], 'temp_f']      = temp_f
     latest.at[latest.index[0], 'wind_speed']  = wind_speed
     latest.at[latest.index[0], 'wind_dir']    = wind_dir
+    if game_date and 'days_since_last_game' in latest.columns:
+        try:
+            _pred_dt  = pd.Timestamp(game_date).date()
+            _last_dt  = df['date'].max()
+            if hasattr(_last_dt, 'date'):
+                _last_dt = _last_dt.date()
+            latest.at[latest.index[0], 'days_since_last_game'] = float(max(0, (_pred_dt - _last_dt).days))
+        except Exception:
+            pass
 
     latest_X  = latest[fc].apply(pd.to_numeric, errors='coerce').fillna(0)
     xgb_pred  = float(xgb.predict(latest_X)[0])
@@ -197,7 +206,7 @@ def get_rating(res, player_id, pitcher_id, park_team, batting_order,
                batter_hard_hit_vs_rhp=0.360, batter_hard_hit_vs_lhp=0.360,
                team_runs_avg=4.5, umpire_tendency=0.0,
                opp_def_rating=0.0, pitcher_rest_factor=0.0,
-               pitcher_gb_pct=0.430):
+               pitcher_gb_pct=0.430, batter_rest_days=1):
     season = int(res['df']['season'].iloc[-1])
     b_sc   = get_batter_statcast(player_id, season)
     p_sc   = get_pitcher_statcast(pitcher_id, season) if pitcher_id else {}
@@ -255,6 +264,7 @@ def get_rating(res, player_id, pitcher_id, park_team, batting_order,
         opp_def_rating          = opp_def_rating,
         pitcher_rest_factor     = pitcher_rest_factor,
         pitcher_gb_pct          = pitcher_gb_pct,
+        batter_rest_days        = batter_rest_days,
         pitcher_fb_thrown    = p_sc.get('pitcher_fb_thrown_pct',   0.55),
         pitcher_bk_thrown    = p_sc.get('pitcher_bk_thrown_pct',   0.25),
         pitcher_os_thrown    = p_sc.get('pitcher_os_thrown_pct',   0.20),
@@ -425,6 +435,16 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
         if is_starter and res:
             session_key = f'locked_{date_key}_{pid}'
 
+            # Batter rest days — days between last logged game and today's game
+            try:
+                _game_dt_rest = datetime.strptime(game_date, '%Y-%m-%d').date() if game_date else datetime.now().date()
+                _last_played  = res['df']['date'].max()
+                if hasattr(_last_played, 'date'):
+                    _last_played = _last_played.date()
+                _batter_rest = max(0, (_game_dt_rest - _last_played).days)
+            except Exception:
+                _batter_rest = 1
+
             # Try cache sources in order
             cached = (st.session_state.get(session_key) or
                       (get_cached_rating(game_date, pid) if game_date else None))
@@ -458,7 +478,8 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
                                         umpire_tendency=ump_data.get('umpire_tendency', 0.0),
                                         opp_def_rating=opp_defense.get('def_rating', 0.0),
                                         pitcher_rest_factor=p_rest.get('rest_factor', 0.0),
-                                        pitcher_gb_pct=p_sc.get('pitcher_gb_pct', 0.430))
+                                        pitcher_gb_pct=p_sc.get('pitcher_gb_pct', 0.430),
+                                        batter_rest_days=_batter_rest)
                 r_data = {'total': locked_rating, 'grade': locked_grade,
                           'color': '#22c55e' if locked_rating >= 75 else '#eab308' if locked_rating >= 55 else '#ef4444',
                           'components': _r_display.get('components', {}),
@@ -489,7 +510,8 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
                                     umpire_tendency=ump_data.get('umpire_tendency', 0.0),
                                     opp_def_rating=opp_defense.get('def_rating', 0.0),
                                     pitcher_rest_factor=p_rest.get('rest_factor', 0.0),
-                                    pitcher_gb_pct=p_sc.get('pitcher_gb_pct', 0.430))
+                                    pitcher_gb_pct=p_sc.get('pitcher_gb_pct', 0.430),
+                                    batter_rest_days=_batter_rest)
                 _disp_proj = _res_ctx['proj']
                 st.session_state[session_key] = (r_data['total'], r_data['grade'], _disp_proj)
                 if game_date and opp_p_name != 'TBD':
@@ -521,7 +543,8 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
                                     umpire_tendency=ump_data.get('umpire_tendency', 0.0),
                                     opp_def_rating=opp_defense.get('def_rating', 0.0),
                                     pitcher_rest_factor=p_rest.get('rest_factor', 0.0),
-                                    pitcher_gb_pct=p_sc.get('pitcher_gb_pct', 0.430))
+                                    pitcher_gb_pct=p_sc.get('pitcher_gb_pct', 0.430),
+                                    batter_rest_days=_batter_rest)
                 _disp_proj = _res_ctx['proj']
                 # Lock in session state immediately
                 st.session_state[session_key] = (r_data['total'], r_data['grade'], _disp_proj)
@@ -543,6 +566,7 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
                         vs_pitcher=opp_p_name, is_home=is_home,
                         game_date=game_date,
                         game_started=not _pre_game,
+                        pitcher_throws=p_throws,
                     )
                 except Exception:
                     pass

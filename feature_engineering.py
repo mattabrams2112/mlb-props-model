@@ -180,6 +180,9 @@ def build_features(df: pd.DataFrame, fetch_weather: bool = True,
     df['hrr_20g_venue'] = np.where(df['is_home'] == 1, df['hrr_20g_home'], df['hrr_20g_away'])
     df['ba_20g_venue']  = np.where(df['is_home'] == 1, df['ba_20g_home'],  df['ba_20g_away'])
 
+    # Days since last game — rest/fatigue signal (capped at 14, missing filled with 3)
+    df['days_since_last_game'] = df['date'].diff().dt.days.fillna(3.0).clip(0, 14)
+
     df['month']       = df['date'].dt.month
     df['day_of_week'] = df['date'].dt.dayofweek
     df['park_factor'] = df['home_team'].apply(get_park_factor)
@@ -282,6 +285,7 @@ def get_feature_cols(include_pitcher: bool = True) -> list:
         cols += [f'k_pct_{w}g', f'bb_pct_{w}g', f'babip_{w}g']
     # Drop hrr_20g_home/away and ba_20g_home/away — hrr_20g_venue already picks the right one
     cols += ['hrr_20g_venue', 'ba_20g_venue']
+    cols.append('days_since_last_game')
     # Quality-adjusted HRR — performance weighted by opposing pitcher ERA
     cols += ['qa_hrr_7g', 'qa_hrr_14g', 'qa_hrr_20g']
     # Batter Statcast cols (barrel rates, pitch-mix, whiff) are season-level constants —

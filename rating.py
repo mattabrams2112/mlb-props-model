@@ -15,6 +15,7 @@ Components:
   Team Scoring      (0-5)  — team's avg runs scored
   Opp Defense       (-3–5) — opposing team's defense rating
   Pitcher Context   (-3–5) — pitcher rest + ground ball %
+  Batter Rest       (-2–1) — days since last game
   Line Edge         — projection vs sportsbook line (label only, not scored)
 """
 
@@ -70,6 +71,7 @@ def compute_rating(
     opp_def_rating: float    = 0.0,   # positive = bad defense (good for batter)
     pitcher_rest_factor: float = 0.0, # negative = short rest (good for batter)
     pitcher_gb_pct: float    = 0.430, # high GB% = bad for batter (fewer XBH)
+    batter_rest_days: int    = 1,     # days since last game (0=back-to-back, 1=normal)
     pitcher_last_pitch_count: int = 0, # pitches thrown in last start (0 = unknown)
     park_ba: float           = 0.250,  # batter career BA at this park
     park_slg: float          = 0.400,  # batter career SLG at this park
@@ -205,6 +207,18 @@ def compute_rating(
     # High-scoring team = more RBI/run opportunities
     team_score = max(0.0, min(5.0, (team_runs_avg - 3.0) / (7.0 - 3.0) * 5.0))
     scores['Team Scoring'] = (round(team_score, 1), 5)
+
+    # ── Batter Rest (-2 to +1) ───────────────────────────────────────────────
+    # 0 days = day game after night / doubleheader; 1 = normal; 2-5 = well rested
+    if batter_rest_days == 0:
+        _brest = -2.0
+    elif batter_rest_days == 1:
+        _brest = 0.0
+    elif batter_rest_days <= 5:
+        _brest = 1.0
+    else:
+        _brest = 0.5  # extended layoff — unknown rust factor
+    scores['Batter Rest'] = (round(_brest, 1), 1)
 
     # ── Bullpen (0-8) ────────────────────────────────────────────────────────
     bp_era_score  = max(0.0, min(5.0, (bp_era - 3.0) / (5.5 - 3.0) * 5.0))
