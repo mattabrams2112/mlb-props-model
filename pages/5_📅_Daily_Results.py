@@ -1,6 +1,6 @@
 """
 Daily Results — day-by-day performance filtered by current tracking criteria.
-Criteria: Rating >= 70
+Criteria: Rating >= 75
 """
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
@@ -16,7 +16,7 @@ st.set_page_config(page_title="Daily Results | MLB Props", page_icon="📅", lay
 inject_styles()
 
 st.markdown('## 📅 Daily Results')
-st.caption('Criteria: Rating ≥ 70')
+st.caption('Criteria: Rating ≥ 75')
 
 col_refresh, col_fetch = st.columns([1, 1])
 with col_refresh:
@@ -43,7 +43,7 @@ df['date_str']  = df['date'].astype(str).str[:10]
 
 # Apply current criteria
 today_str = today_str_et()
-criteria = df[df['rating'] >= 70]
+criteria = df[df['rating'] >= 75]
 
 decided = criteria[criteria['result'].isin(['W', 'L'])]
 pending = criteria[criteria['result'] == '']

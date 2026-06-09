@@ -1,6 +1,6 @@
 """
 Tracker — logs qualifying predictions and tracks W/L record.
-Criteria: Rating >= 70
+Criteria: Rating >= 75
 WIN  = actual H+R+RBI > sportsbook line you entered.
 LOSS = actual H+R+RBI ≤ sportsbook line you entered.
 """
@@ -144,7 +144,7 @@ def auto_fill_actuals(df: pd.DataFrame) -> tuple:
 
 # Auto-import qualifying players from today's lineup
 if 'lineup_rows' in st.session_state:
-    qualified = [r for r in st.session_state['lineup_rows'] if r['Rating'] >= 70]
+    qualified = [r for r in st.session_state['lineup_rows'] if r['Rating'] >= 75]
     if qualified:
         add_predictions([{
             'player':     r['Player'],
@@ -168,7 +168,7 @@ def sync_from_ratings_cache():
     _r = pd.to_numeric(ratings['rating'], errors='coerce')
     qualifying = ratings[
         (ratings['date'].astype(str).str[:10] <= today) &
-        (_r >= 70) &
+        (_r >= 75) &
         (ratings['player_name'].astype(str).str.strip() != '')
     ]
     if qualifying.empty:
@@ -245,14 +245,14 @@ if 'tracker_lines_filled' not in st.session_state:
 _hdr, _btn = st.columns([5, 1])
 with _hdr:
     st.markdown('## 📊 Prediction Tracker')
-    st.caption('Criteria: Rating ≥ 70 · Lines entered manually · Actuals fetched automatically')
+    st.caption('Criteria: Rating ≥ 75 · Lines entered manually · Actuals fetched automatically')
 with _btn:
     if st.button('🔄 Refresh', use_container_width=True):
         st.rerun()
 
 # Filter to current criteria only
 df['_r'] = pd.to_numeric(df['rating'], errors='coerce')
-df = df[df['_r'] >= 70].copy()
+df = df[df['_r'] >= 75].copy()
 df.drop(columns=['_r'], inplace=True)
 
 # ── Record summary ─────────────────────────────────────────────────────────────

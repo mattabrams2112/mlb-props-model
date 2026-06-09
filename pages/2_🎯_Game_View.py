@@ -552,15 +552,15 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
             from datetime import datetime as _dt
             _today = today_str_et()
             _r = r_data['total']; _p = _disp_proj
-            _qualifies = _r >= 60
+            _qualifies = _r >= 75
             if _qualifies:
-                _units    = 2.0 if 85 <= _r <= 89 else 1.0
-                _bet      = int(_units * 8)
-                _u_str    = '1.5' if _units == 1.5 else str(int(_units))
+                _units = 3.0 if _r >= 90 else 2.5 if _r >= 85 else 2.0 if _r >= 80 else 1.5
+                _bet   = int(_units * 8)
+                _u_str = str(int(_units)) if _units == int(_units) else str(_units)
                 _stake_badge = (f' <span style="font-size:10px;background:#1e3a5f;color:#7dd3fc;'
                                 f'border-radius:3px;padding:1px 4px;font-weight:700;">'
                                 f'{_u_str}u · ${_bet}</span>')
-            if _qualifies and pname and game_date and (game_date < _today or _game_finished):
+            if _qualifies and _r >= 75 and pname and game_date and (game_date < _today or _game_finished):
                 try:
                     tracker_add([{
                         'player':     pname,
