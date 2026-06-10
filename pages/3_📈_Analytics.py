@@ -290,6 +290,55 @@ st.dataframe(band_breakdown, hide_index=True, use_container_width=True)
 
 st.markdown('---')
 
+# ── Win Rate by Projection Threshold (All Ratings) ───────────────────────────
+
+st.markdown('### Win Rate by Projection (All Ratings)')
+st.caption('Win rate at each projection cutoff across the entire play log, regardless of rating — find the projection floor that works on its own.')
+
+all_proj_thresholds = [0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5]
+ap_labels, ap_wrs, ap_ns, ap_rois, ap_colors, ap_wl = [], [], [], [], [], []
+
+for pt in all_proj_thresholds:
+    sub = df[df['projected'] >= pt]
+    decided_sub = sub[sub['result'].isin(['W','L'])]
+    wr, n = win_rate(sub)
+    w = int((decided_sub['result'] == 'W').sum())
+    l = int((decided_sub['result'] == 'L').sum())
+    ap_labels.append(f'≥{pt}')
+    ap_wrs.append(wr or 0)
+    ap_ns.append(n)
+    ap_rois.append(roi(sub))
+    ap_colors.append(color_wr(wr))
+    ap_wl.append((w, l))
+
+fig_ap = go.Figure(go.Bar(
+    x=ap_labels, y=ap_wrs,
+    marker_color=ap_colors,
+    text=[f'{w}%<br>({n} plays)' if n > 0 else '0 plays'
+          for w, n in zip(ap_wrs, ap_ns)],
+    textposition='outside',
+))
+fig_ap.add_hline(y=52.4, line_dash='dash', line_color='#ef4444',
+                 annotation_text='Break-even (-110)', annotation_position='right')
+fig_ap.update_layout(
+    height=350, yaxis=dict(range=[0, 100], title='Win %'),
+    paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+    font=dict(color='#7dd3fc'), margin=dict(t=30, b=10),
+    xaxis=dict(title='Projection Threshold'),
+)
+st.plotly_chart(fig_ap, use_container_width=True, config={'displayModeBar': False})
+
+ap_df = pd.DataFrame({
+    'Filter':   [f'Proj ≥{pt}' for pt in all_proj_thresholds],
+    'Plays':    ap_ns,
+    'Win Rate': [f'{wr}% ({w}-{l})' if n > 0 else '—'
+                 for wr, n, (w, l) in zip(ap_wrs, ap_ns, ap_wl)],
+    'ROI':      [f'{r}%' if r is not None else '—' for r in ap_rois],
+})
+st.dataframe(ap_df, hide_index=True, use_container_width=True)
+
+st.markdown('---')
+
 # ── Projection buckets ────────────────────────────────────────────────────────
 
 st.markdown('### Win Rate by Projection (vs Line)')
