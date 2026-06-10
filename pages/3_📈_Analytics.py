@@ -268,7 +268,7 @@ st.markdown('---')
 st.markdown('### Win Rate by Rating Band + Projection Filter')
 st.caption('Shows how each 5-point rating band performs at different projection thresholds — find the exact cut that works.')
 
-proj_thresholds = [1.5, 2.0, 2.5, 3.0, 3.5, 4.0]
+proj_thresholds = [1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5]
 band_rows = []
 
 for lo, hi, label in rating_buckets:
@@ -333,7 +333,7 @@ st.caption('Minimum rating and projection that maximize win rate with at least 1
 if len(decided) >= 10:
     results = []
     for min_r in range(40, 85, 5):
-        for min_p in [0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0]:
+        for min_p in [0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5]:
             sub = df[(df['rating'] >= min_r) & (df['projected'] >= min_p)]
             wr, n = win_rate(sub)
             r_val = roi(sub)
