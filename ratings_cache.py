@@ -116,6 +116,13 @@ def save_rating(game_date: str, player_id: int, rating: int, grade: str,
             }], game_date=game_date)
         except Exception:
             pass
+        # Mirror to full_play_log so Daily Results stays in sync with Tracker
+        try:
+            from full_tracker import log_play as _fpl_log
+            _fpl_log(player=player_name, team=team, rating=rating, grade=grade,
+                     projected=projected, vs_pitcher=vs_pitcher, game_date=game_date)
+        except Exception:
+            pass
 
     # Always update any existing tracker entry so recalculated ratings are reflected.
     # If the new rating no longer qualifies, the tracker display filter will hide the row.

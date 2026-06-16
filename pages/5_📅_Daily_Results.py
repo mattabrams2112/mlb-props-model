@@ -29,6 +29,50 @@ with col_fetch:
         st.success(f'Updated {n} plays!')
         st.rerun()
 
+def _sync_tracker_to_fpl():
+    """Copy any tracker plays missing from full_play_log so both pages match."""
+    try:
+        from tracker import load as _load_tracker
+        tracker_df = _load_tracker()
+        if tracker_df.empty:
+            return
+        fpl = load_all()
+        existing_keys = set()
+        if not fpl.empty:
+            existing_keys = set(
+                fpl['date'].astype(str).str[:10] + '|' + fpl['player'].astype(str)
+            )
+        new_rows = []
+        for _, row in tracker_df.iterrows():
+            key = f"{str(row['date'])[:10]}|{row['player']}"
+            if key not in existing_keys:
+                new_rows.append({
+                    'date':           str(row['date'])[:10],
+                    'player':         row.get('player', ''),
+                    'team':           row.get('team', ''),
+                    'rating':         row.get('rating', ''),
+                    'grade':          row.get('grade', ''),
+                    'projected':      row.get('projected', ''),
+                    'base_proj':      '',
+                    'line':           row.get('line', ''),
+                    'over_odds':      row.get('over_odds', ''),
+                    'actual':         row.get('actual', ''),
+                    'result':         row.get('result', ''),
+                    'vs_pitcher':     row.get('vs_pitcher', ''),
+                    'is_home':        '',
+                    'pitcher_throws': '',
+                })
+        if new_rows:
+            new_df = pd.DataFrame(new_rows)
+            combined = pd.concat([fpl, new_df], ignore_index=True) if not fpl.empty else new_df
+            save_all(combined)
+    except Exception:
+        pass
+
+if 'daily_tracker_synced' not in st.session_state:
+    _sync_tracker_to_fpl()
+    st.session_state['daily_tracker_synced'] = True
+
 df = load_all()
 
 if df.empty:
