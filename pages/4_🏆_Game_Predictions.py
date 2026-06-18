@@ -182,7 +182,21 @@ if 'gp_rows' not in st.session_state:
             away_p   = get_pitcher_name(away_pid) if away_pid else 'TBD'
             gid      = f'{away}_{home}'
             status   = game.get('status', '')
-            game_started = status not in ('Preview', 'Pre-Game', 'Scheduled', 'Warmup', '')
+            game_started     = status not in ('Preview', 'Pre-Game', 'Scheduled', 'Warmup', '')
+            lineups_official = game.get('lineups_official', False)
+            both_pitchers    = home_p != 'TBD' and away_p != 'TBD'
+
+            # Hold off on predictions until both lineups and pitchers are confirmed
+            if not game_started and not (lineups_official and both_pitchers):
+                stored = get_stored_pred(gid, date_str)
+                if not stored:
+                    rows.append({
+                        'game_id': gid, 'away_team': away, 'home_team': home,
+                        'away_pitcher': away_p, 'home_pitcher': home_p,
+                        'predicted_winner': None, 'away_proj': None, 'home_proj': None,
+                        'margin': None, 'confidence': None, 'source': 'pending', 'adj': {},
+                    })
+                    continue
 
             # If game has started, use stored prediction — never recalculate
             stored = get_stored_pred(gid, date_str)
@@ -283,8 +297,33 @@ def factor_badge(label, value, good_positive=True):
 
 
 for row in rows:
-    away   = row['away_team']
-    home   = row['home_team']
+    away = row['away_team']
+    home = row['home_team']
+
+    # ── Pending card — lineups not official yet ───────────────────────────────
+    if row.get('source') == 'pending':
+        _away_p = row.get('away_pitcher', 'TBD')
+        _home_p = row.get('home_pitcher', 'TBD')
+        _missing = []
+        if _away_p == 'TBD': _missing.append(f'{home} SP')
+        if _home_p == 'TBD': _missing.append(f'{away} SP')
+        if not row.get('lineups_official'): _missing.append('official lineups')
+        _wait_txt = ', '.join(_missing) if _missing else 'official lineups'
+        st.markdown(
+            f'<div style="background:#1e293b;border:1px solid #334155;border-radius:10px;'
+            f'padding:14px 18px;margin-bottom:8px;display:flex;align-items:center;gap:12px;">'
+            f'{logo_img_tag(away, 28)}'
+            f'<span style="color:#38bdf8;font-weight:700;">{away}</span>'
+            f'<span style="color:#475569;margin:0 6px;">@</span>'
+            f'{logo_img_tag(home, 28)}'
+            f'<span style="color:#38bdf8;font-weight:700;">{home}</span>'
+            f'<span style="color:#eab308;font-size:12px;margin-left:12px;">'
+            f'⏳ Awaiting {_wait_txt}</span>'
+            f'</div>',
+            unsafe_allow_html=True
+        )
+        continue
+
     win    = row['predicted_winner']
     ap     = row['away_proj']
     hp     = row['home_proj']
