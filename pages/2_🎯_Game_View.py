@@ -946,18 +946,21 @@ for game in games:
                 _missing.append('official lineups')
             st.info(f'⏳ Waiting for: {", ".join(_missing) if _missing else "official lineups"}')
         else:
-            if st.button(f'🔄 Recalculate {away} @ {home}', key=f'recalc_{date_key}_{away}_{home}'):
-                clear_ratings_for_players(_gd, _all_ids)
-                fetch_cache_key_a = f'gv_fetch_{date_key}_{game.get("game_pk","")}_{int(False)}'
-                fetch_cache_key_h = f'gv_fetch_{date_key}_{game.get("game_pk","")}_{int(True)}'
+            _gk_str = str(game.get('game_pk', ''))
+            if st.button(f'🔄 Recalculate {away} @ {home}', key=f'recalc_{date_key}_{away}_{home}_{_gk_str}'):
+                # Clear persistent cache per-pitcher so doubleheader Game 2 isn't touched
+                clear_ratings_for_players(_gd, list(ab_ids), vs_pitcher=home_p)
+                clear_ratings_for_players(_gd, list(hb_ids), vs_pitcher=away_p)
+                fetch_cache_key_a = f'gv_fetch_{date_key}_{_gk_str}_{int(False)}'
+                fetch_cache_key_h = f'gv_fetch_{date_key}_{_gk_str}_{int(True)}'
                 st.session_state.pop(fetch_cache_key_a, None)
                 st.session_state.pop(fetch_cache_key_h, None)
+                # Clear session-state locks — key includes game_pk to isolate doubleheaders
                 for pid in _all_ids:
-                    st.session_state.pop(f'locked_{date_key}_{pid}', None)
+                    st.session_state.pop(f'locked_{date_key}_{_gk_str}_{pid}', None)
                 st.rerun()
 
             ac, hc = st.columns(2)
-            gk = str(game.get('game_pk', ''))
 
             with ac:
                 st.markdown(f'**{away} Batting** · vs {home_p}')
@@ -966,7 +969,7 @@ for game in games:
                                   home, home, weather, away + ' @ ' + home,
                                   home_p, date_key, batter_team=away,
                                   game_date=selected_date.strftime('%Y-%m-%d'),
-                                  event_id=event_id, game_pk=gk)
+                                  event_id=event_id, game_pk=_gk_str)
                 else:
                     st.info('Lineup pending.')
 
@@ -977,7 +980,7 @@ for game in games:
                                   away, home, weather, away + ' @ ' + home,
                                   away_p, date_key, batter_team=home,
                                   game_date=selected_date.strftime('%Y-%m-%d'),
-                                  event_id=event_id, game_pk=gk)
+                                  event_id=event_id, game_pk=_gk_str)
                 else:
                     st.info('Lineup pending.')
 
