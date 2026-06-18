@@ -422,12 +422,47 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
             is_starter = (ocode % 100 == 0)
             spot       = ocode // 100
             sub_idx    = ocode % 100
-            try:
-                res = run_prediction(pid, opp_pitcher_id, is_home, park_team,
-                                     weather['temp_f'], weather['wind_speed'],
-                                     weather['wind_dir_code'], game_date=game_date)
-            except RuntimeError:
-                res = None
+
+            # For starters already in ratings_cache, skip XGBoost entirely.
+            # Just fetch game logs (cheap, cached) and build the same res dict
+            # shape from them. The locked rating/proj comes from the DB cache.
+            _cached_r = (get_cached_rating(game_date, pid, opp_p_name)
+                         if is_starter and game_date and opp_p_name != 'TBD' else None)
+            if _cached_r:
+                try:
+                    _df = fetch_logs(pid)
+                    if not _df.empty and len(_df) >= 25:
+                        _r30 = _df.tail(30); _r7 = _df.tail(7)
+                        _ab30 = _r30['ab'].sum(); _h30 = _r30['h'].sum()
+                        _sy   = int(_df['season'].iloc[-1])
+                        _sdf  = _df[_df['season'] == _sy]
+                        _hg   = _df[_df['is_home'] == 1]
+                        _ag   = _df[_df['is_home'] == 0]
+                        res = {
+                            'proj':       _cached_r[2],
+                            'r7g':        round(float((_r7['h'] + _r7['r'] + _r7['rbi']).mean()), 2),
+                            'r30g':       round(float((_r30['h'] + _r30['r'] + _r30['rbi']).mean()), 2),
+                            'savg':       round(float((_sdf['h'] + _sdf['r'] + _sdf['rbi']).mean()), 2) if len(_sdf) else 0.0,
+                            'ba30':       round(_h30 / _ab30, 3) if _ab30 > 0 else 0.250,
+                            'home_hrr':   round(float((_hg['h'] + _hg['r'] + _hg['rbi']).mean()), 2) if len(_hg) >= 5 else None,
+                            'away_hrr':   round(float((_ag['h'] + _ag['r'] + _ag['rbi']).mean()), 2) if len(_ag) >= 5 else None,
+                            'r20g_venue': None,
+                            'ba_venue':   None,
+                            'df':         _df,
+                            '_from_cache': True,
+                        }
+                    else:
+                        res = None
+                except Exception:
+                    res = None
+            else:
+                try:
+                    res = run_prediction(pid, opp_pitcher_id, is_home, park_team,
+                                         weather['temp_f'], weather['wind_speed'],
+                                         weather['wind_dir_code'], game_date=game_date)
+                except RuntimeError:
+                    res = None
+
             odds_data = (get_player_line(pname, event_id)
                          if ODDS_API_KEY and event_id and not game_started else None)
             return idx, pid, pname, pteam, res, is_starter, spot, sub_idx, odds_data
@@ -491,35 +526,44 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
                 locked_rating, locked_grade, locked_proj = cached
                 res = dict(res); res['proj'] = locked_proj
                 _disp_proj = locked_proj
-                # Still compute rating for component breakdown display only
-                season_r   = int(res['df']['season'].iloc[-1])
-                b_sc_local = get_batter_statcast(pid, season_r)
-                _res_ctx   = dict(res)
-                book_line  = odds_data['line']      if odds_data else line_val
-                book_odds  = odds_data['over_odds'] if odds_data else None
-                _r_display = get_rating(_res_ctx, pid, opp_pitcher_id, park_team, batting_order,
-                                        weather['temp_f'], weather['wind_speed'],
-                                        weather['wind_dir_code'],
-                                        bp_era=bp_era, bp_whip=bp_whip,
-                                        line=book_line, over_odds=book_odds,
-                                        is_home=is_home,
-                                        opp_fip=p_std.get('opp_fip', 4.20),
-                                        opp_last3_era=p_last3.get('opp_last3_era', 4.30),
-                                        opp_last3_whip=p_last3.get('opp_last3_whip', 1.28),
-                                        pitcher_throws=p_throws,
-                                        batter_xba_vs_rhp=b_sc_local.get('batter_xba_vs_rhp', 0.250),
-                                        batter_xba_vs_lhp=b_sc_local.get('batter_xba_vs_lhp', 0.250),
-                                        batter_hard_hit_vs_rhp=b_sc_local.get('batter_hard_hit_vs_rhp', 0.360),
-                                        batter_hard_hit_vs_lhp=b_sc_local.get('batter_hard_hit_vs_lhp', 0.360),
-                                        team_runs_avg=team_score.get('team_runs_avg', 4.5),
-                                        umpire_tendency=ump_data.get('umpire_tendency', 0.0),
-                                        opp_def_rating=opp_defense.get('def_rating', 0.0),
-                                        pitcher_rest_factor=p_rest.get('rest_factor', 0.0),
-                                        pitcher_gb_pct=p_sc.get('pitcher_gb_pct', 0.430))
-                r_data = {'total': locked_rating, 'grade': locked_grade,
-                          'color': '#22c55e' if locked_rating >= 75 else '#eab308' if locked_rating >= 55 else '#ef4444',
-                          'components': _r_display.get('components', {}),
-                          'line_label': _r_display.get('line_label')}
+                _rc = '#22c55e' if locked_rating >= 75 else '#eab308' if locked_rating >= 55 else '#ef4444'
+
+                if res.get('_from_cache'):
+                    # Loaded from DB cache — skip compute_rating entirely for speed.
+                    # Rating and projection come from PostgreSQL; component breakdown
+                    # is not shown (components={}) but all card stats are still live.
+                    r_data = {'total': locked_rating, 'grade': locked_grade,
+                              'color': _rc, 'components': {}, 'line_label': None}
+                else:
+                    # Full res from run_prediction — compute components for breakdown
+                    season_r   = int(res['df']['season'].iloc[-1])
+                    b_sc_local = get_batter_statcast(pid, season_r)
+                    _res_ctx   = dict(res)
+                    book_line  = odds_data['line']      if odds_data else line_val
+                    book_odds  = odds_data['over_odds'] if odds_data else None
+                    _r_display = get_rating(_res_ctx, pid, opp_pitcher_id, park_team, batting_order,
+                                            weather['temp_f'], weather['wind_speed'],
+                                            weather['wind_dir_code'],
+                                            bp_era=bp_era, bp_whip=bp_whip,
+                                            line=book_line, over_odds=book_odds,
+                                            is_home=is_home,
+                                            opp_fip=p_std.get('opp_fip', 4.20),
+                                            opp_last3_era=p_last3.get('opp_last3_era', 4.30),
+                                            opp_last3_whip=p_last3.get('opp_last3_whip', 1.28),
+                                            pitcher_throws=p_throws,
+                                            batter_xba_vs_rhp=b_sc_local.get('batter_xba_vs_rhp', 0.250),
+                                            batter_xba_vs_lhp=b_sc_local.get('batter_xba_vs_lhp', 0.250),
+                                            batter_hard_hit_vs_rhp=b_sc_local.get('batter_hard_hit_vs_rhp', 0.360),
+                                            batter_hard_hit_vs_lhp=b_sc_local.get('batter_hard_hit_vs_lhp', 0.360),
+                                            team_runs_avg=team_score.get('team_runs_avg', 4.5),
+                                            umpire_tendency=ump_data.get('umpire_tendency', 0.0),
+                                            opp_def_rating=opp_defense.get('def_rating', 0.0),
+                                            pitcher_rest_factor=p_rest.get('rest_factor', 0.0),
+                                            pitcher_gb_pct=p_sc.get('pitcher_gb_pct', 0.430))
+                    r_data = {'total': locked_rating, 'grade': locked_grade,
+                              'color': _rc,
+                              'components': _r_display.get('components', {}),
+                              'line_label': _r_display.get('line_label')}
             elif game_started:
                 # Game started, no pre-game cache — calculate without odds
                 book_line  = None
