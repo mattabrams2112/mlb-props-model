@@ -14,7 +14,7 @@ WINDOWS = [7, 14, 20, 30]
 STAT_COLS = ['h', 'r', 'rbi', 'hr', 'bb', 'k', 'ab', 'd', 't', 'total']
 TARGET_COL = 'total'
 
-PITCHER_FEATURE_COLS = ['opp_era', 'opp_whip', 'opp_k_pct', 'opp_bb_pct', 'opp_h_per_9']
+PITCHER_FEATURE_COLS = ['opp_era', 'opp_fip', 'opp_whip', 'opp_k_pct', 'opp_bb_pct', 'opp_h_per_9']
 BVP_FEATURE_COLS = ['bvp_avg', 'bvp_ab', 'bvp_sample']
 
 

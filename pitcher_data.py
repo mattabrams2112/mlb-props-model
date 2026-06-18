@@ -20,6 +20,7 @@ LEAGUE_AVG = {
     'opp_k_pct': 0.222,
     'opp_bb_pct': 0.083,
     'opp_h_per_9': 8.8,
+    'opp_fip': 4.20,
 }
 
 
@@ -381,16 +382,17 @@ def get_rolling_pitcher_stats(pitcher_id: int, game_date, season: int,
     if recent.empty:
         return LEAGUE_AVG.copy()
 
+    season_stats = get_pitcher_season_stats(pitcher_id, season)
+
     rolling = {
         'opp_era':     round(float(recent['era_game'].mean()),  2),
         'opp_whip':    round(float(recent['whip_game'].mean()), 2),
         'opp_k_pct':   round(float(recent['k_pct'].mean()),    3),
         'opp_bb_pct':  round(float(recent['bb_pct'].mean()),   3),
         'opp_h_per_9': round(float(recent['h_per_9'].mean()),  2),
-        'opp_fip':     LEAGUE_AVG.get('opp_fip', 4.20),
+        # Game log has no HR per start, so use season FIP as the rolling proxy
+        'opp_fip':     season_stats.get('opp_fip', LEAGUE_AVG.get('opp_fip', 4.20)),
     }
-
-    season_stats = get_pitcher_season_stats(pitcher_id, season)
     ha_splits    = get_pitcher_home_away_splits(pitcher_id, season)
 
     # Pitcher is at home when batter is away, and vice versa

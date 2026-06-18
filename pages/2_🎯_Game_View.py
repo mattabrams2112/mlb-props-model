@@ -170,6 +170,62 @@ def run_prediction(player_id: int, pitcher_id, is_home: bool, park_team: str,
     ceiling = max(r30_avg * 1.8, season_avg_val * 1.8, 2.0)
     proj    = min(proj, ceiling)
 
+    # ── Pitcher + matchup quality adjustment ─────────────────────────────────
+    # XGBoost can't learn pitcher from training data (fast_mode fills history
+    # with league averages → zero variance on pitcher cols). Apply a post-hoc
+    # multiplier built from ALL available pitcher/matchup features on the
+    # prediction row. Each factor is batter-favorable when > 1.0.
+    # Weights (no BvP): ERA 28%, FIP 22%, WHIP 20%, K% 18%, BB% 12% = 100%
+    # With BvP (17%):   pitcher stats scaled to 83%, BvP fills the remaining 17%
+    _L_ERA  = 4.30   # league avg ERA
+    _L_FIP  = 4.20   # league avg FIP
+    _L_WHIP = 1.28   # league avg WHIP
+    _L_K    = 0.222  # league avg K%
+    _L_BB   = 0.083  # league avg BB%
+    try:
+        _row = dc.iloc[-1]
+
+        def _sf(col, default, floor_v=None):
+            try:
+                v = float(_row.get(col, default))
+            except (TypeError, ValueError):
+                v = default
+            if v <= 0:
+                v = default
+            return max(v, floor_v) if floor_v is not None else v
+
+        era_f  = _sf('opp_era',    _L_ERA)  / _L_ERA   # high ERA  → batter +
+        fip_f  = _sf('opp_fip',    _L_FIP)  / _L_FIP   # high FIP  → batter +
+        whip_f = _sf('opp_whip',   _L_WHIP) / _L_WHIP  # high WHIP → batter +
+        k_f    = _L_K / _sf('opp_k_pct', _L_K, 0.10)   # high K%   → batter −
+        bb_f   = _sf('opp_bb_pct', _L_BB)  / _L_BB     # high BB%  → batter +
+
+        # BvP — only trusted when ≥10 AB sample; pitcher factors scaled to 83%
+        _bvp_sample = int(_row.get('bvp_sample', 0) or 0)
+        if _bvp_sample:
+            bvp_f = _sf('bvp_avg', 0.250) / 0.250
+            _pitcher_mult = (
+                0.2324 * era_f +
+                0.1826 * fip_f +
+                0.1660 * whip_f +
+                0.1494 * k_f +
+                0.0996 * bb_f +
+                0.1700 * bvp_f
+            )
+        else:
+            _pitcher_mult = (
+                0.28 * era_f +
+                0.22 * fip_f +
+                0.20 * whip_f +
+                0.18 * k_f +
+                0.12 * bb_f
+            )
+
+        _pitcher_mult = min(1.25, max(0.75, _pitcher_mult))
+    except Exception:
+        _pitcher_mult = 1.0
+    proj = round(proj * _pitcher_mult, 2)
+
     r7  = df.tail(7);  hrr7  = (r7['h']  + r7['r']  + r7['rbi']).mean()
     r30 = df.tail(30); hrr30 = (r30['h'] + r30['r'] + r30['rbi']).mean()
     ab30 = r30['ab'].sum(); h30 = r30['h'].sum(); bb30 = r30['bb'].sum()
@@ -382,12 +438,47 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
             is_starter = (ocode % 100 == 0)
             spot       = ocode // 100
             sub_idx    = ocode % 100
-            try:
-                res = run_prediction(pid, opp_pitcher_id, is_home, park_team,
-                                     weather['temp_f'], weather['wind_speed'],
-                                     weather['wind_dir_code'], game_date=game_date)
-            except RuntimeError:
-                res = None
+
+            # For starters already in ratings_cache, skip XGBoost entirely.
+            # Just fetch game logs (cheap, cached) and build the same res dict
+            # shape from them. The locked rating/proj comes from the DB cache.
+            _cached_r = (get_cached_rating(game_date, pid, opp_p_name)
+                         if is_starter and game_date and opp_p_name != 'TBD' else None)
+            if _cached_r:
+                try:
+                    _df = fetch_logs(pid)
+                    if not _df.empty and len(_df) >= 25:
+                        _r30 = _df.tail(30); _r7 = _df.tail(7)
+                        _ab30 = _r30['ab'].sum(); _h30 = _r30['h'].sum()
+                        _sy   = int(_df['season'].iloc[-1])
+                        _sdf  = _df[_df['season'] == _sy]
+                        _hg   = _df[_df['is_home'] == 1]
+                        _ag   = _df[_df['is_home'] == 0]
+                        res = {
+                            'proj':       _cached_r[2],
+                            'r7g':        round(float((_r7['h'] + _r7['r'] + _r7['rbi']).mean()), 2),
+                            'r30g':       round(float((_r30['h'] + _r30['r'] + _r30['rbi']).mean()), 2),
+                            'savg':       round(float((_sdf['h'] + _sdf['r'] + _sdf['rbi']).mean()), 2) if len(_sdf) else 0.0,
+                            'ba30':       round(_h30 / _ab30, 3) if _ab30 > 0 else 0.250,
+                            'home_hrr':   round(float((_hg['h'] + _hg['r'] + _hg['rbi']).mean()), 2) if len(_hg) >= 5 else None,
+                            'away_hrr':   round(float((_ag['h'] + _ag['r'] + _ag['rbi']).mean()), 2) if len(_ag) >= 5 else None,
+                            'r20g_venue': None,
+                            'ba_venue':   None,
+                            'df':         _df,
+                            '_from_cache': True,
+                        }
+                    else:
+                        res = None
+                except Exception:
+                    res = None
+            else:
+                try:
+                    res = run_prediction(pid, opp_pitcher_id, is_home, park_team,
+                                         weather['temp_f'], weather['wind_speed'],
+                                         weather['wind_dir_code'], game_date=game_date)
+                except RuntimeError:
+                    res = None
+
             odds_data = (get_player_line(pname, event_id)
                          if ODDS_API_KEY and event_id and not game_started else None)
             return idx, pid, pname, pteam, res, is_starter, spot, sub_idx, odds_data
@@ -435,7 +526,7 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
         order_color = ('#22c55e' if spot <= 2 and is_starter else
                        '#38bdf8' if spot <= 5 and is_starter else '#475569')
 
-        line_key = f'line_{date_key}_{pid}'
+        line_key = f'line_{date_key}_{game_pk}_{pid}'
         line_val = st.session_state.get(line_key)
 
         if is_starter and res:
@@ -453,9 +544,6 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
 
             season_r   = int(res['df']['season'].iloc[-1])
             b_sc_local = get_batter_statcast(pid, season_r)
-            # Projection before the matchup adjustment — model output + lineup
-            # context only. Logged alongside the final projection so we can
-            # later check whether matchup_pct actually improves accuracy.
             _base_proj = round(max(0.5, res['proj'] * (1 + _ctx_pct)), 2)
 
             def _rate(proj, line, odds):
@@ -486,20 +574,30 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
 
             # Try cache sources in order
             cached = (st.session_state.get(session_key) or
-                      (get_cached_rating(game_date, pid, opp_p_name) if game_date else None))
+                      (get_cached_rating(game_date, pid, opp_p_name)
+                       if game_date and opp_p_name != 'TBD' else None))
 
             if cached:
                 # Always use locked pre-game rating — never recalculate totals
                 locked_rating, locked_grade, locked_proj = cached
                 _disp_proj = locked_proj
-                # Still compute rating for component breakdown display only
-                book_line  = odds_data['line']      if odds_data else line_val
-                book_odds  = odds_data['over_odds'] if odds_data else None
-                _r_display = _rate(locked_proj, book_line, book_odds)
-                r_data = {'total': locked_rating, 'grade': locked_grade,
-                          'color': '#22c55e' if locked_rating >= 75 else '#eab308' if locked_rating >= 55 else '#ef4444',
-                          'components': _r_display.get('components', {}),
-                          'line_label': _r_display.get('line_label')}
+                _rc = '#22c55e' if locked_rating >= 75 else '#eab308' if locked_rating >= 55 else '#ef4444'
+
+                if res.get('_from_cache'):
+                    # Loaded from DB cache — skip compute_rating entirely for speed.
+                    # Rating/projection come from PostgreSQL; component breakdown
+                    # not shown but all card stats are still live from game logs.
+                    r_data = {'total': locked_rating, 'grade': locked_grade,
+                              'color': _rc, 'components': {}, 'line_label': None}
+                else:
+                    # Full res from run_prediction — compute components for breakdown
+                    book_line  = odds_data['line']      if odds_data else line_val
+                    book_odds  = odds_data['over_odds'] if odds_data else None
+                    _r_display = _rate(locked_proj, book_line, book_odds)
+                    r_data = {'total': locked_rating, 'grade': locked_grade,
+                              'color': _rc,
+                              'components': _r_display.get('components', {}),
+                              'line_label': _r_display.get('line_label')}
             elif game_started:
                 # Game started, no pre-game cache — calculate without odds.
                 # Two passes: the first derives the matchup adjustment, which
@@ -741,7 +839,7 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
             st.caption('Enter the H+R+RBI line for each player. Ratings and Edge update automatically.')
             cols = st.columns(3)
             for i, (_, pid, pname, res) in enumerate(starters_with_data):
-                line_key = f'line_{date_key}_{game_pk}_{batter_team}_{pid}'
+                line_key = f'line_{date_key}_{game_pk}_{pid}'
                 with cols[i % 3]:
                     val = st.number_input(
                         pname, min_value=0.5, max_value=6.0,
@@ -889,20 +987,20 @@ for game in games:
                 _missing.append('official lineups')
             st.info(f'⏳ Waiting for: {", ".join(_missing) if _missing else "official lineups"}')
         else:
-            if st.button(f'🔄 Recalculate {away} @ {home}', key=f'recalc_{date_key}_{away}_{home}_{game.get("game_pk","")}'):
-                # Away batters face home pitcher, home batters face away pitcher
+            _gk_str = str(game.get('game_pk', ''))
+            if st.button(f'🔄 Recalculate {away} @ {home}', key=f'recalc_{date_key}_{away}_{home}_{_gk_str}'):
                 clear_ratings_for_players(_gd, list(ab_ids), vs_pitcher=home_p)
                 clear_ratings_for_players(_gd, list(hb_ids), vs_pitcher=away_p)
-                fetch_cache_key_a = f'gv_fetch_{date_key}_{game.get("game_pk","")}_{int(False)}'
-                fetch_cache_key_h = f'gv_fetch_{date_key}_{game.get("game_pk","")}_{int(True)}'
+                fetch_cache_key_a = f'gv_fetch_{date_key}_{_gk_str}_{int(False)}'
+                fetch_cache_key_h = f'gv_fetch_{date_key}_{_gk_str}_{int(True)}'
                 st.session_state.pop(fetch_cache_key_a, None)
                 st.session_state.pop(fetch_cache_key_h, None)
+                # Clear session-state locks — key includes game_pk to isolate doubleheaders
                 for pid in _all_ids:
-                    st.session_state.pop(f'locked_{date_key}_{gk}_{pid}', None)
+                    st.session_state.pop(f'locked_{date_key}_{_gk_str}_{pid}', None)
                 st.rerun()
 
             ac, hc = st.columns(2)
-            gk = str(game.get('game_pk', ''))
 
             with ac:
                 st.markdown(f'**{away} Batting** · vs {home_p}')
@@ -911,7 +1009,7 @@ for game in games:
                                   home, home, weather, away + ' @ ' + home,
                                   home_p, date_key, batter_team=away,
                                   game_date=selected_date.strftime('%Y-%m-%d'),
-                                  event_id=event_id, game_pk=gk)
+                                  event_id=event_id, game_pk=_gk_str)
                 else:
                     st.info('Lineup pending.')
 
@@ -922,7 +1020,7 @@ for game in games:
                                   away, home, weather, away + ' @ ' + home,
                                   away_p, date_key, batter_team=home,
                                   game_date=selected_date.strftime('%Y-%m-%d'),
-                                  event_id=event_id, game_pk=gk)
+                                  event_id=event_id, game_pk=_gk_str)
                 else:
                     st.info('Lineup pending.')
 
