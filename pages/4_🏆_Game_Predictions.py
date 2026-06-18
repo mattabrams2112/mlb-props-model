@@ -195,6 +195,7 @@ if 'gp_rows' not in st.session_state:
                         'away_pitcher': away_p, 'home_pitcher': home_p,
                         'predicted_winner': None, 'away_proj': None, 'home_proj': None,
                         'margin': None, 'confidence': None, 'source': 'pending', 'adj': {},
+                        'lineups_official': lineups_official,
                     })
                     continue
 
