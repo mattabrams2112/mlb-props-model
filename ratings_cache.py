@@ -2,7 +2,7 @@
 Persistent pre-game ratings cache.
 Saves ratings the first time they're calculated so they never change,
 even across redeploys.
-Key: date + player_id
+Key: date + player_id + vs_pitcher (allows separate entries per doubleheader game)
 """
 import os
 import pandas as pd
@@ -55,13 +55,17 @@ def _save(df: pd.DataFrame):
     df.to_csv(CACHE_FILE, index=False)
 
 
-def clear_ratings_for_players(game_date: str, player_ids: list):
-    """Delete cached ratings for a list of players on a given date."""
+def clear_ratings_for_players(game_date: str, player_ids: list, vs_pitcher: str = None):
+    """Delete cached ratings for a list of players on a given date.
+    If vs_pitcher is provided, only clears entries for that specific pitcher
+    (needed for doubleheader recalculation so the other game's cache is preserved)."""
     df = _load()
     if df.empty:
         return
     ids = [str(p) for p in player_ids]
     mask = (df['date'] == game_date) & (df['player_id'].isin(ids))
+    if vs_pitcher and 'vs_pitcher' in df.columns:
+        mask = mask & (df['vs_pitcher'].astype(str).str.strip() == vs_pitcher.strip())
     df = df[~mask].reset_index(drop=True)
     _save(df)
 
@@ -88,12 +92,19 @@ def get_cached_rating(game_date: str, player_id: int, opp_pitcher: str = None):
 def save_rating(game_date: str, player_id: int, rating: int, grade: str,
                 projected: float, player_name: str = '', team: str = '',
                 vs_pitcher: str = ''):
-    """Save a rating — only if not already saved for this date+player.
+    """Save a rating — only if not already saved for this date+player+pitcher.
+    Using vs_pitcher in the key allows separate entries per doubleheader game.
     Also auto-adds 75+ rated players to the tracker."""
     df = _load()
-    key = (df['date'] == game_date) & (df['player_id'] == str(player_id))
-    if not df.empty and key.any():
-        return  # already saved, don't overwrite
+    if not df.empty:
+        if 'vs_pitcher' in df.columns:
+            key = ((df['date'] == game_date) &
+                   (df['player_id'] == str(player_id)) &
+                   (df['vs_pitcher'].astype(str).str.strip() == vs_pitcher.strip()))
+        else:
+            key = (df['date'] == game_date) & (df['player_id'] == str(player_id))
+        if key.any():
+            return  # already saved, don't overwrite
 
     new_row = pd.DataFrame([{
         'date':        game_date,
