@@ -22,21 +22,27 @@ TEAM_IDS = {
 }
 
 LEAGUE_BULLPEN = {'bp_era': 4.20, 'bp_whip': 1.30, 'bp_k_pct': 0.235}
+_MEM_CACHE: dict = {}
 
 
 def _load_cache() -> dict:
+    global _MEM_CACHE
+    if _MEM_CACHE:
+        return _MEM_CACHE
     if not os.path.exists(CACHE_FILE):
-        return {}
+        return _MEM_CACHE
     try:
         df = pd.read_csv(CACHE_FILE, dtype={'key': str})
-        if df.empty or 'key' not in df.columns:
-            return {}
-        return df.set_index('key').to_dict('index')
+        if not df.empty and 'key' in df.columns:
+            _MEM_CACHE = df.set_index('key').to_dict('index')
     except Exception:
-        return {}
+        pass
+    return _MEM_CACHE
 
 
 def _save_cache(cache: dict):
+    global _MEM_CACHE
+    _MEM_CACHE = cache
     pd.DataFrame([{'key': k, **v} for k, v in cache.items()]).to_csv(CACHE_FILE, index=False)
 
 

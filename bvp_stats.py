@@ -6,6 +6,7 @@ import pandas as pd
 from data_dir import data_path
 CACHE_FILE = data_path('cache_bvp.csv')
 BVP_DEFAULT = {'bvp_ab': 0, 'bvp_avg': 0.250, 'bvp_hr': 0, 'bvp_sample': 0}
+_MEM_CACHE: dict = {}
 
 
 def _parse_avg(val) -> float:
@@ -17,18 +18,23 @@ def _parse_avg(val) -> float:
 
 
 def _load_cache() -> dict:
+    global _MEM_CACHE
+    if _MEM_CACHE:
+        return _MEM_CACHE
     if not os.path.exists(CACHE_FILE):
-        return {}
+        return _MEM_CACHE
     try:
         df = pd.read_csv(CACHE_FILE, dtype={'key': str})
-        if df.empty or 'key' not in df.columns:
-            return {}
-        return df.set_index('key').to_dict('index')
+        if not df.empty and 'key' in df.columns:
+            _MEM_CACHE = df.set_index('key').to_dict('index')
     except Exception:
-        return {}
+        pass
+    return _MEM_CACHE
 
 
 def _save_cache(cache: dict):
+    global _MEM_CACHE
+    _MEM_CACHE = cache
     pd.DataFrame([{'key': k, **v} for k, v in cache.items()]).to_csv(CACHE_FILE, index=False)
 
 
