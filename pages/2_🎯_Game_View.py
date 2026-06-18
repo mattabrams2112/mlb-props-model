@@ -889,7 +889,7 @@ for game in games:
                 _missing.append('official lineups')
             st.info(f'⏳ Waiting for: {", ".join(_missing) if _missing else "official lineups"}')
         else:
-            if st.button(f'🔄 Recalculate {away} @ {home}', key=f'recalc_{date_key}_{away}_{home}'):
+            if st.button(f'🔄 Recalculate {away} @ {home}', key=f'recalc_{date_key}_{away}_{home}_{game.get("game_pk","")}'):
                 clear_ratings_for_players(_gd, _all_ids)
                 fetch_cache_key_a = f'gv_fetch_{date_key}_{game.get("game_pk","")}_{int(False)}'
                 fetch_cache_key_h = f'gv_fetch_{date_key}_{game.get("game_pk","")}_{int(True)}'
