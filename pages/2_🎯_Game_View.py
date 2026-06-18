@@ -439,7 +439,7 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
         line_val = st.session_state.get(line_key)
 
         if is_starter and res:
-            session_key = f'locked_{date_key}_{pid}'
+            session_key = f'locked_{date_key}_{game_pk}_{pid}'
 
             # Batter rest days — days between last logged game and today's game
             try:
@@ -486,7 +486,7 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
 
             # Try cache sources in order
             cached = (st.session_state.get(session_key) or
-                      (get_cached_rating(game_date, pid) if game_date else None))
+                      (get_cached_rating(game_date, pid, opp_p_name) if game_date else None))
 
             if cached:
                 # Always use locked pre-game rating — never recalculate totals
@@ -896,7 +896,7 @@ for game in games:
                 st.session_state.pop(fetch_cache_key_a, None)
                 st.session_state.pop(fetch_cache_key_h, None)
                 for pid in _all_ids:
-                    st.session_state.pop(f'locked_{date_key}_{pid}', None)
+                    st.session_state.pop(f'locked_{date_key}_{gk}_{pid}', None)
                 st.rerun()
 
             ac, hc = st.columns(2)

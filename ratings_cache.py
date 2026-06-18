@@ -66,15 +66,22 @@ def clear_ratings_for_players(game_date: str, player_ids: list):
     _save(df)
 
 
-def get_cached_rating(game_date: str, player_id: int):
-    """Returns cached (rating, grade, projected) or None if not saved yet."""
+def get_cached_rating(game_date: str, player_id: int, opp_pitcher: str = None):
+    """Returns cached (rating, grade, projected) or None if not saved yet.
+    If opp_pitcher is given, only returns a match when vs_pitcher matches —
+    ensures doubleheader Game 2 isn't served Game 1's cached rating."""
     df = _load()
     if df.empty:
         return None
-    row = df[(df['date'] == game_date) & (df['player_id'] == str(player_id))]
-    if row.empty:
+    rows = df[(df['date'] == game_date) & (df['player_id'] == str(player_id))]
+    if rows.empty:
         return None
-    r = row.iloc[0]
+    if opp_pitcher and 'vs_pitcher' in rows.columns:
+        matched = rows[rows['vs_pitcher'].astype(str).str.strip() == opp_pitcher.strip()]
+        if matched.empty:
+            return None
+        rows = matched
+    r = rows.iloc[0]
     return int(r['rating']), str(r['grade']), float(r['projected'])
 
 
