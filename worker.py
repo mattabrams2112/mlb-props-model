@@ -30,7 +30,7 @@ from feature_engineering import build_features, get_feature_cols, TARGET_COL
 from lineup_fetcher import get_todays_lineups
 from pitcher_data import (get_pitcher_season_stats, get_pitcher_name,
                           get_pitcher_throws, get_pitcher_last_n_starts,
-                          get_pitcher_rest_days)
+                          get_pitcher_rest_days, get_pitcher_last_pitch_count)
 from statcast_features import get_batter_statcast, get_pitcher_statcast
 from weather import get_park_factor
 from rating import compute_rating
@@ -198,7 +198,7 @@ def _run_prediction(player_id, pitcher_id, is_home, park_team,
         return None
 
     df_feat = build_features(df, fetch_weather=False,
-                              override_pitcher_id=pitcher_id, fast_mode=True)
+                              override_pitcher_id=pitcher_id, fast_mode=False)
     idx = df_feat.index[-1]
     df_feat.at[idx, 'is_home']     = int(is_home)
     df_feat.at[idx, 'park_factor'] = get_park_factor(park_team)
@@ -206,11 +206,9 @@ def _run_prediction(player_id, pitcher_id, is_home, park_team,
     df_feat.at[idx, 'wind_speed']  = wind_speed
     df_feat.at[idx, 'wind_dir']    = wind_dir
 
-    # Train WITHOUT pitcher features — in fast_mode all historical pitcher rows are
-    # league-average (zero variance), which makes the model treat them as noise.
-    # Pitcher quality is already handled by the rating engine (Starter Matchup,
-    # Contact Quality, Barrel Edge). Batter-only features give the model real signal.
-    fc = get_feature_cols(include_pitcher=False)
+    # Pitcher features now included — each historical row has rolling ERA/K%/WHIP
+    # from the pitcher's last 5 starts (not season averages), giving real signal.
+    fc = get_feature_cols(include_pitcher=True)
     dc = df_feat.dropna(subset=fc).reset_index(drop=True)
     if len(dc) < 20:
         return None
@@ -221,13 +219,34 @@ def _run_prediction(player_id, pitcher_id, is_home, park_team,
     X = dc.iloc[:-1][fc].apply(pd.to_numeric, errors='coerce').fillna(0)
     y = dc.iloc[:-1][TARGET_COL]
 
-    xgb = XGBRegressor(n_estimators=100, learning_rate=0.08, max_depth=4,
-                        subsample=0.8, colsample_bytree=0.8, random_state=42, verbosity=0)
-    xgb.fit(X, y)
+    # Recency weights: recent games count more than older ones
+    # exp(-days_ago / 90) → game from 3 months ago has ~37% weight of today's game
+    _today = pd.Timestamp('today').normalize()
+    _dates = pd.to_datetime(dc.iloc[:-1]['date'], errors='coerce')
+    _days_ago = (_today - _dates).dt.days.fillna(180).clip(lower=0)
+    sample_weights = np.exp(-_days_ago / 90).values
+
+    # Classify batter as power or contact based on HR rate and barrel %
+    # Power: >= 0.04 HR/AB or >= 0.08 barrel%; Contact: everything else
+    hr_rate  = (df['hr'].sum() / df['ab'].sum()) if df['ab'].sum() > 0 else 0.0
+    is_power = hr_rate >= 0.04
+
+    xgb_params = dict(learning_rate=0.08, max_depth=4, subsample=0.8,
+                      colsample_bytree=0.8, random_state=42, verbosity=0)
+    if is_power:
+        # Power hitters: deeper trees, more estimators, emphasise HR/RBI signal
+        xgb_params.update(n_estimators=120, max_depth=5)
+    else:
+        # Contact hitters: shallower trees, focus on H and run frequency
+        xgb_params.update(n_estimators=100, max_depth=4)
+
+    xgb = XGBRegressor(**xgb_params)
+    xgb.fit(X, y, sample_weight=sample_weights)
     if HAS_LGBM:
-        lgb = LGBMRegressor(n_estimators=100, learning_rate=0.08, max_depth=4,
+        lgb = LGBMRegressor(n_estimators=xgb_params['n_estimators'],
+                             learning_rate=0.08, max_depth=xgb_params['max_depth'],
                              subsample=0.8, colsample_bytree=0.8, random_state=42, verbose=-1)
-        lgb.fit(X, y)
+        lgb.fit(X, y, sample_weight=sample_weights)
 
     latest = dc.iloc[-1:].copy()
     latest.at[latest.index[0], 'is_home']     = int(is_home)
@@ -350,7 +369,18 @@ def _get_rating(res, pid, pitcher_id, park_team, batting_order,
         batter_k_pct_vs_lhp = b_sc.get('batter_k_pct_vs_lhp',    None),
         batter_babip_vs_rhp = b_sc.get('batter_babip_vs_rhp',    None),
         batter_babip_vs_lhp = b_sc.get('batter_babip_vs_lhp',    None),
+        pitcher_last_pitch_count = get_pitcher_last_pitch_count(pitcher_id, SEASON) if pitcher_id else 0,
+        **_get_park_splits(pid, park_team),
     )
+
+
+def _get_park_splits(player_id: int, home_team: str) -> dict:
+    try:
+        from park_splits import get_batter_park_splits
+        ps = get_batter_park_splits(player_id, home_team)
+        return {'park_ba': ps['park_ba'], 'park_slg': ps['park_slg'], 'park_ab': ps['park_ab']}
+    except Exception:
+        return {'park_ba': 0.250, 'park_slg': 0.400, 'park_ab': 0}
 
 
 # ── Process one game ──────────────────────────────────────────────────────────
@@ -435,6 +465,13 @@ def process_game(game, game_date):
                 rating = r_data['total']
                 grade  = r_data['grade']
                 proj   = round(res['proj'], 2)
+
+                # Apply calibration correction based on historical bias for this rating tier
+                try:
+                    from calibration import get_correction_factor
+                    proj = round(proj * get_correction_factor(rating), 2)
+                except Exception:
+                    pass
 
                 # Look up player name
                 try:

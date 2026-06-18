@@ -40,14 +40,13 @@ from odds_api import get_todays_event_ids, get_player_line, fair_probability, am
 from team_stats import get_team_recent_scoring, get_team_defense_rating
 from umpire_data import get_game_umpire
 from pitcher_data import get_pitcher_throws, get_pitcher_last_n_starts, get_pitcher_rest_days
+from shared_styles import inject_styles
 
 st.set_page_config(page_title="Game View | MLB Props", page_icon="🎯", layout="wide")
+inject_styles()
 st.markdown("""
 <style>
-  .block-container{padding-top:1rem;}
-  h1,h2,h3,h4{color:#38bdf8!important;}
-  .stMarkdown p,label,.stCaption{color:#7dd3fc!important;}
-  .game-header{background:#1e293b;border:1px solid #1e40af;border-radius:10px;
+  .game-header{background:#111f38;border:1px solid #1e3a5f;border-radius:10px;
                padding:12px 18px;margin-bottom:4px;}
 </style>""", unsafe_allow_html=True)
 
@@ -431,7 +430,7 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
                          if ODDS_API_KEY and event_id and not game_started else None)
             return idx, pid, pname, pteam, res, is_starter, spot, sub_idx, odds_data
 
-        with ThreadPoolExecutor(max_workers=2) as exe:
+        with ThreadPoolExecutor(max_workers=8) as exe:
             fetched = list(exe.map(fetch, enumerate(batter_ids)))
         st.session_state[fetch_cache_key] = fetched
 
@@ -485,13 +484,39 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
                       (get_cached_rating(game_date, pid) if game_date else None))
 
             if cached:
-                # Always use locked pre-game rating — never recalculate
+                # Always use locked pre-game rating — never recalculate totals
                 locked_rating, locked_grade, locked_proj = cached
-                r_data = {'total': locked_rating, 'grade': locked_grade,
-                          'color': '#22c55e' if locked_rating >= 75 else '#eab308' if locked_rating >= 55 else '#ef4444',
-                          'components': {}, 'line_label': None}
                 res = dict(res); res['proj'] = locked_proj
                 _disp_proj = locked_proj
+                # Still compute rating for component breakdown display only
+                season_r   = int(res['df']['season'].iloc[-1])
+                b_sc_local = get_batter_statcast(pid, season_r)
+                _res_ctx   = dict(res)
+                book_line  = odds_data['line']      if odds_data else line_val
+                book_odds  = odds_data['over_odds'] if odds_data else None
+                _r_display = get_rating(_res_ctx, pid, opp_pitcher_id, park_team, batting_order,
+                                        weather['temp_f'], weather['wind_speed'],
+                                        weather['wind_dir_code'],
+                                        bp_era=bp_era, bp_whip=bp_whip,
+                                        line=book_line, over_odds=book_odds,
+                                        is_home=is_home,
+                                        opp_fip=p_std.get('opp_fip', 4.20),
+                                        opp_last3_era=p_last3.get('opp_last3_era', 4.30),
+                                        opp_last3_whip=p_last3.get('opp_last3_whip', 1.28),
+                                        pitcher_throws=p_throws,
+                                        batter_xba_vs_rhp=b_sc_local.get('batter_xba_vs_rhp', 0.250),
+                                        batter_xba_vs_lhp=b_sc_local.get('batter_xba_vs_lhp', 0.250),
+                                        batter_hard_hit_vs_rhp=b_sc_local.get('batter_hard_hit_vs_rhp', 0.360),
+                                        batter_hard_hit_vs_lhp=b_sc_local.get('batter_hard_hit_vs_lhp', 0.360),
+                                        team_runs_avg=team_score.get('team_runs_avg', 4.5),
+                                        umpire_tendency=ump_data.get('umpire_tendency', 0.0),
+                                        opp_def_rating=opp_defense.get('def_rating', 0.0),
+                                        pitcher_rest_factor=p_rest.get('rest_factor', 0.0),
+                                        pitcher_gb_pct=p_sc.get('pitcher_gb_pct', 0.430))
+                r_data = {'total': locked_rating, 'grade': locked_grade,
+                          'color': '#22c55e' if locked_rating >= 75 else '#eab308' if locked_rating >= 55 else '#ef4444',
+                          'components': _r_display.get('components', {}),
+                          'line_label': _r_display.get('line_label')}
             elif game_started:
                 # Game started, no pre-game cache — calculate without odds
                 book_line  = None
@@ -581,15 +606,15 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
             from datetime import datetime as _dt
             _today = today_str_et()
             _r = r_data['total']; _p = _disp_proj
-            _qualifies = _r >= 60
+            _qualifies = _r >= 75
             if _qualifies:
-                _units    = 2.0 if 85 <= _r <= 89 else 1.0
-                _bet      = int(_units * 8)
-                _u_str    = '1.5' if _units == 1.5 else str(int(_units))
+                _units = 1.0
+                _bet   = 8
+                _u_str = '1'
                 _stake_badge = (f' <span style="font-size:10px;background:#1e3a5f;color:#7dd3fc;'
                                 f'border-radius:3px;padding:1px 4px;font-weight:700;">'
                                 f'{_u_str}u · ${_bet}</span>')
-            if _qualifies and pname and game_date and (game_date < _today or _game_finished):
+            if _qualifies and _r >= 75 and pname and game_date and (game_date < _today or _game_finished):
                 try:
                     tracker_add([{
                         'player':     pname,
@@ -690,6 +715,30 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
             )
             totals.append((r_data['total'], _disp_proj))
 
+            # Component breakdown dropdown
+            _comps = r_data.get('components', {})
+            if _comps:
+                _comp_parts = []
+                for _cname, (_cscore, _cmax) in _comps.items():
+                    _ccolor = '#22c55e' if _cscore >= _cmax * 0.75 else '#eab308' if _cscore >= _cmax * 0.4 else '#94a3b8'
+                    _comp_parts.append(
+                        f'<span style="background:#1e293b;border:1px solid #1e3a5f;border-radius:4px;'
+                        f'padding:2px 6px;white-space:nowrap;">'
+                        f'<span style="color:#7dd3fc;">{_cname}</span> '
+                        f'<span style="color:{_ccolor};font-weight:700;">{_cscore}</span>'
+                        f'<span style="color:#475569;">/{_cmax}</span></span>'
+                    )
+                row += (
+                    f'<tr style="background:{bg};">'
+                    f'<td colspan="14" style="padding:0 8px 6px 36px;">'
+                    f'<details style="font-size:11px;">'
+                    f'<summary style="cursor:pointer;color:#475569;font-size:10px;'
+                    f'user-select:none;list-style:none;">▶ rating breakdown</summary>'
+                    f'<div style="display:flex;flex-wrap:wrap;gap:4px;padding:4px 0;">'
+                    + ''.join(_comp_parts) +
+                    f'</div></details></td></tr>'
+                )
+
         elif not is_starter:
             row = (
                 f'<tr style="background:{bg};opacity:0.6;">'
@@ -717,8 +766,14 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
         avg_r = round(sum(t[0] for t in totals) / len(totals))
         tot_p = round(sum(t[1] for t in totals), 2)
         rc    = cv(avg_r, 75, 55); pc = cv(tot_p / max(len(totals), 1), 3.0, 2.0)
-        # Save team HRR total to session state for Game Predictions page
+        # Save team HRR total to session state and persistent store for Game Predictions page
         st.session_state[f'team_hrr_{date_key}_{batter_team}'] = tot_p
+        try:
+            from team_hrr_store import save_team_hrr as _save_hrr
+            _date_db = datetime.strptime(date_key, '%Y%m%d').strftime('%Y-%m-%d')
+            _save_hrr(_date_db, batter_team, tot_p)
+        except Exception:
+            pass
         totals_row = (
             f'<tr style="background:#0f172a;border-top:2px solid #1e40af;">'
             f'<td colspan="3" style="padding:7px;color:#38bdf8;font-weight:700;">LINEUP TOTALS</td>'
@@ -849,82 +904,79 @@ for game in games:
                   '✅ Official' if game.get('lineups_official') else '⏳ Probable')
     status_color = '#38bdf8' if is_final else '#22c55e' if game.get('lineups_official') else '#eab308'
 
-    st.markdown(
-        f'<div class="game-header">'
-        f'{logo_img_tag(away, 36)}'
-        f'<span style="color:#38bdf8;font-size:20px;font-weight:800;">{away}</span>'
-        f'{score_html}'
-        f'<span style="color:#475569;font-size:16px;margin:0 8px;">@</span>'
-        f'{logo_img_tag(home, 36)}'
-        f'<span style="color:#38bdf8;font-size:20px;font-weight:800;">{home}</span>'
-        f'<span style="color:#7dd3fc;font-size:12px;margin-left:16px;">'
-        f'{w_txt} &nbsp;·&nbsp; Park {pf:.2f}x</span>'
-        f'&nbsp;·&nbsp;<span style="color:{status_color};font-size:12px;">{status_tag}</span>'
-        f'</div>',
-        unsafe_allow_html=True
-    )
+    _exp_label = f'{away} @ {home}  ·  {away_p} vs {home_p}  ·  {status_tag}'
+    with st.expander(_exp_label, expanded=False):
+        st.markdown(
+            f'<div class="game-header">'
+            f'{logo_img_tag(away, 36)}'
+            f'<span style="color:#38bdf8;font-size:20px;font-weight:800;">{away}</span>'
+            f'{score_html}'
+            f'<span style="color:#475569;font-size:16px;margin:0 8px;">@</span>'
+            f'{logo_img_tag(home, 36)}'
+            f'<span style="color:#38bdf8;font-size:20px;font-weight:800;">{home}</span>'
+            f'<span style="color:#7dd3fc;font-size:12px;margin-left:16px;">'
+            f'{w_txt} &nbsp;·&nbsp; Park {pf:.2f}x</span>'
+            f'&nbsp;·&nbsp;<span style="color:{status_color};font-size:12px;">{status_tag}</span>'
+            f'</div>',
+            unsafe_allow_html=True
+        )
 
-    _all_ids = list(ab_ids) + list(hb_ids)
-    _gd = selected_date.strftime('%Y-%m-%d')
+        _all_ids = list(ab_ids) + list(hb_ids)
+        _gd = selected_date.strftime('%Y-%m-%d')
 
-    _game_active = status in ('In Progress', 'Manager Challenge', 'Final',
-                              'Game Over', 'Completed Early')
+        _game_active = status in ('In Progress', 'Manager Challenge', 'Final',
+                                  'Game Over', 'Completed Early')
 
-    # Show in-progress/final banner but still render the full table (ratings are locked)
-    if _game_active:
-        _label = '🏁 Final — ratings locked' if is_final else '⚾ Game In Progress — ratings locked before first pitch'
-        st.info(_label)
+        if _game_active:
+            _label = '🏁 Final — ratings locked' if is_final else '⚾ Game In Progress — ratings locked before first pitch'
+            st.info(_label)
 
-    # Pre-game: only render when both pitchers are confirmed and lineups are official
-    _both_pitchers = away_p != 'TBD' and home_p != 'TBD'
-    _lineups_ready = _both_pitchers and (game.get('lineups_official') or _game_active)
+        _both_pitchers = away_p != 'TBD' and home_p != 'TBD'
+        _lineups_ready = _both_pitchers and (game.get('lineups_official') or _game_active)
 
-    if not _lineups_ready:
-        _missing = []
-        if away_p == 'TBD':
-            _missing.append(f'{home} SP')
-        if home_p == 'TBD':
-            _missing.append(f'{away} SP')
-        if not game.get('lineups_official'):
-            _missing.append('official lineups')
-        st.info(f'⏳ Waiting for: {", ".join(_missing) if _missing else "official lineups"}')
-        st.markdown('---')
-        continue
-
-    # Recalculate button — clears cached ratings for this game so new weights apply
-    if st.button(f'🔄 Recalculate {away} @ {home}', key=f'recalc_{date_key}_{away}_{home}'):
-        clear_ratings_for_players(_gd, _all_ids)
-        fetch_cache_key_a = f'gv_fetch_{date_key}_{game.get("game_pk","")}_{int(False)}'
-        fetch_cache_key_h = f'gv_fetch_{date_key}_{game.get("game_pk","")}_{int(True)}'
-        st.session_state.pop(fetch_cache_key_a, None)
-        st.session_state.pop(fetch_cache_key_h, None)
-        for pid in _all_ids:
-            st.session_state.pop(f'locked_{date_key}_{pid}', None)
-        st.rerun()
-
-    ac, hc = st.columns(2)
-    gk = str(game.get('game_pk', ''))
-
-    with ac:
-        st.markdown(f'**{away} Batting** · vs {home_p}')
-        if ab_ids:
-            render_lineup(ac, ab_ids, a_codes, False, home_pid,
-                          home, home, weather, away + ' @ ' + home,
-                          home_p, date_key, batter_team=away,
-                          game_date=selected_date.strftime('%Y-%m-%d'),
-                          event_id=event_id, game_pk=gk)
+        if not _lineups_ready:
+            _missing = []
+            if away_p == 'TBD':
+                _missing.append(f'{home} SP')
+            if home_p == 'TBD':
+                _missing.append(f'{away} SP')
+            if not game.get('lineups_official'):
+                _missing.append('official lineups')
+            st.info(f'⏳ Waiting for: {", ".join(_missing) if _missing else "official lineups"}')
         else:
-            st.info('Lineup pending.')
+            if st.button(f'🔄 Recalculate {away} @ {home}', key=f'recalc_{date_key}_{away}_{home}'):
+                clear_ratings_for_players(_gd, _all_ids)
+                fetch_cache_key_a = f'gv_fetch_{date_key}_{game.get("game_pk","")}_{int(False)}'
+                fetch_cache_key_h = f'gv_fetch_{date_key}_{game.get("game_pk","")}_{int(True)}'
+                st.session_state.pop(fetch_cache_key_a, None)
+                st.session_state.pop(fetch_cache_key_h, None)
+                for pid in _all_ids:
+                    st.session_state.pop(f'locked_{date_key}_{pid}', None)
+                st.rerun()
 
-    with hc:
-        st.markdown(f'**{home} Batting** · vs {away_p}')
-        if hb_ids:
-            render_lineup(hc, hb_ids, h_codes, True, away_pid,
-                          away, home, weather, away + ' @ ' + home,
-                          away_p, date_key, batter_team=home,
-                          game_date=selected_date.strftime('%Y-%m-%d'),
-                          event_id=event_id, game_pk=gk)
-        else:
-            st.info('Lineup pending.')
+            ac, hc = st.columns(2)
+            gk = str(game.get('game_pk', ''))
 
-    st.markdown('---')
+            with ac:
+                st.markdown(f'**{away} Batting** · vs {home_p}')
+                if ab_ids:
+                    render_lineup(ac, ab_ids, a_codes, False, home_pid,
+                                  home, home, weather, away + ' @ ' + home,
+                                  home_p, date_key, batter_team=away,
+                                  game_date=selected_date.strftime('%Y-%m-%d'),
+                                  event_id=event_id, game_pk=gk)
+                else:
+                    st.info('Lineup pending.')
+
+            with hc:
+                st.markdown(f'**{home} Batting** · vs {away_p}')
+                if hb_ids:
+                    render_lineup(hc, hb_ids, h_codes, True, away_pid,
+                                  away, home, weather, away + ' @ ' + home,
+                                  away_p, date_key, batter_team=home,
+                                  game_date=selected_date.strftime('%Y-%m-%d'),
+                                  event_id=event_id, game_pk=gk)
+                else:
+                    st.info('Lineup pending.')
+
+

@@ -102,6 +102,41 @@ def get_pitcher_season_stats(pitcher_id: int, season: int = None) -> dict:
     return result
 
 
+_PITCHER_HOME_AWAY_CACHE: dict = {}
+
+def get_pitcher_home_away_splits(pitcher_id: int, season: int = None) -> dict:
+    """Home and away ERA/WHIP for a pitcher this season."""
+    if season is None:
+        season = CURRENT_YEAR
+    cache_key = f"{pitcher_id}_{season}_ha"
+    if cache_key in _PITCHER_HOME_AWAY_CACHE:
+        return _PITCHER_HOME_AWAY_CACHE[cache_key]
+
+    result = {'home_era': None, 'away_era': None, 'home_whip': None, 'away_whip': None}
+    try:
+        import requests as _req
+        for sitCode, side in [('h', 'home'), ('a', 'away')]:
+            resp = _req.get(
+                f'https://statsapi.mlb.com/api/v1/people/{pitcher_id}/stats',
+                params={'stats': 'statSplits', 'group': 'pitching',
+                        'season': season, 'sitCodes': sitCode},
+                timeout=10
+            )
+            resp.raise_for_status()
+            splits = resp.json().get('stats', [{}])[0].get('splits', [])
+            if splits:
+                s = splits[0].get('stat', {})
+                ip = _parse_float(s.get('inningsPitched'), 0)
+                if ip > 0:
+                    result[f'{side}_era']  = _parse_float(s.get('era'),  None)
+                    result[f'{side}_whip'] = _parse_float(s.get('whip'), None)
+    except Exception:
+        pass
+
+    _PITCHER_HOME_AWAY_CACHE[cache_key] = result
+    return result
+
+
 def get_pitcher_rest_days(pitcher_id: int, season: int = None,
                           game_date: str = None) -> dict:
     """Returns days of rest since last appearance and a rest bonus/penalty."""
@@ -249,3 +284,136 @@ def get_starting_pitchers_for_games(game_pks: list, verbose: bool = True) -> dic
         _save_game_pitcher_cache(cache)
 
     return cache
+
+
+# ── Pitcher game log + rolling stats ─────────────────────────────────────────
+
+_PITCHER_LOG_CACHE: dict = {}   # (pitcher_id, season) → DataFrame, in-memory only
+
+
+def get_pitcher_game_log(pitcher_id: int, season: int = None) -> pd.DataFrame:
+    """Per-start game log for a pitcher. Skips relief appearances (IP < 1)."""
+    if season is None:
+        season = CURRENT_YEAR
+    key = (pitcher_id, season)
+    if key in _PITCHER_LOG_CACHE:
+        return _PITCHER_LOG_CACHE[key]
+
+    import requests as _req
+    result = pd.DataFrame()
+    try:
+        resp = _req.get(
+            f'https://statsapi.mlb.com/api/v1/people/{pitcher_id}/stats',
+            params={'stats': 'gameLog', 'group': 'pitching', 'season': season},
+            timeout=15,
+        )
+        resp.raise_for_status()
+        splits = (resp.json().get('stats') or [{}])[0].get('splits', [])
+        rows = []
+        for s in splits:
+            stat = s.get('stat', {})
+            gi   = s.get('game', {})
+            ip   = _parse_float(stat.get('inningsPitched'), 0)
+            if ip < 1.0:    # skip short relief outings
+                continue
+            bb = _parse_float(stat.get('baseOnBalls'), 0)
+            k  = _parse_float(stat.get('strikeOuts'), 0)
+            h  = _parse_float(stat.get('hits'), 0)
+            er = _parse_float(stat.get('earnedRuns'), 0)
+            bf = _parse_float(stat.get('battersFaced'), max(ip * 3, 1))
+            rows.append({
+                'date':      gi.get('gameDate', s.get('date', ''))[:10],
+                'ip':        ip,
+                'pitches':   _parse_float(stat.get('pitchesThrown'), 0),
+                'era_game':  round(er * 9 / ip, 2) if ip > 0 else 0.0,
+                'whip_game': round((h + bb) / ip, 2) if ip > 0 else 0.0,
+                'k_pct':     round(k / bf, 3)        if bf > 0 else 0.0,
+                'bb_pct':    round(bb / bf, 3)       if bf > 0 else 0.0,
+                'h_per_9':   round(h * 9 / ip, 2)   if ip > 0 else 0.0,
+            })
+        if rows:
+            result = pd.DataFrame(rows)
+            result['date'] = pd.to_datetime(result['date'], errors='coerce')
+            result = result.dropna(subset=['date']).sort_values('date').reset_index(drop=True)
+    except Exception:
+        pass
+
+    _PITCHER_LOG_CACHE[key] = result
+    return result
+
+
+def get_pitcher_last_pitch_count(pitcher_id: int, season: int = None) -> int:
+    """Pitches thrown in the most recent start. Returns 0 if unavailable."""
+    if season is None:
+        season = CURRENT_YEAR
+    log = get_pitcher_game_log(pitcher_id, season)
+    if log.empty or 'pitches' not in log.columns:
+        return 0
+    recent = log[log['pitches'] > 0]
+    if recent.empty:
+        return 0
+    return int(recent.iloc[-1]['pitches'])
+
+
+def get_rolling_pitcher_stats(pitcher_id: int, game_date, season: int,
+                               n: int = 5, batter_is_home: int = 1) -> dict:
+    """
+    Blend of rolling (last n starts) and season averages.
+    60% rolling + 40% season so elite pitchers aren't over-penalised
+    for 1-2 bad starts while still capturing real recent form.
+    Also blends in pitcher's home/away ERA split when available (10% weight).
+    Falls back to prior-season log if not enough current-season starts,
+    then to LEAGUE_AVG if still nothing.
+    batter_is_home: 1 if batter is home team → pitcher pitching away; 0 → pitcher at home.
+    """
+    cutoff = pd.Timestamp(game_date).date() if not isinstance(game_date, type(pd.Timestamp(0).date())) else game_date
+
+    def _recent(log, n):
+        if log.empty:
+            return pd.DataFrame()
+        prior = log[log['date'].dt.date < cutoff]
+        return prior.tail(n)
+
+    recent = _recent(get_pitcher_game_log(pitcher_id, season), n)
+    if len(recent) < 2:
+        recent = _recent(get_pitcher_game_log(pitcher_id, season - 1), n)
+
+    if recent.empty:
+        return LEAGUE_AVG.copy()
+
+    rolling = {
+        'opp_era':     round(float(recent['era_game'].mean()),  2),
+        'opp_whip':    round(float(recent['whip_game'].mean()), 2),
+        'opp_k_pct':   round(float(recent['k_pct'].mean()),    3),
+        'opp_bb_pct':  round(float(recent['bb_pct'].mean()),   3),
+        'opp_h_per_9': round(float(recent['h_per_9'].mean()),  2),
+        'opp_fip':     LEAGUE_AVG.get('opp_fip', 4.20),
+    }
+
+    season_stats = get_pitcher_season_stats(pitcher_id, season)
+    ha_splits    = get_pitcher_home_away_splits(pitcher_id, season)
+
+    # Pitcher is at home when batter is away, and vice versa
+    pitcher_at_home = (batter_is_home == 0)
+    ha_era  = ha_splits.get('home_era' if pitcher_at_home else 'away_era')
+    ha_whip = ha_splits.get('home_whip' if pitcher_at_home else 'away_whip')
+
+    blend_keys = ['opp_era', 'opp_whip', 'opp_k_pct', 'opp_bb_pct', 'opp_h_per_9', 'opp_fip']
+
+    if ha_era is not None and ha_whip is not None:
+        # 55% rolling + 35% season + 10% home/away location split
+        blended = {}
+        for k in blend_keys:
+            base = 0.55 * rolling[k] + 0.35 * season_stats.get(k, LEAGUE_AVG.get(k, rolling[k]))
+            if k == 'opp_era':
+                base = base * 0.90 + ha_era  * 0.10
+            elif k == 'opp_whip':
+                base = base * 0.90 + ha_whip * 0.10
+            blended[k] = round(base, 4)
+        return blended
+
+    # No home/away split available — 60/40 blend
+    return {
+        k: round(0.60 * rolling[k] + 0.40 * season_stats.get(k, LEAGUE_AVG.get(k, rolling[k])), 4)
+        for k in blend_keys
+    }

@@ -1,6 +1,6 @@
 """
 Tracker — logs qualifying predictions and tracks W/L record.
-Criteria: Rating >= 70
+Criteria: Rating >= 75
 WIN  = actual H+R+RBI > sportsbook line you entered.
 LOSS = actual H+R+RBI ≤ sportsbook line you entered.
 """
@@ -15,17 +15,10 @@ from tracker import load, save, recalc_results, add_predictions
 from full_tracker import log_play as _log_play_ft, load_all as _load_all_ft
 from odds_api import get_todays_event_ids, get_hrr_lines, ODDS_API_KEY
 from ratings_cache import _load as load_ratings_cache
+from shared_styles import inject_styles
 
 st.set_page_config(page_title="Tracker | MLB Props", page_icon="📊", layout="wide")
-
-st.markdown("""
-<style>
-  h1, h2, h3 { color: #38bdf8 !important; }
-  .stMarkdown p, label, .stCaption { color: #7dd3fc !important; }
-  .stMetric label { color: #38bdf8 !important; }
-  .stMetric [data-testid="metric-container"] > div { color: #e0f2fe !important; }
-</style>
-""", unsafe_allow_html=True)
+inject_styles()
 
 MLB_API = 'https://statsapi.mlb.com/api/v1'
 
@@ -151,7 +144,7 @@ def auto_fill_actuals(df: pd.DataFrame) -> tuple:
 
 # Auto-import qualifying players from today's lineup
 if 'lineup_rows' in st.session_state:
-    qualified = [r for r in st.session_state['lineup_rows'] if r['Rating'] >= 70]
+    qualified = [r for r in st.session_state['lineup_rows'] if r['Rating'] >= 75]
     if qualified:
         add_predictions([{
             'player':     r['Player'],
@@ -174,8 +167,8 @@ def sync_from_ratings_cache():
     today = datetime.now().strftime('%Y-%m-%d')
     _r = pd.to_numeric(ratings['rating'], errors='coerce')
     qualifying = ratings[
-        (ratings['date'].astype(str).str[:10] < today) &
-        (_r >= 70) &
+        (ratings['date'].astype(str).str[:10] <= today) &
+        (_r >= 75) &
         (ratings['player_name'].astype(str).str.strip() != '')
     ]
     if qualifying.empty:
@@ -252,14 +245,14 @@ if 'tracker_lines_filled' not in st.session_state:
 _hdr, _btn = st.columns([5, 1])
 with _hdr:
     st.markdown('## 📊 Prediction Tracker')
-    st.caption('Criteria: Rating ≥ 70 · Lines entered manually · Actuals fetched automatically')
+    st.caption('Criteria: Rating ≥ 75 · Lines entered manually · Actuals fetched automatically')
 with _btn:
     if st.button('🔄 Refresh', use_container_width=True):
         st.rerun()
 
 # Filter to current criteria only
 df['_r'] = pd.to_numeric(df['rating'], errors='coerce')
-df = df[df['_r'] >= 70].copy()
+df = df[df['_r'] >= 75].copy()
 df.drop(columns=['_r'], inplace=True)
 
 # ── Record summary ─────────────────────────────────────────────────────────────
