@@ -20,6 +20,7 @@ LEAGUE_AVG = {
     'opp_k_pct': 0.222,
     'opp_bb_pct': 0.083,
     'opp_h_per_9': 8.8,
+    'opp_fip': 4.20,
 }
 
 

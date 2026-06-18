@@ -166,11 +166,13 @@ def run_prediction(player_id: int, pitcher_id, is_home: bool, park_team: str,
     # with league averages → zero variance on pitcher cols). Apply a post-hoc
     # multiplier built from ALL available pitcher/matchup features on the
     # prediction row. Each factor is batter-favorable when > 1.0.
+    # Weights (no BvP): ERA 28%, FIP 22%, WHIP 20%, K% 18%, BB% 12% = 100%
+    # With BvP (17%):   pitcher stats scaled to 83%, BvP fills the remaining 17%
     _L_ERA  = 4.30   # league avg ERA
-    _L_WHIP = 1.30   # league avg WHIP
+    _L_FIP  = 4.20   # league avg FIP
+    _L_WHIP = 1.28   # league avg WHIP
     _L_K    = 0.222  # league avg K%
     _L_BB   = 0.083  # league avg BB%
-    _L_H9   = 8.50   # league avg H/9
     try:
         _row = dc.iloc[-1]
 
@@ -183,31 +185,31 @@ def run_prediction(player_id: int, pitcher_id, is_home: bool, park_team: str,
                 v = default
             return max(v, floor_v) if floor_v is not None else v
 
-        era_f  = _sf('opp_era',    _L_ERA)  / _L_ERA   # high → batter +
-        whip_f = _sf('opp_whip',   _L_WHIP) / _L_WHIP  # high → batter +
-        k_f    = _L_K / _sf('opp_k_pct', _L_K, 0.10)   # high K% → batter −
-        bb_f   = _sf('opp_bb_pct', _L_BB)  / _L_BB     # high BB% → batter +
-        h9_f   = _sf('opp_h_per_9', _L_H9) / _L_H9     # high H/9 → batter +
+        era_f  = _sf('opp_era',    _L_ERA)  / _L_ERA   # high ERA  → batter +
+        fip_f  = _sf('opp_fip',    _L_FIP)  / _L_FIP   # high FIP  → batter +
+        whip_f = _sf('opp_whip',   _L_WHIP) / _L_WHIP  # high WHIP → batter +
+        k_f    = _L_K / _sf('opp_k_pct', _L_K, 0.10)   # high K%   → batter −
+        bb_f   = _sf('opp_bb_pct', _L_BB)  / _L_BB     # high BB%  → batter +
 
-        # BvP — only trusted when ≥10 AB sample
+        # BvP — only trusted when ≥10 AB sample; pitcher factors scaled to 83%
         _bvp_sample = int(_row.get('bvp_sample', 0) or 0)
         if _bvp_sample:
             bvp_f = _sf('bvp_avg', 0.250) / 0.250
             _pitcher_mult = (
-                0.28 * era_f +
-                0.20 * whip_f +
-                0.18 * k_f +
-                0.12 * h9_f +
-                0.05 * bb_f +
-                0.17 * bvp_f
+                0.2324 * era_f +
+                0.1826 * fip_f +
+                0.1660 * whip_f +
+                0.1494 * k_f +
+                0.0996 * bb_f +
+                0.1700 * bvp_f
             )
         else:
             _pitcher_mult = (
-                0.32 * era_f +
-                0.25 * whip_f +
-                0.22 * k_f +
-                0.14 * h9_f +
-                0.07 * bb_f
+                0.28 * era_f +
+                0.22 * fip_f +
+                0.20 * whip_f +
+                0.18 * k_f +
+                0.12 * bb_f
             )
 
         _pitcher_mult = min(1.25, max(0.75, _pitcher_mult))
