@@ -282,6 +282,28 @@ if not _past_pending.empty:
         _show = _past_pending[['date','player','team','rating','projected','line','actual']].copy()
         _show['date'] = _show['date'].astype(str).str[:10]
         st.dataframe(_show.sort_values('date', ascending=False), hide_index=True, use_container_width=True)
+        st.caption('Mark postponed games to remove them from pending without counting as W or L.')
+        for _pi, _pr in _past_pending.iterrows():
+            _pcol1, _pcol2 = st.columns([4, 1])
+            with _pcol1:
+                st.markdown(f'`{str(_pr["date"])[:10]}` **{_pr["player"]}** ({_pr["team"]})')
+            with _pcol2:
+                if st.button('🌧️ PPD', key=f'ppd_{_pi}', use_container_width=True):
+                    from tracker import load as _tload, save as _tsave
+                    _tdf = _tload()
+                    _tmask = ((_tdf['player'] == _pr['player']) &
+                              (_tdf['date'].astype(str).str[:10] == str(_pr['date'])[:10]))
+                    _tdf.loc[_tmask, 'result'] = 'PPD'
+                    _tdf.loc[_tmask, 'actual'] = 'PPD'
+                    _tsave(_tdf)
+                    from full_tracker import load_all as _fload, save_all as _fsave
+                    _fdf = _fload()
+                    _fmask = ((_fdf['player'] == _pr['player']) &
+                               (_fdf['date'].astype(str).str[:10] == str(_pr['date'])[:10]))
+                    _fdf.loc[_fmask, 'result'] = 'PPD'
+                    _fdf.loc[_fmask, 'actual'] = 'PPD'
+                    _fsave(_fdf)
+                    st.rerun()
 
 if not df.empty and len(_pending_df) > 0:
     _today_pending = _pending_df[_pending_df['date'].astype(str).str[:10] >= _today]
