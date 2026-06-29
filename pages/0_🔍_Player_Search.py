@@ -567,7 +567,7 @@ else:
             st.session_state['lineup_rows'] = all_rows
 
             from tracker import add_predictions
-            qualified = [r for r in all_rows if r['Rating'] >= 75]
+            qualified = [r for r in all_rows if r['Rating'] >= 85]
             if qualified:
                 add_predictions([{
                     'player':     r['Player'],

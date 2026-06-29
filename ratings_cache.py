@@ -120,7 +120,7 @@ def save_rating(game_date: str, player_id: int, rating: int, grade: str,
     _save(df)
 
     # Auto-add to tracker using current criteria
-    _qualifies = rating >= 75
+    _qualifies = rating >= 85
     if _qualifies and player_name:
         try:
             from tracker import add_predictions

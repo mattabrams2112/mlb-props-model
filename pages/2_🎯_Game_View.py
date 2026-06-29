@@ -582,7 +582,7 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
                 # Always use locked pre-game rating — never recalculate totals
                 locked_rating, locked_grade, locked_proj = cached
                 _disp_proj = locked_proj
-                _rc = '#22c55e' if locked_rating >= 75 else '#eab308' if locked_rating >= 55 else '#ef4444'
+                _rc = '#22c55e' if locked_rating >= 85 else '#eab308' if locked_rating >= 55 else '#ef4444'
 
                 if res.get('_from_cache'):
                     # Loaded from DB cache — skip compute_rating entirely for speed.
@@ -652,7 +652,7 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
             from datetime import datetime as _dt
             _today = today_str_et()
             _r = r_data['total']; _p = _disp_proj
-            _qualifies = _r >= 75
+            _qualifies = _r >= 85
             if _qualifies:
                 _units = 1.0
                 _bet   = 8
@@ -660,7 +660,7 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
                 _stake_badge = (f' <span style="font-size:10px;background:#1e3a5f;color:#7dd3fc;'
                                 f'border-radius:3px;padding:1px 4px;font-weight:700;">'
                                 f'{_u_str}u · ${_bet}</span>')
-            if _qualifies and _r >= 75 and pname and game_date and (game_date < _today or _game_finished):
+            if _qualifies and pname and game_date and (game_date < _today or _game_finished):
                 try:
                     tracker_add([{
                         'player':     pname,

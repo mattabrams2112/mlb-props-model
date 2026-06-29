@@ -366,7 +366,7 @@ def compute_rating(
     )
 
     color = (
-        '#22c55e' if total >= 75 else
+        '#22c55e' if total >= 85 else
         '#eab308' if total >= 55 else
         '#ef4444'
     )

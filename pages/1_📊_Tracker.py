@@ -1,6 +1,6 @@
 """
 Tracker — logs qualifying predictions and tracks W/L record.
-Criteria: Rating >= 75
+Criteria: Rating >= 85
 WIN  = actual H+R+RBI > sportsbook line you entered.
 LOSS = actual H+R+RBI ≤ sportsbook line you entered.
 """
@@ -144,7 +144,7 @@ def auto_fill_actuals(df: pd.DataFrame) -> tuple:
 
 # Auto-import qualifying players from today's lineup
 if 'lineup_rows' in st.session_state:
-    qualified = [r for r in st.session_state['lineup_rows'] if r['Rating'] >= 75]
+    qualified = [r for r in st.session_state['lineup_rows'] if r['Rating'] >= 85]
     if qualified:
         add_predictions([{
             'player':     r['Player'],
@@ -168,7 +168,7 @@ def sync_from_ratings_cache():
     _r = pd.to_numeric(ratings['rating'], errors='coerce')
     qualifying = ratings[
         (ratings['date'].astype(str).str[:10] <= today) &
-        (_r >= 75) &
+        (_r >= 85) &
         (ratings['player_name'].astype(str).str.strip() != '')
     ]
     if qualifying.empty:
@@ -252,7 +252,7 @@ with _btn:
 
 # Filter to current criteria only
 df['_r'] = pd.to_numeric(df['rating'], errors='coerce')
-df = df[df['_r'] >= 75].copy()
+df = df[df['_r'] >= 85].copy()
 df.drop(columns=['_r'], inplace=True)
 
 # ── Record summary ─────────────────────────────────────────────────────────────
@@ -468,11 +468,6 @@ df['_sort'] = df['result'].apply(lambda x: 0 if x == '' else 1)
 df = df.sort_values(['_sort', 'date', 'rating'], ascending=[True, False, False]).drop(columns=['_sort'])
 
 def _bet_size(rating):
-    r = float(rating) if rating else 0
-    if r >= 90: return '$24 (3u)'
-    if r >= 85: return '$20 (2.5u)'
-    if r >= 80: return '$16 (2u)'
-    if r >= 75: return '$12 (1.5u)'
     return '$8 (1u)'
 
 df['bet'] = df['rating'].apply(_bet_size)

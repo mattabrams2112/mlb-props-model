@@ -1,6 +1,6 @@
 """
 Daily Results — day-by-day performance filtered by current tracking criteria.
-Criteria: Rating >= 75
+Criteria: Rating >= 85
 """
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
@@ -135,10 +135,10 @@ if _period != 'All Time':
 
 # Apply current criteria
 today_str = today_str_et()
-criteria = df[df['rating'] >= 75]
+criteria = df[df['rating'] >= 85]
 
 decided = criteria[criteria['result'].isin(['W', 'L'])]
-pending = _df_all[(_df_all['rating'] >= 75) & (_df_all['result'] == '')]
+pending = _df_all[(_df_all['rating'] >= 85) & (_df_all['result'] == '')]
 
 UNIT = 8.0   # dollars per unit
 ODDS = -125  # sportsbook odds (American)

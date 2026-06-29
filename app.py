@@ -64,7 +64,7 @@ df_raw['projected'] = pd.to_numeric(df_raw['projected'], errors='coerce')
 df_raw['actual']    = pd.to_numeric(df_raw['actual'],    errors='coerce')
 df_raw['date_str']  = df_raw['date'].astype(str).str[:10]
 
-criteria = df_raw[df_raw['rating'] >= 75]
+criteria = df_raw[df_raw['rating'] >= 85]
 decided  = criteria[criteria['result'].isin(['W', 'L'])]
 pending  = criteria[criteria['result'] == '']
 
