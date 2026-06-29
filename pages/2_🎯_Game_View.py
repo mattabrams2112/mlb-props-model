@@ -41,6 +41,7 @@ from team_stats import get_team_recent_scoring, get_team_defense_rating
 from umpire_data import get_game_umpire
 from pitcher_data import get_pitcher_throws, get_pitcher_last_n_starts, get_pitcher_rest_days
 from shared_styles import inject_styles
+from calibration import get_correction_factor
 
 st.set_page_config(page_title="Game View | MLB Props", page_icon="🎯", layout="wide")
 inject_styles()
@@ -600,10 +601,11 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
                               'line_label': _r_display.get('line_label')}
             elif game_started:
                 # Game started, no pre-game cache — calculate without odds.
-                # Two passes: the first derives the matchup adjustment, which
-                # is then applied to the projection before the final rating/Edge.
+                # Two passes: first derives rough rating + matchup adjustment,
+                # then calibration correction is applied before final rating.
                 _pass1     = _rate(_base_proj, None, None)
-                _disp_proj = round(max(0.5, _base_proj * (1 + _pass1.get('matchup_pct', 0.0))), 2)
+                _calib     = get_correction_factor(_pass1['total'])
+                _disp_proj = round(max(0.5, _base_proj * _calib * (1 + _pass1.get('matchup_pct', 0.0))), 2)
                 r_data     = _rate(_disp_proj, None, None)
                 st.session_state[session_key] = (r_data['total'], r_data['grade'], _disp_proj)
                 if game_date and opp_p_name != 'TBD':
@@ -613,10 +615,11 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
             else:
                 book_line  = odds_data['line']      if odds_data else line_val
                 book_odds  = odds_data['over_odds'] if odds_data else None
-                # Two passes: the first derives the matchup adjustment, which
-                # is then applied to the projection before the final rating/Edge.
+                # Two passes: first derives rough rating + matchup adjustment,
+                # then calibration correction is applied before final rating.
                 _pass1     = _rate(_base_proj, book_line, book_odds)
-                _disp_proj = round(max(0.5, _base_proj * (1 + _pass1.get('matchup_pct', 0.0))), 2)
+                _calib     = get_correction_factor(_pass1['total'])
+                _disp_proj = round(max(0.5, _base_proj * _calib * (1 + _pass1.get('matchup_pct', 0.0))), 2)
                 r_data     = _rate(_disp_proj, book_line, book_odds)
                 # Lock in session state immediately
                 st.session_state[session_key] = (r_data['total'], r_data['grade'], _disp_proj)
