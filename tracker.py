@@ -89,7 +89,9 @@ def recalc_results(df: pd.DataFrame) -> pd.DataFrame:
                 continue
             actual = float(actual_str)
             line_val = str(row.get('line', '')).strip()
-            line = float(line_val) if line_val and line_val not in ('nan', '') else 1.5
+            if not line_val or line_val in ('nan', ''):
+                continue  # no line recorded — leave result as pending
+            line = float(line_val)
             df.at[i, 'result'] = 'W' if actual > line else 'L'
         except (ValueError, TypeError):
             df.at[i, 'result'] = ''
