@@ -42,12 +42,16 @@ def auto_fill_lines(df: pd.DataFrame) -> tuple:
 
     from lineup_fetcher import TEAM_ABBR
     NICKNAMES = {v: k.split()[-1] for k, v in TEAM_ABBR.items()}
+    FULLNAMES = {v: k for k, v in TEAM_ABBR.items()}   # abbr -> full team name
 
     filled = 0
     for i, row in pending.iterrows():
         team = str(row.get('team', ''))
+        full     = FULLNAMES.get(team, '')
         nickname = NICKNAMES.get(team, '')
-        event_id = event_map.get(team) or event_map.get(nickname) or ''
+        # Full name first (most reliable — avoids Red Sox / White Sox "Sox" clash)
+        event_id = (event_map.get(full) or event_map.get(team) or
+                    event_map.get(nickname) or '')
         if not event_id:
             continue
         lines = get_hrr_lines(event_id)

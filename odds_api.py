@@ -88,7 +88,16 @@ def match_player(target: str, candidates: list) -> str | None:
 
 @st.cache_data(show_spinner=False, ttl=900)   # cache 15 min
 def get_todays_event_ids() -> dict:
-    """Returns {home_team_abbr: event_id} for today's MLB games."""
+    """
+    Returns {team_name: event_id} for today's (Eastern) MLB games, keyed by
+    BOTH the home and away team — full name and last word — so a player on
+    either side can find their event.
+
+    The Odds API returns commence_time in UTC. MLB night games start 7-8pm ET
+    which is 23:00-01:00 UTC, so comparing the raw UTC date against "today"
+    drops evening games (and drops ALL games when the page is loaded after the
+    UTC rollover). We convert each commence_time to Eastern before comparing.
+    """
     if not ODDS_API_KEY:
         return {}
     try:
@@ -98,18 +107,36 @@ def get_todays_event_ids() -> dict:
             timeout=10
         )
         resp.raise_for_status()
-        today = datetime.now().strftime('%Y-%m-%d')
+
+        from eastern_time import today_str_et
+        try:
+            from zoneinfo import ZoneInfo
+            _ET = ZoneInfo('America/New_York')
+        except ImportError:
+            from datetime import timezone, timedelta
+            _ET = timezone(timedelta(hours=-4))   # EDT — MLB season
+
+        today = today_str_et()
         result = {}
         for event in resp.json():
-            if event.get('commence_time', '')[:10] == today:
-                home_full = event.get('home_team', '')
-                eid       = event.get('id', '')
-                # Store by full name AND abbreviation for flexible matching
-                result[home_full] = eid
-                # Also store by last word (e.g. "Baltimore Orioles" -> "Orioles")
-                words = home_full.split()
+            ct = event.get('commence_time', '')
+            if not ct:
+                continue
+            try:
+                dt      = datetime.fromisoformat(ct.replace('Z', '+00:00'))
+                et_date = dt.astimezone(_ET).strftime('%Y-%m-%d')
+            except Exception:
+                et_date = ct[:10]
+            if et_date != today:
+                continue
+            eid = event.get('id', '')
+            for team in (event.get('home_team', ''), event.get('away_team', '')):
+                if not team:
+                    continue
+                result[team] = eid
+                words = team.split()
                 if words:
-                    result[words[-1]] = eid
+                    result.setdefault(words[-1], eid)   # don't clobber a full-name match
         return result
     except Exception:
         return {}
