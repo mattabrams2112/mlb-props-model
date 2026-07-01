@@ -249,7 +249,9 @@ if 'tracker_lines_filled' not in st.session_state:
 _hdr, _btn = st.columns([5, 1])
 with _hdr:
     st.markdown('## 📊 Prediction Tracker')
-    st.caption('Criteria: Rating ≥ 75 · Lines entered manually · Actuals fetched automatically')
+    st.caption('Criteria: Rating ≥ 85 · Actuals fetched automatically')
+    from odds_api import render_api_status
+    render_api_status()
 with _btn:
     if st.button('🔄 Refresh', use_container_width=True):
         st.rerun()

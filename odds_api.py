@@ -207,3 +207,58 @@ def get_player_line(player_name: str, event_id: str) -> dict | None:
             'implied_prob': american_to_prob(entry['over_odds']),
         }
     return None
+
+
+# ── API status / quota ────────────────────────────────────────────────────────
+
+@st.cache_data(show_spinner=False, ttl=300)   # cache 5 min
+def get_api_status() -> dict:
+    """
+    Live Odds API health check. The /events endpoint is FREE (does not count
+    against the monthly quota) but still returns the quota headers, so this
+    tells us the key is valid and how many requests remain — without spending.
+    """
+    if not ODDS_API_KEY:
+        return {'key_set': False, 'remaining': None, 'used': None,
+                'error': 'No ODDS_API_KEY configured'}
+    try:
+        resp = requests.get(
+            f'{BASE_URL}/sports/{SPORT}/events',
+            params={'apiKey': ODDS_API_KEY, 'dateFormat': 'iso'},
+            timeout=10
+        )
+        remaining = resp.headers.get('x-requests-remaining')
+        used      = resp.headers.get('x-requests-used')
+        if resp.status_code == 401:
+            return {'key_set': True, 'remaining': remaining, 'used': used,
+                    'error': 'Invalid API key (401)'}
+        if resp.status_code == 429:
+            return {'key_set': True, 'remaining': remaining, 'used': used,
+                    'error': 'Quota exhausted (429)'}
+        resp.raise_for_status()
+        return {'key_set': True, 'remaining': remaining, 'used': used, 'error': None}
+    except Exception as e:
+        return {'key_set': True, 'remaining': None, 'used': None,
+                'error': str(e)[:120]}
+
+
+def render_api_status():
+    """Render a one-line Odds API status caption (key / quota / errors)."""
+    s = get_api_status()
+    if not s['key_set']:
+        st.caption('🔴 **Odds API:** no key configured — enter lines manually.')
+        return
+    if s['error']:
+        st.caption(f'🔴 **Odds API:** {s["error"]} — enter lines manually.')
+        return
+    rem, used = s['remaining'], s['used']
+    used_str  = f' · {used} used' if used else ''
+    if rem is not None:
+        try:
+            rem_i = int(float(rem))
+            dot = '🟢' if rem_i > 50 else '🟡' if rem_i > 0 else '🔴'
+            st.caption(f'{dot} **Odds API:** {rem_i} requests remaining this month{used_str}')
+            return
+        except ValueError:
+            pass
+    st.caption('🟢 **Odds API:** connected')

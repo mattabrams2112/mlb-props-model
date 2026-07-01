@@ -893,6 +893,11 @@ if not has_lineups:
 date_key   = selected_date.strftime('%Y%m%d')
 event_map  = get_todays_event_ids() if ODDS_API_KEY else {}
 
+# Show Odds API status only for today (live lines don't apply to past/future dates)
+if selected_date == today_et():
+    from odds_api import render_api_status
+    render_api_status()
+
 for game in games:
     away     = game.get('away_team', '?')
     home     = game.get('home_team', '?')
