@@ -26,8 +26,32 @@ with col_fetch:
     if st.button('⬇️ Fetch Latest Results', type='primary', use_container_width=True):
         with st.spinner('Fetching results from MLB API...'):
             n = update_actuals()
-        st.success(f'Updated {n} plays!')
+        # Diagnose what's still unresolved on PAST days so it's not a silent no-op
+        _chk = load_all()
+        _chk['_ds'] = _chk['date'].astype(str).str[:10]
+        _chk['_a']  = _chk['actual'].astype(str).str.strip()
+        _chk['_r']  = _chk['result'].astype(str).str.strip()
+        _chk['_l']  = (_chk['line'].astype(str).str.strip()
+                       if 'line' in _chk.columns else '')
+        _rn   = pd.to_numeric(_chk['rating'], errors='coerce')
+        _past = _chk[(_chk['_ds'] < today_str_et()) & (_rn >= 85)]
+        _no_actual = int(_past['_a'].isin(['', 'nan']).sum())
+        _no_line   = int(((~_past['_a'].isin(['', 'nan'])) &
+                          (_past['_r'].isin(['', 'nan'])) &
+                          (_past['_l'].isin(['', 'nan']))).sum())
+        st.session_state['dr_fetch_msg'] = (n, _no_actual, _no_line)
         st.rerun()
+
+# Show the outcome of the last fetch (survives the rerun above)
+if 'dr_fetch_msg' in st.session_state:
+    _n, _na, _nl = st.session_state.pop('dr_fetch_msg')
+    st.success(f'Fetched actuals for {_n} play(s).')
+    if _nl:
+        st.warning(f'⚠️ {_nl} past play(s) have a final result but **no line** — '
+                   f'enter a line under "Needs a Line to Grade" below to score them.')
+    if _na:
+        st.info(f'ℹ️ {_na} past play(s) still have no actual — the player name '
+                f'may not have matched the boxscore. Use "Manually Correct" if needed.')
 
 def _sync_tracker_to_fpl():
     """Copy any tracker plays missing from full_play_log so both pages match."""
@@ -378,6 +402,75 @@ if not pending.empty:
     st.dataframe(pd.DataFrame(pend_rows), hide_index=True, use_container_width=True)
 
 st.markdown('---')
+
+# ── Needs a line to grade — past plays that have an actual but no line ─────────
+# These are the "yesterday won't load in" plays: the result is in, but no line
+# was recorded (lines weren't pulling), so they can't be scored W/L and stay
+# out of the day-by-day record. Enter the line here to grade them instantly.
+_gl = _df_all.copy()
+_gl['_ds'] = _gl['date'].astype(str).str[:10]
+_gl['_a']  = _gl['actual'].astype(str).str.strip()
+_gl['_r']  = _gl['result'].astype(str).str.strip()
+_gl['_l']  = _gl['line'].astype(str).str.strip() if 'line' in _gl.columns else ''
+_gl['_rn'] = pd.to_numeric(_gl['rating'], errors='coerce')
+_needs_line = _gl[
+    (_gl['_ds'] < today_str_et()) &
+    (_gl['_rn'] >= 85) &
+    (~_gl['_a'].isin(['', 'nan'])) &
+    (_gl['_r'].isin(['', 'nan'])) &
+    (_gl['_l'].isin(['', 'nan']))
+]
+
+if not _needs_line.empty:
+    st.markdown(f'### ⚠️ Needs a Line to Grade ({len(_needs_line)})')
+    st.caption('These plays have a final H+R+RBI but no line was recorded, so they '
+               "can't be scored. Enter each line and save to grade them and pull "
+               'them into the record.')
+
+    _edit_src = _needs_line[['_ds', 'player', 'team', 'rating', 'projected', 'actual']].copy()
+    _edit_src = _edit_src.rename(columns={'_ds': 'Date', 'player': 'Player',
+                                          'team': 'Team', 'rating': 'Rating',
+                                          'projected': 'Proj', 'actual': 'Actual'})
+    _edit_src['Line'] = None
+    _edit_src = _edit_src.sort_values('Date', ascending=False).reset_index(drop=True)
+
+    _edited = st.data_editor(
+        _edit_src, hide_index=True, use_container_width=True, key='dr_grade_editor',
+        column_config={
+            'Date':   st.column_config.TextColumn('Date',   disabled=True),
+            'Player': st.column_config.TextColumn('Player', disabled=True),
+            'Team':   st.column_config.TextColumn('Team',   disabled=True),
+            'Rating': st.column_config.NumberColumn('Rating', disabled=True),
+            'Proj':   st.column_config.NumberColumn('Proj',   disabled=True),
+            'Actual': st.column_config.NumberColumn('Actual', disabled=True),
+            'Line':   st.column_config.NumberColumn('Line', min_value=0.0,
+                                                    max_value=10.0, step=0.5,
+                                                    help='Enter the sportsbook line'),
+        },
+    )
+
+    if st.button('✅ Save Lines & Grade', type='primary', key='dr_grade_save'):
+        _full = load_all()
+        _full['_ds'] = _full['date'].astype(str).str[:10]
+        _graded = 0
+        for _, _er in _edited.iterrows():
+            if _er['Line'] is None or pd.isna(_er['Line']):
+                continue
+            _mask = (_full['_ds'] == _er['Date']) & (_full['player'] == _er['Player'])
+            for _idx in _full[_mask].index:
+                _full.at[_idx, 'line'] = str(_er['Line'])
+                try:
+                    _av = float(str(_full.at[_idx, 'actual']).strip())
+                    _full.at[_idx, 'result'] = 'W' if _av > float(_er['Line']) else 'L'
+                    _graded += 1
+                except (ValueError, TypeError):
+                    pass
+        _full.drop(columns=['_ds'], inplace=True, errors='ignore')
+        save_all(_full)
+        st.success(f'Graded {_graded} play(s)!')
+        st.rerun()
+
+    st.markdown('---')
 
 # ── Correct a pending play ────────────────────────────────────────────────────
 

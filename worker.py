@@ -42,6 +42,7 @@ from full_tracker import log_play
 from team_stats import get_team_recent_scoring, get_team_defense_rating
 from umpire_data import get_game_umpire
 from data_dir import data_path
+from eastern_time import today_str_et
 
 MLB_API      = 'https://statsapi.mlb.com/api/v1'
 SEASON       = datetime.now().year
@@ -101,7 +102,7 @@ def _save_preds(df: pd.DataFrame):
 
 def _add_game_pred(row: dict, game_date: str, game_started: bool = False):
     df    = _load_preds()
-    today = datetime.now().strftime('%Y-%m-%d')
+    today = today_str_et()   # ET — worker runs on a UTC server
     match = (not df.empty and
              (df['game_id'].astype(str) == str(row['game_id'])) &
              (df['date'].astype(str).str[:10] == game_date))
@@ -568,8 +569,11 @@ def save_prediction(game, home_hrr, away_hrr, game_date):
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def run():
-    game_date = datetime.now().strftime('%Y-%m-%d')
-    date_str  = datetime.now().strftime('%m/%d/%Y')
+    # ET, not datetime.now() — the worker runs on a UTC server, and using UTC
+    # here stamps evening-ET games (past 8pm ET = next UTC day) with tomorrow's
+    # date, so they land under the wrong day and never resolve in Daily Results.
+    game_date = today_str_et()
+    date_str  = datetime.strptime(game_date, '%Y-%m-%d').strftime('%m/%d/%Y')
 
     # Clear stale predictions from previous days
     stale = [k for k in _PRED_CACHE if k[2] != game_date]
