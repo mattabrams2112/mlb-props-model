@@ -54,22 +54,44 @@ if 'dr_fetch_msg' in st.session_state:
                 f'may not have matched the boxscore. Use "Manually Correct" if needed.')
 
 def _sync_tracker_to_fpl():
-    """Copy any tracker plays missing from full_play_log so both pages match."""
+    """
+    Keep full_play_log (Daily Results) in sync with the tracker.
+      - Add tracker plays that aren't in full_play_log yet.
+      - Backfill line/over_odds onto EXISTING full_play_log rows when the
+        tracker has a value but full_play_log is still blank (e.g. the line
+        was auto-filled or entered on the Tracker after the play was logged).
+    Only writes when something actually changed.
+    """
     try:
         from tracker import load as _load_tracker
         tracker_df = _load_tracker()
         if tracker_df.empty:
             return
         fpl = load_all()
-        existing_keys = set()
+        changed = False
+
+        def _blank(v):
+            return str(v).strip() in ('', 'nan', 'None')
+
+        # Map date|player -> first full_play_log index for backfilling
+        idx_by_key = {}
         if not fpl.empty:
-            existing_keys = set(
-                fpl['date'].astype(str).str[:10] + '|' + fpl['player'].astype(str)
-            )
+            _keys = fpl['date'].astype(str).str[:10] + '|' + fpl['player'].astype(str)
+            for _i, _k in zip(fpl.index, _keys):
+                idx_by_key.setdefault(_k, _i)
+
         new_rows = []
         for _, row in tracker_df.iterrows():
             key = f"{str(row['date'])[:10]}|{row['player']}"
-            if key not in existing_keys:
+            if key in idx_by_key:
+                i = idx_by_key[key]
+                # Backfill line / odds from tracker when full_play_log is missing them
+                for _col in ('line', 'over_odds'):
+                    tv = row.get(_col, '')
+                    if not _blank(tv) and (_col not in fpl.columns or _blank(fpl.at[i, _col])):
+                        fpl.at[i, _col] = tv
+                        changed = True
+            else:
                 new_rows.append({
                     'date':           str(row['date'])[:10],
                     'player':         row.get('player', ''),
@@ -86,16 +108,19 @@ def _sync_tracker_to_fpl():
                     'is_home':        '',
                     'pitcher_throws': '',
                 })
+
         if new_rows:
             new_df = pd.DataFrame(new_rows)
-            combined = pd.concat([fpl, new_df], ignore_index=True) if not fpl.empty else new_df
-            save_all(combined)
+            fpl = pd.concat([fpl, new_df], ignore_index=True) if not fpl.empty else new_df
+            changed = True
+        if changed:
+            save_all(fpl)
     except Exception:
         pass
 
-if 'daily_tracker_synced' not in st.session_state:
-    _sync_tracker_to_fpl()
-    st.session_state['daily_tracker_synced'] = True
+# Run every load (cheap; only writes when something changed) so a line entered
+# on the Tracker shows up here without needing a fresh session.
+_sync_tracker_to_fpl()
 
 df = load_all()
 
