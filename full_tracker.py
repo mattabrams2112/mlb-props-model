@@ -140,53 +140,78 @@ def update_actuals() -> int:
     """
     Fetch actuals for all pending plays from past days ONLY (never today).
     Uses boxscores — one API call per game, much faster than per-player lookup.
+
+    A row needs work when it's a past day AND either:
+      - its actual hasn't been fetched yet, OR
+      - it has an actual but no W/L result and a line now exists (re-grade).
+    This means a play that had no line when its actual came in will get
+    graded on the next fetch once a line is entered, instead of being
+    stuck in "pending" forever.
     """
     df = load_all()
     if df.empty:
         return 0
 
-    today   = datetime.now().strftime('%Y-%m-%d')
+    from eastern_time import today_str_et
+    today   = today_str_et()   # ET — server runs UTC, don't use datetime.now()
     updated = 0
 
-    # Only process past days — never today (games may still be in progress)
-    pending = df[
-        (df['actual'].astype(str).str.strip().isin(['', 'nan'])) &
-        (df['date'].astype(str).str[:10] < today)
-    ]
-    if pending.empty:
+    df = df.copy()
+    df['_d'] = df['date'].astype(str).str[:10]
+    _actual = df['actual'].astype(str).str.strip()
+    _result = df['result'].astype(str).str.strip()
+    _line   = (df['line'].astype(str).str.strip()
+               if 'line' in df.columns else pd.Series('', index=df.index))
+
+    no_actual   = _actual.isin(['', 'nan'])
+    ungraded    = _result.isin(['', 'nan']) & ~_line.isin(['', 'nan'])
+    needs = df[(df['_d'] < today) & (no_actual | ungraded)]
+    if needs.empty:
         return 0
 
-    # Group by date and fetch boxscores once per date
-    for game_date in pending['date'].astype(str).str[:10].unique():
-        player_stats = _get_boxscore_stats_for_date(game_date)
-        if not player_stats:
-            continue
+    changed = False
+    for game_date in needs['_d'].unique():
+        date_rows = df[df['_d'] == game_date]
+        # Only hit the boxscore API if some row on this date still needs an actual
+        need_fetch   = date_rows['actual'].astype(str).str.strip().isin(['', 'nan']).any()
+        player_stats = _get_boxscore_stats_for_date(game_date) if need_fetch else {}
 
-        date_rows = df[df['date'].astype(str).str[:10] == game_date]
         for i in date_rows.index:
             row = df.loc[i]
-            if str(row.get('actual', '')).strip() not in ('', 'nan'):
-                continue
-            player_lower = str(row.get('player', '')).lower().strip()
-            hrr = player_stats.get(player_lower)
-            # Partial last-name match fallback
-            if hrr is None:
-                parts = player_lower.split()
-                last  = parts[-1] if parts else ''
-                for k, v in player_stats.items():
-                    if last and last in k:
-                        hrr = v
-                        break
-            if hrr is not None:
-                df.at[i, 'actual'] = str(hrr)
-                line_val = str(row.get('line', '')).strip()
-                # Only set W/L if a real line was recorded — no line means stay pending
-                if line_val and line_val not in ('nan', ''):
-                    line = float(line_val)
-                    if game_date < today:
-                        df.at[i, 'result'] = 'W' if hrr > line else 'L'
-                updated += 1
+            has_actual = str(row.get('actual', '')).strip() not in ('', 'nan')
 
-    if updated:
+            # 1) Fetch the actual if we don't have it yet
+            if not has_actual:
+                if not player_stats:
+                    continue
+                player_lower = str(row.get('player', '')).lower().strip()
+                hrr = player_stats.get(player_lower)
+                if hrr is None:  # partial last-name fallback
+                    parts = player_lower.split()
+                    last  = parts[-1] if parts else ''
+                    for k, v in player_stats.items():
+                        if last and last in k:
+                            hrr = v
+                            break
+                if hrr is None:
+                    continue
+                df.at[i, 'actual'] = str(hrr)
+                updated += 1
+                changed = True
+
+            # 2) Grade W/L when we have an actual, a real line, and no result yet
+            actual_val = str(df.at[i, 'actual']).strip()
+            result_val = str(df.at[i, 'result']).strip()
+            line_val   = str(row.get('line', '')).strip()
+            if (actual_val not in ('', 'nan') and result_val in ('', 'nan')
+                    and line_val and line_val not in ('nan', '') and game_date < today):
+                try:
+                    df.at[i, 'result'] = 'W' if float(actual_val) > float(line_val) else 'L'
+                    changed = True
+                except ValueError:
+                    pass
+
+    df.drop(columns=['_d'], inplace=True, errors='ignore')
+    if changed:
         save_all(df)
     return updated
