@@ -9,6 +9,7 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
 from full_tracker import load_all
+from eastern_time import today_str_et
 
 st.set_page_config(page_title="Weekly Tracker | MLB Props", page_icon="📆", layout="wide")
 
@@ -42,7 +43,7 @@ for _col in ('result', 'actual', 'line'):
     if _col not in df.columns:
         df[_col] = ''
 
-today_str = datetime.now().strftime('%Y-%m-%d')
+today_str = today_str_et()
 df = df.copy()
 df.loc[df['date_str'] >= today_str, 'actual'] = float('nan')
 df.loc[df['date_str'] >= today_str, 'result'] = ''

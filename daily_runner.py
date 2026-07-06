@@ -94,7 +94,8 @@ def lookup_player_name(player_id: int) -> str:
 
 
 def run(date_str: str = None):
-    today = datetime.now().strftime('%Y-%m-%d')
+    from eastern_time import today_str_et
+    today = today_str_et()
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     output_path = os.path.join(OUTPUT_DIR, f"{today}.csv")
 

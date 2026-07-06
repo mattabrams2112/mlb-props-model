@@ -535,7 +535,7 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
 
             # Batter rest days — days between last logged game and today's game
             try:
-                _game_dt_rest = datetime.strptime(game_date, '%Y-%m-%d').date() if game_date else datetime.now().date()
+                _game_dt_rest = datetime.strptime(game_date, '%Y-%m-%d').date() if game_date else today_et()
                 _last_played  = res['df']['date'].max()
                 if hasattr(_last_played, 'date'):
                     _last_played = _last_played.date()
@@ -913,7 +913,7 @@ for game in games:
     if not ab_ids and not hb_ids:
         continue
 
-    is_past       = selected_date < datetime.now().date()
+    is_past       = selected_date < today_et()
     weather       = get_stadium_weather(home, '' if is_past else game.get('start_time', ''))
     # Match event to odds API — try abbreviation, then team nickname
     TEAM_NICKNAMES = {

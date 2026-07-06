@@ -15,7 +15,8 @@ def update_tracker_actuals():
     if df.empty:
         return 0
 
-    today   = datetime.now().strftime('%Y-%m-%d')
+    from eastern_time import today_str_et
+    today   = today_str_et()   # ET — with UTC, today's live games count as past after 8pm ET
     updated = 0
 
     for i, row in df.iterrows():

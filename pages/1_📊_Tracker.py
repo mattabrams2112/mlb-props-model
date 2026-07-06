@@ -11,6 +11,7 @@ import streamlit as st
 import pandas as pd
 import requests
 from datetime import datetime
+from eastern_time import today_str_et
 from tracker import load, save, recalc_results, add_predictions
 from full_tracker import log_play as _log_play_ft, load_all as _load_all_ft
 from odds_api import get_todays_event_ids, get_hrr_lines, ODDS_API_KEY
@@ -28,7 +29,7 @@ def auto_fill_lines(df: pd.DataFrame) -> tuple:
     if not ODDS_API_KEY:
         return df, 0
 
-    today   = datetime.now().strftime('%Y-%m-%d')
+    today   = today_str_et()   # ET — UTC rolls to tomorrow at 8pm ET and breaks evening auto-fill
     pending = df[(df['date'] == today) &
                  (df['line'].isna() | (df['line'].astype(str).str.strip() == ''))]
 
@@ -106,7 +107,7 @@ def auto_fill_actuals(df: pd.DataFrame) -> tuple:
     from full_tracker import _get_boxscore_stats_for_date
     updated = 0
     df      = df.copy()
-    today   = datetime.now().strftime('%Y-%m-%d')
+    today   = today_str_et()   # ET — with UTC, today's in-progress games count as "past" after 8pm ET
 
     # Only fetch actuals for completed past days — never today's games
     pending = df[
@@ -168,7 +169,7 @@ def sync_from_ratings_cache():
     if ratings.empty:
         return 0
 
-    today = datetime.now().strftime('%Y-%m-%d')
+    today = today_str_et()
     _r = pd.to_numeric(ratings['rating'], errors='coerce')
     qualifying = ratings[
         (ratings['date'].astype(str).str[:10] <= today) &
@@ -231,7 +232,7 @@ if 'tracker_cache_synced' not in st.session_state:
         df = load()
 
 # Clear any actuals for today's games (may have been fetched mid-game)
-_today = datetime.now().strftime('%Y-%m-%d')
+_today = today_str_et()
 _today_rows = df['date'].astype(str).str[:10] >= _today
 if _today_rows.any():
     df = df.copy()
@@ -405,7 +406,7 @@ with col_sync:
 
 with col_fetch:
     if st.button('🔄 Auto-fetch Actuals from MLB API', type='primary', use_container_width=True):
-        today_str = datetime.now().strftime('%Y-%m-%d')
+        today_str = today_str_et()
         pending = df[df['actual'].isna() | (df['actual'].astype(str).str.strip().isin(['', 'nan']))]
         st.caption(f'Debug: {len(df)} total plays, {len(pending)} missing actuals, today={today_str}')
         if not pending.empty:

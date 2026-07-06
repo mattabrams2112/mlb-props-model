@@ -64,8 +64,9 @@ def save_preds(df: pd.DataFrame):
 
 
 def add_game_pred(row: dict, game_date: str, game_started: bool = False):
+    from eastern_time import today_str_et
     df   = load_preds()
-    today = datetime.now().strftime('%Y-%m-%d')
+    today = today_str_et()
     match = (not df.empty and
              (df['game_id'].astype(str) == str(row['game_id'])) &
              (df['date'].astype(str).str[:10] == game_date))
@@ -214,10 +215,11 @@ def fetch_actual_winners(game_date: str) -> dict:
 
 
 def update_game_actuals() -> int:
+    from eastern_time import today_str_et
     df = load_preds()
     if df.empty:
         return 0
-    today   = datetime.now().strftime('%Y-%m-%d')
+    today   = today_str_et()
     pending = df[df['result'].astype(str).str.strip() == '']
     if pending.empty:
         return 0

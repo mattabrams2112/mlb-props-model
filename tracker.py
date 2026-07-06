@@ -118,8 +118,9 @@ def update_rating_if_exists(player_name: str, game_date: str, rating, grade: str
 
 
 def add_predictions(new_rows: list, game_date: str = None) -> int:
+    from eastern_time import today_str_et
     df    = load()
-    today = game_date or datetime.now().strftime('%Y-%m-%d')
+    today = game_date or today_str_et()
     added = 0
     for row in new_rows:
         mask = (df['date'] == today) & (df['player'] == row['player'])

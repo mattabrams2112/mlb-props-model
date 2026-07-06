@@ -9,6 +9,7 @@ import requests
 import pandas as pd
 from datetime import datetime
 from data_dir import data_path
+from eastern_time import today_str_et
 
 LOG_FILE     = data_path('full_play_log.csv')
 DATABASE_URL = os.environ.get('DATABASE_URL', '')
@@ -70,13 +71,13 @@ def log_play(player: str, team: str, rating: int, grade: str,
              pitcher_throws: str = ''):
     """Log a play. Updates rating/projection only if game hasn't started yet."""
     df    = load_all()
-    today = game_date or datetime.now().strftime('%Y-%m-%d')
+    today = game_date or today_str_et()
     existing = (not df.empty and
                 ((df['date'].astype(str) == today) & (df['player'] == player)))
     if existing.any():
         idx = df[existing].index[0]
-        # Only update if today, game hasn't started yet, and no actual recorded
-        is_today = (today == datetime.now().strftime('%Y-%m-%d'))
+        # Only update if today (ET), game hasn't started yet, and no actual recorded
+        is_today = (today == today_str_et())
         if is_today and not game_started and str(df.at[idx, 'actual']).strip() in ('', 'nan'):
             df.at[idx, 'rating']     = rating
             df.at[idx, 'grade']      = grade
@@ -152,7 +153,6 @@ def update_actuals() -> int:
     if df.empty:
         return 0
 
-    from eastern_time import today_str_et
     today   = today_str_et()   # ET — server runs UTC, don't use datetime.now()
     updated = 0
 

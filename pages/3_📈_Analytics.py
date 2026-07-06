@@ -59,8 +59,9 @@ else:
 
 # Clear any actuals/results for today's games (may have been fetched mid-game)
 from datetime import datetime as _datetime
+from eastern_time import today_str_et
 from full_tracker import load_all as _load_all, save_all as _save_all
-_today_str = _datetime.now().strftime('%Y-%m-%d')
+_today_str = today_str_et()
 _full_df = _load_all()
 if not _full_df.empty:
     _today_mask = _full_df['date'].astype(str).str[:10] >= _today_str
@@ -140,7 +141,7 @@ with st.expander('✏️ Manually Correct an Actual', expanded=False):
             df.at[i, 'actual'] = str(new_a)
             line_val = str(df.at[i, 'line']).strip()
             line = float(line_val) if line_val and line_val not in ('nan', '') else 1.5
-            today_s = _datetime.now().strftime('%Y-%m-%d')
+            today_s = today_str_et()
             df.at[i, 'result'] = 'W' if (new_a > line and sel_date_a < today_s) else 'L' if sel_date_a < today_s else ''
             save_all(df)
             st.success(f'Updated {sel_a} ({sel_date_a}): actual={new_a}')
