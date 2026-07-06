@@ -11,7 +11,7 @@ DATABASE_URL = os.environ.get('DATABASE_URL', '')
 PREDS_FILE   = 'game_preds.csv'
 COLS = ['date', 'game_id', 'away_team', 'home_team', 'away_pitcher', 'home_pitcher',
         'predicted_winner', 'away_proj', 'home_proj', 'margin', 'confidence',
-        'actual_winner', 'result']
+        'actual_winner', 'result', 'market_pick', 'pick_ml']
 
 SEASON = datetime.now().year
 
@@ -74,7 +74,8 @@ def add_game_pred(row: dict, game_date: str, game_started: bool = False):
         if not game_started and game_date >= today:
             idx = df[match].index[0]
             for c in ['predicted_winner', 'away_proj', 'home_proj', 'margin',
-                      'confidence', 'away_pitcher', 'home_pitcher']:
+                      'confidence', 'away_pitcher', 'home_pitcher',
+                      'market_pick', 'pick_ml']:
                 if c in row:
                     df.at[idx, c] = row[c]
             save_preds(df)
@@ -96,7 +97,8 @@ def get_stored_pred(game_id: str, game_date: str):
 # ── Contextual adjustments ────────────────────────────────────────────────────
 
 def get_adjustments(home, away, home_pid, away_pid, game_date):
-    from team_stats import get_team_recent_scoring, get_team_defense_rating
+    from team_stats import (get_team_recent_scoring, get_team_defense_rating,
+                            get_team_season_strength)
     from bullpen_data import get_bullpen_stats
     from pitcher_data import get_pitcher_rest_days
     from stadium_weather import get_stadium_weather
@@ -107,6 +109,12 @@ def get_adjustments(home, away, home_pid, away_pid, game_date):
     home_rd  = home_sc.get('team_runs_avg', 4.5) - home_sc.get('team_runs_allowed_avg', 4.5)
     away_rd  = away_sc.get('team_runs_avg', 4.5) - away_sc.get('team_runs_allowed_avg', 4.5)
     form_adj = round((home_rd - away_rd) * 0.20, 2)
+
+    # Season-long strength — Pythagorean expectation is a steadier signal than
+    # the short recent-form window above; a .600 vs .400 pyth gap ≈ +0.6 runs
+    home_str = get_team_season_strength(home)
+    away_str = get_team_season_strength(away)
+    pyth_adj = round((home_str.get('pyth_wpct', 0.5) - away_str.get('pyth_wpct', 0.5)) * 3.0, 2)
 
     home_def    = get_team_defense_rating(home, SEASON).get('def_rating', 0.0)
     away_def    = get_team_defense_rating(away, SEASON).get('def_rating', 0.0)
@@ -120,7 +128,12 @@ def get_adjustments(home, away, home_pid, away_pid, game_date):
     away_rest = get_pitcher_rest_days(away_pid, SEASON, game_date).get('rest_factor', 0.0) if away_pid else 0.0
     rest_adj  = round((home_rest - away_rest) * 0.15, 2)
 
-    home_field = 0.30
+    # Venue-specific home field: how good is the home team AT HOME vs how good
+    # the road team is ON THE ROAD (league avg ≈ .540 home / .460 away → ~0.27).
+    # Clipped so an extreme April split can't dominate the prediction.
+    home_field = round(0.15 + (home_str.get('home_wpct', 0.540) -
+                               away_str.get('away_wpct', 0.460)) * 1.5, 2)
+    home_field = min(0.60, max(0.0, home_field))
 
     try:
         wx   = get_stadium_weather(home)
@@ -132,11 +145,12 @@ def get_adjustments(home, away, home_pid, away_pid, game_date):
                  '🌡️ {:.0f}°F — hot'.format(temp) if temp > 88 else
                  '🌤️ {:.0f}°F'.format(temp))
 
-    total_adj = form_adj + defense_adj + bp_adj + rest_adj + home_field
+    total_adj = form_adj + pyth_adj + defense_adj + bp_adj + rest_adj + home_field
 
     return {
         'total_adj':   round(total_adj, 2),
         'form_adj':    form_adj,
+        'pyth_adj':    pyth_adj,
         'defense_adj': defense_adj,
         'bp_adj':      bp_adj,
         'rest_adj':    rest_adj,
@@ -147,6 +161,8 @@ def get_adjustments(home, away, home_pid, away_pid, game_date):
         'away_rd':     round(away_rd, 2),
         'home_bp_era': home_bp_era,
         'away_bp_era': away_bp_era,
+        'home_pyth':   home_str.get('pyth_wpct', 0.5),
+        'away_pyth':   away_str.get('pyth_wpct', 0.5),
     }
 
 

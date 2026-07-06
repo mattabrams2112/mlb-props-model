@@ -50,7 +50,10 @@ DATABASE_URL = os.environ.get('DATABASE_URL', '')
 PREDS_FILE   = data_path('game_preds.csv')
 PRED_COLS    = ['date', 'game_id', 'away_team', 'home_team', 'away_pitcher',
                 'home_pitcher', 'predicted_winner', 'away_proj', 'home_proj',
-                'margin', 'confidence', 'actual_winner', 'result']
+                'margin', 'confidence', 'actual_winner', 'result',
+                'market_pick', 'pick_ml']   # must match game_pred_engine.COLS —
+                                            # _load_preds slices to this list, so a
+                                            # missing col here gets erased on save
 
 
 # ── DB helpers (mirrors Game Predictions page) ────────────────────────────────

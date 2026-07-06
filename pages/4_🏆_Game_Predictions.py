@@ -85,6 +85,25 @@ c2.metric('Win %',   pct)
 c3.metric('Decided', total)
 c4.metric('Pending', int((preds_df['result'].astype(str).str.strip() == '').sum()))
 
+# ── Model vs Market ───────────────────────────────────────────────────────────
+# Splits the record by whether the pick agreed with the moneyline favorite.
+# Beating the market on disagreements is the real signal — agreeing with the
+# favorite and winning is what the odds already predicted.
+if 'market_pick' in preds_df.columns:
+    _mkt = decided[decided['market_pick'].astype(str).str.strip() != '']
+    if not _mkt.empty:
+        _agree    = _mkt[_mkt['predicted_winner'] == _mkt['market_pick']]
+        _disagree = _mkt[_mkt['predicted_winner'] != _mkt['market_pick']]
+        _aw, _al  = int((_agree['result'] == 'W').sum()), int((_agree['result'] == 'L').sum())
+        _dw, _dl  = int((_disagree['result'] == 'W').sum()), int((_disagree['result'] == 'L').sum())
+        m1, m2 = st.columns(2)
+        m1.metric('🤝 With the market', f'{_aw} - {_al}',
+                  f'{_aw/(_aw+_al):.0%}' if (_aw+_al) else None, delta_color='off')
+        m2.metric('🔄 Against the market (upset picks)', f'{_dw} - {_dl}',
+                  f'{_dw/(_dw+_dl):.0%}' if (_dw+_dl) else None, delta_color='off')
+        st.caption('Upset picks beating ~42% are profitable at typical underdog odds — '
+                   'that column is the real test of the model, not the overall record.')
+
 # ── Confidence breakdown ───────────────────────────────────────────────────────
 
 st.markdown('---')
@@ -170,6 +189,52 @@ else:
 
 # ── Build predictions ─────────────────────────────────────────────────────────
 
+# Moneylines — ONE Odds API request covers every game today (cached 15 min)
+from odds_api import get_moneylines, ODDS_API_KEY as _OAK
+from lineup_fetcher import TEAM_ABBR as _TEAM_ABBR
+_ABBR_TO_FULL = {v: k for k, v in _TEAM_ABBR.items()}
+_ml_map = get_moneylines() if _OAK else {}
+import math as _math
+
+def _lookup_ml(away_abbr: str, home_abbr: str):
+    """Return (away_ml, home_ml, home_prob_devig) or None."""
+    for key in (_ABBR_TO_FULL.get(home_abbr, ''), home_abbr,
+                _ABBR_TO_FULL.get(home_abbr, '').split()[-1] if _ABBR_TO_FULL.get(home_abbr) else ''):
+        ev = _ml_map.get(key)
+        if ev:
+            return ev['away_ml'], ev['home_ml'], ev['home_prob']
+    return None
+
+def _model_home_prob(margin: float) -> float:
+    """Projected-HRR margin → home win probability (logistic, scale 3.0)."""
+    try:
+        return max(0.05, min(0.95, 1.0 / (1.0 + _math.exp(-float(margin) / 3.0))))
+    except (TypeError, ValueError):
+        return 0.5
+
+def _attach_market(row: dict):
+    """Add market fields to a prediction row (no-ops if odds unavailable)."""
+    row.update({'away_ml': None, 'home_ml': None, 'market_pick': '',
+                'pick_ml': '', 'model_prob': None, 'market_prob': None,
+                'value_edge': None})
+    ml = _lookup_ml(row['away_team'], row['home_team'])
+    if not ml or row.get('margin') is None:
+        return
+    away_ml, home_ml, p_home_mkt = ml
+    p_home_model = _model_home_prob(row['margin'])
+    pick_is_home = row['predicted_winner'] == row['home_team']
+    p_pick_model = p_home_model if pick_is_home else 1 - p_home_model
+    p_pick_mkt   = p_home_mkt   if pick_is_home else 1 - p_home_mkt
+    row.update({
+        'away_ml':     away_ml,
+        'home_ml':     home_ml,
+        'market_pick': row['home_team'] if p_home_mkt >= 0.5 else row['away_team'],
+        'pick_ml':     home_ml if pick_is_home else away_ml,
+        'model_prob':  round(p_pick_model, 3),
+        'market_prob': round(p_pick_mkt, 3),
+        'value_edge':  round(p_pick_model - p_pick_mkt, 3),
+    })
+
 if 'gp_rows' not in st.session_state:
     rows = []
     with st.spinner(f'Building predictions for {len(games)} games...'):
@@ -220,6 +285,12 @@ if 'gp_rows' not in st.session_state:
                     'source':           'stored',
                     'adj':              adj,
                 })
+                _attach_market(rows[-1])
+                # Keep the frozen pre-game market pick if one was stored
+                _stored_mp = str(stored.get('market_pick', '') or '').strip()
+                if _stored_mp:
+                    rows[-1]['market_pick'] = _stored_mp
+                    rows[-1]['pick_ml']     = stored.get('pick_ml', rows[-1]['pick_ml'])
                 continue
 
             away_hrr = st.session_state.get(f'team_hrr_{date_key}_{away}')
@@ -271,6 +342,7 @@ if 'gp_rows' not in st.session_state:
                 'source':           source,
                 'adj':              adj,
             })
+            _attach_market(rows[-1])
 
             add_game_pred({**rows[-1], 'date': date_str,
                            'actual_winner': '', 'result': ''}, date_str,
@@ -350,10 +422,30 @@ for row in rows:
     # Factor badges
     badges = ''.join([
         factor_badge('Form', adj['form_adj']),
+        factor_badge('Season', adj.get('pyth_adj', 0.0)),
         factor_badge('Defense', adj['defense_adj']),
         factor_badge('Bullpen', adj['bp_adj']),
         factor_badge('Rest', adj['rest_adj']),
+        factor_badge('Home', adj.get('home_field', 0.0)),
     ])
+
+    # Moneyline / value display
+    _aml, _hml = row.get('away_ml'), row.get('home_ml')
+    away_ml_html = (f'<br><span style="font-size:11px;color:#7dd3fc;font-weight:700;">ML {_aml:+d}</span>'
+                    if _aml is not None else '')
+    home_ml_html = (f'<br><span style="font-size:11px;color:#7dd3fc;font-weight:700;">ML {_hml:+d}</span>'
+                    if _hml is not None else '')
+    market_html = ''
+    if row.get('model_prob') is not None:
+        _mp, _kp, _ve = row['model_prob'], row['market_prob'], row['value_edge']
+        _agree = row.get('market_pick', '') == win
+        if _ve is not None and _ve >= 0.05:
+            market_html = (f'<div style="margin-top:4px;"><span style="background:#22c55e;color:#000;'
+                           f'border-radius:5px;padding:2px 8px;font-size:11px;font-weight:800;">'
+                           f'💎 VALUE +{_ve:.0%}</span></div>')
+        market_html += (f'<div style="font-size:10px;color:#94a3b8;margin-top:3px;">'
+                        f'model {_mp:.0%} vs book {_kp:.0%}'
+                        f'{"" if _agree else " · 🔄 vs market"}</div>')
 
     st.markdown(
         f'<div style="background:#1e293b;border:1px solid #1e40af;border-radius:10px;'
@@ -369,6 +461,7 @@ for row in rows:
         f'<span style="font-size:10px;color:#475569;">{row["away_pitcher"]}</span><br>'
         f'<span style="font-size:22px;font-weight:800;color:{"#22c55e" if win==away else "#94a3b8"};">{ap}</span><br>'
         f'<span style="font-size:10px;color:#475569;">BP ERA {adj["away_bp_era"]:.2f} · RD {adj["away_rd"]:+.1f}</span>'
+        f'{away_ml_html}'
         f'</div>'
 
         # Center
@@ -379,6 +472,7 @@ for row in rows:
         f'font-size:12px;font-weight:800;">{conf}</span>'
         f'<div style="font-size:11px;color:#475569;margin-top:3px;">margin {abs(margin):.1f}</div>'
         f'<div style="font-size:10px;color:#94a3b8;margin-top:2px;">{adj["temp_note"]}</div>'
+        f'{market_html}'
         f'{actual_html}'
         f'</div>'
 
@@ -389,6 +483,7 @@ for row in rows:
         f'<span style="font-size:10px;color:#475569;">{row["home_pitcher"]}</span><br>'
         f'<span style="font-size:22px;font-weight:800;color:{"#22c55e" if win==home else "#94a3b8"};">{hp}</span><br>'
         f'<span style="font-size:10px;color:#475569;">BP ERA {adj["home_bp_era"]:.2f} · RD {adj["home_rd"]:+.1f}</span>'
+        f'{home_ml_html}'
         f'</div>'
 
         f'</div>'

@@ -209,6 +209,75 @@ def get_player_line(player_name: str, event_id: str) -> dict | None:
     return None
 
 
+# ── Moneylines (game winners) ─────────────────────────────────────────────────
+
+@st.cache_data(show_spinner=False, ttl=900)   # cache 15 min
+def get_moneylines() -> dict:
+    """
+    Fetch h2h (moneyline) odds for ALL of today's games in ONE request —
+    unlike player props, the /odds endpoint covers every event at once, so
+    this costs 1 quota request total.
+
+    Returns {team_name_key: event} where each event is
+      {'home_team', 'away_team', 'home_ml', 'away_ml', 'home_prob', 'away_prob'}
+    keyed by both teams' full names and last words ("Yankees"). home_prob /
+    away_prob are DEVIGGED implied probabilities (sum to 1.0).
+    """
+    if not ODDS_API_KEY:
+        return {}
+    try:
+        resp = requests.get(
+            f'{BASE_URL}/sports/{SPORT}/odds',
+            params={
+                'apiKey':     ODDS_API_KEY,
+                'regions':    'us',
+                'markets':    'h2h',
+                'oddsFormat': 'american',
+                'bookmakers': 'draftkings,fanduel,betmgm',
+            },
+            timeout=10
+        )
+        resp.raise_for_status()
+        result = {}
+        for event in resp.json():
+            home = event.get('home_team', '')
+            away = event.get('away_team', '')
+            h_odds, a_odds = [], []
+            for book in event.get('bookmakers', []):
+                for mkt in book.get('markets', []):
+                    if mkt.get('key') != 'h2h':
+                        continue
+                    for out in mkt.get('outcomes', []):
+                        price = out.get('price')
+                        if price is None:
+                            continue
+                        if out.get('name') == home:
+                            h_odds.append(int(price))
+                        elif out.get('name') == away:
+                            a_odds.append(int(price))
+            if not h_odds or not a_odds:
+                continue
+            home_ml = int(sum(h_odds) / len(h_odds))
+            away_ml = int(sum(a_odds) / len(a_odds))
+            p_h = american_to_prob(home_ml)
+            p_a = american_to_prob(away_ml)
+            s   = p_h + p_a
+            ev  = {
+                'home_team': home, 'away_team': away,
+                'home_ml': home_ml, 'away_ml': away_ml,
+                'home_prob': round(p_h / s, 4) if s else 0.5,
+                'away_prob': round(p_a / s, 4) if s else 0.5,
+            }
+            for team in (home, away):
+                result[team] = ev
+                words = team.split()
+                if words:
+                    result.setdefault(words[-1], ev)
+        return result
+    except Exception:
+        return {}
+
+
 # ── API status / quota ────────────────────────────────────────────────────────
 
 @st.cache_data(show_spinner=False, ttl=300)   # cache 5 min

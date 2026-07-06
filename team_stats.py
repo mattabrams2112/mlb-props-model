@@ -87,6 +87,74 @@ def get_team_recent_scoring(team_abbr: str, n_games: int = 7) -> dict:
         return defaults
 
 
+@st.cache_data(show_spinner=False, ttl=10800)   # 3h — season numbers move slowly
+def get_team_season_strength(team_abbr: str) -> dict:
+    """
+    Season-long team strength from the full schedule:
+      pyth_wpct      — Pythagorean expectation RS^1.83/(RS^1.83+RA^1.83),
+                       a steadier "true talent" signal than recent form
+      home_wpct / away_wpct — actual win% splits for venue-specific home field
+    One schedule call per team, cached in-process and on disk per day.
+    """
+    defaults = {'pyth_wpct': 0.500, 'home_wpct': 0.540, 'away_wpct': 0.460,
+                'rs_pg': 4.5, 'ra_pg': 4.5, 'games': 0}
+    team_id = TEAM_IDS.get(team_abbr.upper())
+    if not team_id:
+        return defaults
+
+    cache = _load_cache()
+    from eastern_time import today_str_et
+    today = today_str_et()
+    key   = f'strength_{team_abbr}_{today}'
+    if key in cache:
+        return cache[key]
+
+    try:
+        season = int(today[:4])
+        games  = statsapi.schedule(
+            team=team_id,
+            start_date=f'03/15/{season}',
+            end_date=datetime.strptime(today, '%Y-%m-%d').strftime('%m/%d/%Y'),
+            sportId=1
+        )
+        rs = ra = 0
+        hw = hl = aw = al = 0
+        n  = 0
+        for g in games:
+            if g.get('status') not in ('Final', 'Game Over', 'Completed Early'):
+                continue
+            if g.get('game_type') not in ('R', None):   # regular season only
+                continue
+            hs = int(g.get('home_score', 0) or 0)
+            as_ = int(g.get('away_score', 0) or 0)
+            n += 1
+            if g.get('home_id') == team_id:
+                rs += hs; ra += as_
+                if hs > as_: hw += 1
+                else:        hl += 1
+            else:
+                rs += as_; ra += hs
+                if as_ > hs: aw += 1
+                else:        al += 1
+        if n < 15:   # too early in the season to trust
+            return defaults
+        exp  = 1.83
+        pyth = (rs ** exp) / ((rs ** exp) + (ra ** exp)) if (rs + ra) > 0 else 0.5
+        result = {
+            'pyth_wpct': round(pyth, 4),
+            'home_wpct': round(hw / (hw + hl), 4) if (hw + hl) >= 5 else 0.540,
+            'away_wpct': round(aw / (aw + al), 4) if (aw + al) >= 5 else 0.460,
+            'rs_pg':     round(rs / n, 2),
+            'ra_pg':     round(ra / n, 2),
+            'games':     n,
+        }
+        cache[key] = result
+        _save_cache(cache)
+        return result
+    except Exception:
+        return defaults
+
+
 @st.cache_data(show_spinner=False, ttl=86400)
 def get_team_defense_rating(team_abbr: str, season: int = None) -> dict:
     """
