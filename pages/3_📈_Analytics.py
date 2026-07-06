@@ -154,6 +154,23 @@ df['line']      = pd.to_numeric(df['line'],      errors='coerce')
 df['actual']    = pd.to_numeric(df['actual'],    errors='coerce')
 df['date_str']  = df['date'].astype(str).str[:10]
 
+# ── Benchmark grading (ANALYTICS VIEW ONLY — never saved) ─────────────────────
+# The betting record (Tracker / Daily Results) requires a real sportsbook line.
+# But this log records every batter and most never get a line, so for the band
+# win-rate research below, ungraded past plays are scored against the real line
+# when one exists, else a fixed 1.5 benchmark. This derived result exists only
+# in this page's dataframe — save/download paths reload from the database.
+_ungraded = ((df['result'].astype(str).str.strip() == '') &
+             df['actual'].notna() & (df['date_str'] < _today_str))
+_with_line = _ungraded & df['line'].notna()
+_no_line   = _ungraded & df['line'].isna()
+df.loc[_with_line, 'result'] = np.where(df.loc[_with_line, 'actual'] > df.loc[_with_line, 'line'], 'W', 'L')
+df.loc[_no_line,   'result'] = np.where(df.loc[_no_line,   'actual'] > 1.5, 'W', 'L')
+if int(_no_line.sum()):
+    st.caption(f'ℹ️ {int(_no_line.sum())} play(s) without a recorded line are scored '
+               f'against a **1.5 benchmark** here for research — they do not count '
+               f'in the Tracker or Daily Results.')
+
 # ── Date filter ───────────────────────────────────────────────────────────────
 
 from datetime import datetime as _dt, timedelta as _td
@@ -521,7 +538,9 @@ st.markdown('---')
 st.markdown('### Backup')
 dl, ul = st.columns(2)
 with dl:
-    st.download_button('⬇️ Download Play Log', data=df.to_csv(index=False),
+    # Export the raw log from the database — not this page's dataframe, which
+    # carries display-only benchmark results that must not be baked into a backup
+    st.download_button('⬇️ Download Play Log', data=load_all().to_csv(index=False),
                        file_name='mlb_play_log.csv', mime='text/csv',
                        use_container_width=True)
 with ul:

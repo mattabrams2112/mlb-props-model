@@ -48,6 +48,18 @@ df = df.copy()
 df.loc[df['date_str'] >= today_str, 'actual'] = float('nan')
 df.loc[df['date_str'] >= today_str, 'result'] = ''
 
+# Benchmark grading (view only — this page never saves): ungraded past plays
+# score against the real line when recorded, else a fixed 1.5 benchmark, so
+# the weekly band tables keep filling even though most plays never get a line.
+# The betting record (Tracker / Daily Results) still requires a real line.
+df['line'] = pd.to_numeric(df['line'], errors='coerce')
+_ungraded  = ((df['result'].astype(str).str.strip() == '') &
+              df['actual'].notna() & (df['date_str'] < today_str))
+_with_line = _ungraded & df['line'].notna()
+_no_line   = _ungraded & df['line'].isna()
+df.loc[_with_line, 'result'] = (df.loc[_with_line, 'actual'] > df.loc[_with_line, 'line']).map({True: 'W', False: 'L'})
+df.loc[_no_line,   'result'] = (df.loc[_no_line,   'actual'] > 1.5).map({True: 'W', False: 'L'})
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 RATING_BUCKETS = [
