@@ -96,13 +96,22 @@ if 'market_pick' in preds_df.columns:
         _disagree = _mkt[_mkt['predicted_winner'] != _mkt['market_pick']]
         _aw, _al  = int((_agree['result'] == 'W').sum()), int((_agree['result'] == 'L').sum())
         _dw, _dl  = int((_disagree['result'] == 'W').sum()), int((_disagree['result'] == 'L').sum())
-        m1, m2 = st.columns(2)
+
+        # Value picks — stored edge >= 5 points at prediction time
+        _ve   = pd.to_numeric(_mkt.get('value_edge', pd.Series(dtype=float)), errors='coerce')
+        _val  = _mkt[_ve >= 0.05]
+        _vw, _vl = int((_val['result'] == 'W').sum()), int((_val['result'] == 'L').sum())
+
+        m1, m2, m3 = st.columns(3)
         m1.metric('🤝 With the market', f'{_aw} - {_al}',
                   f'{_aw/(_aw+_al):.0%}' if (_aw+_al) else None, delta_color='off')
-        m2.metric('🔄 Against the market (upset picks)', f'{_dw} - {_dl}',
+        m2.metric('🔄 Against the market', f'{_dw} - {_dl}',
                   f'{_dw/(_dw+_dl):.0%}' if (_dw+_dl) else None, delta_color='off')
-        st.caption('Upset picks beating ~42% are profitable at typical underdog odds — '
-                   'that column is the real test of the model, not the overall record.')
+        m3.metric('💎 Value picks (edge ≥5%)', f'{_vw} - {_vl}',
+                  f'{_vw/(_vw+_vl):.0%}' if (_vw+_vl) else None, delta_color='off')
+        st.caption('Value picks are games where the model liked its pick at least '
+                   '5 points more than the book — the record here shows whether '
+                   'that disagreement is real edge or noise.')
 
 # ── Confidence breakdown ───────────────────────────────────────────────────────
 

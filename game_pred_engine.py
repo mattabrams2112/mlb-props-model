@@ -11,7 +11,7 @@ DATABASE_URL = os.environ.get('DATABASE_URL', '')
 PREDS_FILE   = 'game_preds.csv'
 COLS = ['date', 'game_id', 'away_team', 'home_team', 'away_pitcher', 'home_pitcher',
         'predicted_winner', 'away_proj', 'home_proj', 'margin', 'confidence',
-        'actual_winner', 'result', 'market_pick', 'pick_ml']
+        'actual_winner', 'result', 'market_pick', 'pick_ml', 'value_edge']
 
 SEASON = datetime.now().year
 
@@ -75,7 +75,7 @@ def add_game_pred(row: dict, game_date: str, game_started: bool = False):
             idx = df[match].index[0]
             for c in ['predicted_winner', 'away_proj', 'home_proj', 'margin',
                       'confidence', 'away_pitcher', 'home_pitcher',
-                      'market_pick', 'pick_ml']:
+                      'market_pick', 'pick_ml', 'value_edge']:
                 if c in row:
                     df.at[idx, c] = row[c]
             save_preds(df)
