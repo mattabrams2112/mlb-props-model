@@ -80,9 +80,11 @@ def _sync_tracker_to_fpl():
             for _i, _k in zip(fpl.index, _keys):
                 idx_by_key.setdefault(_k, _i)
 
+        _today = today_str_et()
         new_rows = []
         for _, row in tracker_df.iterrows():
-            key = f"{str(row['date'])[:10]}|{row['player']}"
+            _row_date = str(row['date'])[:10]
+            key = f"{_row_date}|{row['player']}"
             if key in idx_by_key:
                 i = idx_by_key[key]
                 # Backfill line / odds from tracker when full_play_log is missing them
@@ -90,6 +92,18 @@ def _sync_tracker_to_fpl():
                     tv = row.get(_col, '')
                     if not _blank(tv) and (_col not in fpl.columns or _blank(fpl.at[i, _col])):
                         fpl.at[i, _col] = tv
+                        changed = True
+                # Backfill actual + graded result too (past days only) — the
+                # Tracker fetches/grades independently, and without this a play
+                # graded there stays "pending" here forever
+                if _row_date < _today:
+                    tv = row.get('actual', '')
+                    if not _blank(tv) and _blank(fpl.at[i, 'actual']):
+                        fpl.at[i, 'actual'] = tv
+                        changed = True
+                    tv = str(row.get('result', '')).strip()
+                    if tv in ('W', 'L', 'PPD') and _blank(fpl.at[i, 'result']):
+                        fpl.at[i, 'result'] = tv
                         changed = True
             else:
                 new_rows.append({
