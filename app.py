@@ -55,6 +55,27 @@ st.markdown(
     unsafe_allow_html=True
 )
 
+# Odds API health at a glance
+try:
+    from odds_api import render_api_status
+    render_api_status()
+except Exception:
+    pass
+
+# Quick nav — the daily loop, one tap on mobile
+try:
+    _nav = st.columns(4)
+    with _nav[0]:
+        st.page_link('pages/2_🎯_Game_View.py', label='🎯 Game View', use_container_width=True)
+    with _nav[1]:
+        st.page_link('pages/1_📊_Tracker.py', label='📊 Tracker', use_container_width=True)
+    with _nav[2]:
+        st.page_link('pages/5_📅_Daily_Results.py', label='📅 Daily Results', use_container_width=True)
+    with _nav[3]:
+        st.page_link('pages/3_📈_Analytics.py', label='📈 Analytics', use_container_width=True)
+except Exception:
+    pass
+
 if df_raw.empty:
     st.info('No plays logged yet. Open **Game View** to load today\'s lineups and start tracking.')
     st.stop()
@@ -97,21 +118,33 @@ total_risked = sum(
 )
 total_roi = round(total_profit / total_risked * 100, 1) if total_risked > 0 else None
 
-# ── Top metrics row ───────────────────────────────────────────────────────────
+# ── Top metrics — responsive tile grid (wraps 2-up on phone, 6-up desktop) ───
 st.markdown('---')
-c1, c2, c3, c4, c5, c6 = st.columns(6)
 
-if today_w + today_l > 0:
-    c1.metric('Today Record', f'{today_w}-{today_l}')
-    c2.metric('Today Profit', f'{"+" if today_profit >= 0 else ""}${today_profit:.2f}')
-else:
-    c1.metric('Today Record', '—')
-    c2.metric('Today Profit', '—')
+def _tile(label, value, sub='', color='#e0f2fe'):
+    return (f'<div class="stat-tile"><div class="lbl">{label}</div>'
+            f'<div class="val" style="color:{color};">{value}</div>'
+            + (f'<div class="sub">{sub}</div>' if sub else '') + '</div>')
 
-c3.metric('Pending Today', len(today_pending))
-c4.metric('Season Record', f'{total_w}-{total_l}' if total_n > 0 else '—')
-c5.metric('Season Win Rate', f'{total_wr}%' if total_wr else '—')
-c6.metric('Season ROI', f'{total_roi}%' if total_roi else '—')
+_tp_color = '#22c55e' if today_profit >= 0 else '#ef4444'
+_wr_color = ('#22c55e' if (total_wr or 0) >= 60 else
+             '#eab308' if (total_wr or 0) >= 55.6 else '#ef4444') if total_wr else '#e0f2fe'
+_roi_color = ('#22c55e' if (total_roi or 0) >= 0 else '#ef4444') if total_roi is not None else '#e0f2fe'
+
+st.markdown(
+    '<div class="stat-grid">'
+    + _tile('Today Record', f'{today_w}-{today_l}' if (today_w + today_l) > 0 else '—')
+    + _tile('Today Profit',
+            (f'{"+" if today_profit >= 0 else ""}${today_profit:.2f}'
+             if (today_w + today_l) > 0 else '—'),
+            color=_tp_color if (today_w + today_l) > 0 else '#e0f2fe')
+    + _tile('Pending Today', len(today_pending))
+    + _tile('Season Record', f'{total_w}-{total_l}' if total_n > 0 else '—')
+    + _tile('Win Rate', f'{total_wr}%' if total_wr else '—', color=_wr_color)
+    + _tile('Season ROI', f'{total_roi}%' if total_roi is not None else '—', color=_roi_color)
+    + '</div>',
+    unsafe_allow_html=True
+)
 
 # ── P&L chart ─────────────────────────────────────────────────────────────────
 st.markdown('---')
@@ -191,49 +224,67 @@ all_today = pd.concat([today_decided, today_pending]).sort_values('rating', asce
 if all_today.empty:
     st.info("No plays logged yet today. Open **Game View** to load lineups.")
 else:
-    rows_html = ''
+    def _mini(label, value, color='#e0f2fe'):
+        return (f'<div style="flex:1;min-width:0;text-align:center;">'
+                f'<div style="font-size:0.62rem;color:#475569;text-transform:uppercase;'
+                f'letter-spacing:0.05em;">{label}</div>'
+                f'<div style="font-size:1.05rem;font-weight:800;color:{color};">{value}</div></div>')
+
+    cards_html = ''
     for _, row in all_today.iterrows():
-        r      = int(row['rating']) if pd.notna(row['rating']) else 75
-        u      = get_units(r)
+        r      = int(row['rating']) if pd.notna(row['rating']) else 85
         result = row.get('result', '')
         rc     = rating_color(r)
 
+        _line = str(row.get('line', '')).strip()
+        _line = _line if _line not in ('', 'nan', 'None') else '—'
+        _odds = str(row.get('over_odds', '')).strip()
+        try:
+            _odds = f'{int(float(_odds)):+d}' if _odds not in ('', 'nan', 'None') else '—'
+        except ValueError:
+            _odds = '—'
+        _proj = row['projected'] if pd.notna(row.get('projected')) else '—'
+        _vs   = str(row.get('vs_pitcher', '')).strip()
+        _vs   = f'vs {_vs}' if _vs and _vs not in ('nan', 'TBD') else ''
+
         if result == 'W':
-            badge = '<span style="background:#14532d;color:#22c55e;padding:3px 10px;border-radius:5px;font-weight:700;font-size:12px;">WIN</span>'
+            cls, badge = 'win',  '<span style="background:#14532d;color:#22c55e;padding:3px 10px;border-radius:5px;font-weight:700;font-size:12px;">WIN</span>'
         elif result == 'L':
-            badge = '<span style="background:#450a0a;color:#ef4444;padding:3px 10px;border-radius:5px;font-weight:700;font-size:12px;">LOSS</span>'
+            cls, badge = 'loss', '<span style="background:#450a0a;color:#ef4444;padding:3px 10px;border-radius:5px;font-weight:700;font-size:12px;">LOSS</span>'
         else:
-            badge = '<span style="background:#1e293b;color:#64748b;padding:3px 10px;border-radius:5px;font-size:12px;">Pending</span>'
+            cls, badge = 'open', '<span style="background:#1e293b;color:#94a3b8;padding:3px 10px;border-radius:5px;font-size:12px;">Pending</span>'
 
         p      = play_profit(r, result) if result in ('W', 'L') else None
-        pl_str = (f'<span style="color:{"#22c55e" if p >= 0 else "#ef4444"};font-weight:700;">{"+" if p >= 0 else ""}${p:.2f}</span>'
-                  if p is not None else '<span style="color:#334155;">—</span>')
+        pl_str = (f'<span style="color:{"#22c55e" if p >= 0 else "#ef4444"};font-weight:800;">{"+" if p >= 0 else ""}${p:.2f}</span>'
+                  if p is not None else '')
 
-        rows_html += (
-            f'<tr style="border-bottom:1px solid #1e293b;">'
-            f'<td style="padding:10px 12px;color:#e0f2fe;font-weight:600;">{row.get("player","—")}</td>'
-            f'<td style="padding:10px 12px;color:#7dd3fc;">{row.get("team","—")}</td>'
-            f'<td style="padding:10px 12px;font-size:16px;font-weight:800;color:{rc};">{r}</td>'
-            f'<td style="padding:10px 12px;color:#fbbf24;font-weight:700;">{u}u / ${u*UNIT:.0f}</td>'
-            f'<td style="padding:10px 12px;color:#94a3b8;">{row["projected"] if pd.notna(row.get("projected")) else "—"}</td>'
-            f'<td style="padding:10px 12px;">{badge}</td>'
-            f'<td style="padding:10px 12px;">{pl_str}</td>'
-            f'</tr>'
+        cards_html += (
+            f'<div class="play-card {cls}">'
+            # Header: player + rating badge
+            f'<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">'
+            f'<div style="min-width:0;">'
+            f'<div style="color:#e0f2fe;font-weight:700;font-size:0.98rem;white-space:nowrap;'
+            f'overflow:hidden;text-overflow:ellipsis;">{row.get("player","—")}</div>'
+            f'<div style="color:#64748b;font-size:0.72rem;">{row.get("team","—")} {_vs}</div>'
+            f'</div>'
+            f'<div style="background:{rc}20;border:1px solid {rc}50;color:{rc};border-radius:8px;'
+            f'padding:4px 10px;font-size:1.1rem;font-weight:800;flex:0 0 auto;">{r}</div>'
+            f'</div>'
+            # Numbers row: proj / line / odds
+            f'<div style="display:flex;gap:6px;margin-top:10px;">'
+            + _mini('Proj', _proj, '#7dd3fc')
+            + _mini('Line', _line)
+            + _mini('Odds', _odds)
+            + f'</div>'
+            # Footer: status + P/L
+            f'<div style="display:flex;align-items:center;justify-content:space-between;'
+            f'margin-top:10px;padding-top:8px;border-top:1px solid #1e293b;">'
+            f'{badge}<div>{pl_str}</div>'
+            f'</div>'
+            f'</div>'
         )
 
-    st.markdown(
-        '<table style="width:100%;border-collapse:collapse;font-family:monospace;font-size:13px;">'
-        '<thead><tr style="background:#1e3a5f;color:#38bdf8;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;">'
-        '<th style="padding:9px 12px;text-align:left;">Player</th>'
-        '<th style="padding:9px 12px;text-align:left;">Team</th>'
-        '<th style="padding:9px 12px;text-align:left;">Rating</th>'
-        '<th style="padding:9px 12px;text-align:left;">Stake</th>'
-        '<th style="padding:9px 12px;text-align:left;">Proj</th>'
-        '<th style="padding:9px 12px;text-align:left;">Result</th>'
-        '<th style="padding:9px 12px;text-align:left;">P/L</th>'
-        f'</tr></thead><tbody>{rows_html}</tbody></table>',
-        unsafe_allow_html=True
-    )
+    st.markdown(f'<div class="play-grid">{cards_html}</div>', unsafe_allow_html=True)
 
 # ── Last 7 days ───────────────────────────────────────────────────────────────
 st.markdown('---')

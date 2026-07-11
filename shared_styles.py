@@ -158,6 +158,63 @@ div[data-testid="stError"]   { background: rgba(239,68,68,0.07) !important;   bo
 ::-webkit-scrollbar-track { background: #0f172a; }
 ::-webkit-scrollbar-thumb { background: #1e3a5f; border-radius: 99px; }
 ::-webkit-scrollbar-thumb:hover { background: #2563eb; }
+
+/* ── Responsive stat tiles (wrap on phone, one row on desktop) ──────────── */
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+  margin: 4px 0 14px;
+}
+.stat-tile {
+  background: #0f1f38;
+  border: 1px solid #1e3a5f;
+  border-radius: 10px;
+  padding: 12px 16px;
+  min-width: 0;
+}
+.stat-tile .lbl {
+  color: #38bdf8; font-size: 0.70rem; text-transform: uppercase;
+  letter-spacing: 0.05em; font-weight: 700; white-space: nowrap;
+}
+.stat-tile .val { color: #e0f2fe; font-size: 1.35rem; font-weight: 800; margin-top: 2px; }
+.stat-tile .sub { color: #64748b; font-size: 0.72rem; margin-top: 1px; }
+
+/* ── Responsive play-card grid (1-col phone, 2-3 col desktop) ───────────── */
+.play-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+  gap: 10px;
+}
+.play-card {
+  background: #0f1f38;
+  border: 1px solid #1e3a5f;
+  border-radius: 12px;
+  padding: 12px 14px;
+  min-width: 0;
+}
+.play-card.win  { border-left: 3px solid #22c55e; }
+.play-card.loss { border-left: 3px solid #ef4444; }
+.play-card.open { border-left: 3px solid #f59e0b; }
+
+/* ── Mobile tuning ──────────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .block-container {
+    padding-left: 0.85rem !important;
+    padding-right: 0.85rem !important;
+    padding-top: 0.8rem !important;
+  }
+  h1 { font-size: 1.45rem !important; }
+  h2 { font-size: 1.2rem !important; }
+  /* Wide HTML tables scroll inside their own container instead of
+     stretching the page — applies to every custom table on every page */
+  .stMarkdown table {
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    white-space: nowrap;
+  }
+}
 </style>
 """
 
