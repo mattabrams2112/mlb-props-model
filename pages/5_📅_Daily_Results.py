@@ -1,6 +1,6 @@
 """
 Daily Results — day-by-day performance filtered by current tracking criteria.
-Criteria: Rating >= 85
+Criteria: Rating >= 85 (1u), plus 80-84 (0.5u) from bet_config.EXPANSION_DATE on.
 """
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
@@ -10,6 +10,7 @@ import pandas as pd
 from datetime import datetime
 from full_tracker import load_all, update_actuals, save_all, log_play
 from eastern_time import today_et, today_str_et
+from bet_config import qualifies_mask, units_for, EXPANSION_DATE, UNIT_DOLLARS
 from shared_styles import inject_styles
 
 st.set_page_config(page_title="Daily Results | MLB Props", page_icon="📅", layout="wide")
@@ -33,8 +34,8 @@ with col_fetch:
         _chk['_r']  = _chk['result'].astype(str).str.strip()
         _chk['_l']  = (_chk['line'].astype(str).str.strip()
                        if 'line' in _chk.columns else '')
-        _rn   = pd.to_numeric(_chk['rating'], errors='coerce')
-        _past = _chk[(_chk['_ds'] < today_str_et()) & (_rn >= 85)]
+        _chk['date_str'] = _chk['_ds']
+        _past = _chk[(_chk['_ds'] < today_str_et()) & qualifies_mask(_chk)]
         _no_actual = int(_past['_a'].isin(['', 'nan']).sum())
         _no_line   = int(((~_past['_a'].isin(['', 'nan'])) &
                           (_past['_r'].isin(['', 'nan'])) &
@@ -196,19 +197,19 @@ if _period != 'All Time':
     _range_label = f"{_fstart} → {_fend or 'today'}"
     st.caption(f'Showing: **{_period}** ({_range_label})')
 
-# Apply current criteria
+# Apply current criteria — 85+ any day, plus 80-84 from EXPANSION_DATE onward
 today_str = today_str_et()
-criteria = df[df['rating'] >= 85]
+criteria = df[qualifies_mask(df)]
 
 decided = criteria[criteria['result'].isin(['W', 'L'])]
-pending = _df_all[(_df_all['rating'] >= 85) & (_df_all['result'] == '')]
+pending = _df_all[qualifies_mask(_df_all) & (_df_all['result'] == '')]
 
 UNIT = 8.0   # dollars per unit
 ODDS = -125  # sportsbook odds (American)
 _WIN_MULT = 100 / 125  # payout multiplier for -125
 
 def get_units(rating):
-    return 1.0
+    return units_for(rating)
 
 def play_profit(rating, result):
     """Profit in dollars for a single play at -125."""
@@ -228,9 +229,11 @@ def play_units_pl(rating, result):
 # ── Staking guide ─────────────────────────────────────────────────────────────
 
 st.markdown('### Staking Guide')
-st.caption(f'Flat 1u per play · ${UNIT:.0f}/unit at {ODDS} odds (break-even: 55.6%)')
+st.caption(f'Tiered stakes · ${UNIT:.0f}/unit at {ODDS} odds (break-even: 55.6%)')
+st.caption(f'🆕 80-84 plays (0.5u / $4) are tracked starting **{EXPANSION_DATE}** — '
+           f'earlier days stay 85+ only, so past records are unchanged.')
 
-stake_html = '''<table style="width:100%;border-collapse:collapse;font-family:monospace;">
+stake_html = f'''<table style="width:100%;border-collapse:collapse;font-family:monospace;">
 <thead><tr style="background:#1e3a5f;color:#38bdf8;font-size:13px;">
 <th style="padding:9px 12px;text-align:left;">Rating</th>
 <th style="padding:9px 12px;text-align:center;">Units</th>
@@ -238,10 +241,16 @@ stake_html = '''<table style="width:100%;border-collapse:collapse;font-family:mo
 <th style="padding:9px 12px;text-align:left;">Notes</th>
 </tr></thead><tbody>
 <tr style="background:#1a2744;">
-  <td style="padding:8px 12px;color:#22c55e;font-weight:700;">75+</td>
+  <td style="padding:8px 12px;color:#22c55e;font-weight:700;">85+</td>
   <td style="padding:8px 12px;text-align:center;color:#fbbf24;font-weight:800;">1u</td>
-  <td style="padding:8px 12px;text-align:center;color:#e0f2fe;font-weight:700;">$8</td>
-  <td style="padding:8px 12px;color:#94a3b8;font-size:12px;">Flat bet — building sample size</td>
+  <td style="padding:8px 12px;text-align:center;color:#e0f2fe;font-weight:700;">${UNIT_DOLLARS:.0f}</td>
+  <td style="padding:8px 12px;color:#94a3b8;font-size:12px;">Core play</td>
+</tr>
+<tr>
+  <td style="padding:8px 12px;color:#38bdf8;font-weight:700;">80-84</td>
+  <td style="padding:8px 12px;text-align:center;color:#fbbf24;font-weight:800;">0.5u</td>
+  <td style="padding:8px 12px;text-align:center;color:#e0f2fe;font-weight:700;">${UNIT_DOLLARS*0.5:.0f}</td>
+  <td style="padding:8px 12px;color:#94a3b8;font-size:12px;">Half stake — from {EXPANSION_DATE}</td>
 </tr>
 </tbody></table>'''
 st.markdown(stake_html, unsafe_allow_html=True)
@@ -451,10 +460,10 @@ _gl['_ds'] = _gl['date'].astype(str).str[:10]
 _gl['_a']  = _gl['actual'].astype(str).str.strip()
 _gl['_r']  = _gl['result'].astype(str).str.strip()
 _gl['_l']  = _gl['line'].astype(str).str.strip() if 'line' in _gl.columns else ''
-_gl['_rn'] = pd.to_numeric(_gl['rating'], errors='coerce')
+_gl['date_str'] = _gl['_ds']
 _needs_line = _gl[
     (_gl['_ds'] < today_str_et()) &
-    (_gl['_rn'] >= 85) &
+    qualifies_mask(_gl) &
     (~_gl['_a'].isin(['', 'nan'])) &
     (_gl['_r'].isin(['', 'nan'])) &
     (_gl['_l'].isin(['', 'nan']))

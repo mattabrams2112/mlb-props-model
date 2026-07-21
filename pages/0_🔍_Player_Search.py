@@ -567,7 +567,10 @@ else:
             st.session_state['lineup_rows'] = all_rows
 
             from tracker import add_predictions
-            qualified = [r for r in all_rows if r['Rating'] >= 85]
+            from bet_config import qualifies
+            from eastern_time import today_str_et as _tse
+            _ps_today = _tse()
+            qualified = [r for r in all_rows if qualifies(r['Rating'], _ps_today)]
             if qualified:
                 add_predictions([{
                     'player':     r['Player'],

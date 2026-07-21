@@ -119,8 +119,12 @@ def save_rating(game_date: str, player_id: int, rating: int, grade: str,
     df = pd.concat([df, new_row], ignore_index=True)
     _save(df)
 
-    # Auto-add to tracker using current criteria
-    _qualifies = rating >= 85
+    # Auto-add to tracker using current criteria (85+ any day, 80-84 from go-live)
+    try:
+        from bet_config import qualifies as _bet_qualifies
+        _qualifies = _bet_qualifies(rating, game_date)
+    except Exception:
+        _qualifies = rating >= 85
     if _qualifies and player_name:
         try:
             from tracker import add_predictions

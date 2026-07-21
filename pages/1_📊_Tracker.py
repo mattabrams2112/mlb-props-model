@@ -1,6 +1,6 @@
 """
 Tracker — logs qualifying predictions and tracks W/L record.
-Criteria: Rating >= 85
+Criteria: Rating >= 85 (1u), plus 80-84 (0.5u) from bet_config.EXPANSION_DATE on.
 WIN  = actual H+R+RBI > sportsbook line you entered.
 LOSS = actual H+R+RBI ≤ sportsbook line you entered.
 """
@@ -12,6 +12,8 @@ import pandas as pd
 import requests
 from datetime import datetime
 from eastern_time import today_str_et
+from bet_config import (qualifies, qualifies_mask, bet_label,
+                        EXPANSION_DATE, TIER2_MIN, TIER1_MIN)
 from tracker import load, save, recalc_results, add_predictions
 from full_tracker import log_play as _log_play_ft, load_all as _load_all_ft
 from odds_api import get_todays_event_ids, get_hrr_lines, ODDS_API_KEY
@@ -149,7 +151,9 @@ def auto_fill_actuals(df: pd.DataFrame) -> tuple:
 
 # Auto-import qualifying players from today's lineup
 if 'lineup_rows' in st.session_state:
-    qualified = [r for r in st.session_state['lineup_rows'] if r['Rating'] >= 85]
+    _imp_today = today_str_et()
+    qualified = [r for r in st.session_state['lineup_rows']
+                 if qualifies(r['Rating'], _imp_today)]
     if qualified:
         add_predictions([{
             'player':     r['Player'],
@@ -170,10 +174,9 @@ def sync_from_ratings_cache():
         return 0
 
     today = today_str_et()
-    _r = pd.to_numeric(ratings['rating'], errors='coerce')
     qualifying = ratings[
         (ratings['date'].astype(str).str[:10] <= today) &
-        (_r >= 85) &
+        qualifies_mask(ratings, date_col='date') &
         (ratings['player_name'].astype(str).str.strip() != '')
     ]
     if qualifying.empty:
@@ -250,17 +253,16 @@ if 'tracker_lines_filled' not in st.session_state:
 _hdr, _btn = st.columns([5, 1])
 with _hdr:
     st.markdown('## 📊 Prediction Tracker')
-    st.caption('Criteria: Rating ≥ 85 · Actuals fetched automatically')
+    st.caption(f'Criteria: 85+ = 1u · 80-84 = 0.5u (from {EXPANSION_DATE}) · Actuals fetched automatically')
+    st.caption(f'🆕 80-84 plays (0.5u / $4) are tracked starting **{EXPANSION_DATE}** — earlier days are 85+ only and unchanged.')
     from odds_api import render_api_status
     render_api_status()
 with _btn:
     if st.button('🔄 Refresh', use_container_width=True):
         st.rerun()
 
-# Filter to current criteria only
-df['_r'] = pd.to_numeric(df['rating'], errors='coerce')
-df = df[df['_r'] >= 85].copy()
-df.drop(columns=['_r'], inplace=True)
+# Filter to current criteria only — 85+ always, plus 80-84 from EXPANSION_DATE on
+df = df[qualifies_mask(df)].copy()
 
 # ── Record summary ─────────────────────────────────────────────────────────────
 
@@ -474,10 +476,7 @@ st.caption('Lines must be entered manually. Click **Auto-fetch Actuals** to pull
 df['_sort'] = df['result'].apply(lambda x: 0 if x == '' else 1)
 df = df.sort_values(['_sort', 'date', 'rating'], ascending=[True, False, False]).drop(columns=['_sort'])
 
-def _bet_size(rating):
-    return '$8 (1u)'
-
-df['bet'] = df['rating'].apply(_bet_size)
+df['bet'] = df['rating'].apply(bet_label)
 
 edited = st.data_editor(
     df,

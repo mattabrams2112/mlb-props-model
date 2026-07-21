@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 
 from full_tracker import load_all
 from eastern_time import today_str_et
+from bet_config import qualifies_mask, units_for
 from shared_styles import inject_styles
 from team_logos import logo_img_tag
 from lineup_fetcher import get_todays_lineups
@@ -26,7 +27,7 @@ UNIT      = 8.0
 _WIN_MULT = 100 / 125
 
 def get_units(rating):
-    return 1.0
+    return units_for(rating)
 
 def play_profit(rating, result):
     u = get_units(rating)
@@ -85,7 +86,7 @@ df_raw['projected'] = pd.to_numeric(df_raw['projected'], errors='coerce')
 df_raw['actual']    = pd.to_numeric(df_raw['actual'],    errors='coerce')
 df_raw['date_str']  = df_raw['date'].astype(str).str[:10]
 
-criteria = df_raw[df_raw['rating'] >= 85]
+criteria = df_raw[qualifies_mask(df_raw)]
 decided  = criteria[criteria['result'].isin(['W', 'L'])]
 pending  = criteria[criteria['result'] == '']
 

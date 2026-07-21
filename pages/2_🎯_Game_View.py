@@ -42,6 +42,7 @@ from umpire_data import get_game_umpire
 from pitcher_data import get_pitcher_throws, get_pitcher_last_n_starts, get_pitcher_rest_days
 from shared_styles import inject_styles
 from calibration import get_correction_factor
+from bet_config import qualifies as _bet_qualifies, units_for as _bet_units
 
 st.set_page_config(page_title="Game View | MLB Props", page_icon="🎯", layout="wide")
 inject_styles()
@@ -652,11 +653,12 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
             from datetime import datetime as _dt
             _today = today_str_et()
             _r = r_data['total']; _p = _disp_proj
-            _qualifies = _r >= 85
+            _qualifies = _bet_qualifies(_r, game_date)
+            _stake_badge = ''
             if _qualifies:
-                _units = 1.0
-                _bet   = 8
-                _u_str = '1'
+                _units = _bet_units(_r)
+                _bet   = int(_units * 8)
+                _u_str = f'{_units:g}'
                 _stake_badge = (f' <span style="font-size:10px;background:#1e3a5f;color:#7dd3fc;'
                                 f'border-radius:3px;padding:1px 4px;font-weight:700;">'
                                 f'{_u_str}u · ${_bet}</span>')
