@@ -521,7 +521,7 @@ if not decided.empty:
 
         with st.expander(f"**{date}** — {day_w}-{day_l} ({day_pct})", expanded=(date == sorted(decided['date'].unique(), reverse=True)[0])):
             day_display = day_df[['player', 'team', 'rating', 'projected', 'line', 'actual', 'result', 'vs_pitcher']].copy()
-            day_display['bet'] = day_display['rating'].apply(_bet_size)
+            day_display['bet'] = day_display['rating'].apply(bet_label)
             day_display['result'] = day_display['result'].map({'W': '✅ W', 'L': '❌ L'})
             st.dataframe(
                 day_display.rename(columns={
