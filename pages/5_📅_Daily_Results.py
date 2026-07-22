@@ -231,7 +231,7 @@ def play_units_pl(rating, result):
 st.markdown('### Staking Guide')
 st.caption(f'Tiered stakes · ${UNIT:.0f}/unit at {ODDS} odds (break-even: 55.6%)')
 st.caption(f'🆕 80-84 plays (0.5u / $4) tracked from **{EXPANSION_DATE}**. '
-           f'🚫 90+ dropped from **{CAP_DATE}** (boom-or-bust fade). '
+           f'🚫 90-94 dropped from **{CAP_DATE}** (boom-or-bust fade; 95+ kept). '
            f'Earlier days are unchanged.')
 
 stake_html = f'''<table style="width:100%;border-collapse:collapse;font-family:monospace;">

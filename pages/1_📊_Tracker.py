@@ -255,7 +255,7 @@ with _hdr:
     st.markdown('## 📊 Prediction Tracker')
     st.caption(f'Criteria: 85-89 = 1u · 80-84 = 0.5u (from {EXPANSION_DATE}) · Actuals fetched automatically')
     st.caption(f'🆕 80-84 plays (0.5u / $4) tracked from **{EXPANSION_DATE}**. '
-               f'🚫 90+ plays dropped from **{CAP_DATE}** (boom-or-bust fade). '
+               f'🚫 90-94 plays dropped from **{CAP_DATE}** (boom-or-bust fade; 95+ kept). '
                f'Earlier days are unchanged.')
     from odds_api import render_api_status
     render_api_status()
