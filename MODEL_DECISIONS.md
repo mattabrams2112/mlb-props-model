@@ -5,6 +5,46 @@ so decisions don't get re-litigated from scratch. Newest first. Dates are ET.
 
 ---
 
+## 2026-07-22 — Edge diagnostic: recenter, not rebuild (directional, pending clean data)
+
+**What:** Before rebuilding the projection formula, tested the "Edge is fake" story
+against outcomes (Edge diagnostic, Analytics). Real-line decided plays, Jun 18→now.
+
+**Check 2 — does higher Edge win?** Yes, directionally:
+| edge | win% |
+|------|------|
+| <0   | 40.2 |
+| 0–0.5| 46.3 |
+| 0.5–1| 45.6 |
+| 1–1.5| 46.5 |
+| 1.5–2| 50.4 |
+| 2+   | 49.2 |
+Negative-edge plays win 40% vs 46-50% for positive edge → the projection **ranks
+plays correctly**, it's just shifted up. That's the RECENTER (constant-offset) case,
+not the noise/rebuild case. Magnitude signal is weak (positive buckets ~flat) and
+the 2+ bucket rolls off — extreme edges are the over-inflated stacked plays.
+
+**Check 1 — projection flat while rating swings?** Partly. Rating swings hard with
+the line (41→65); projection rises too (1.86→2.8) but less and plateaus. And the
+broad-population projections (1.86–2.8) sit CLOSE to actuals (1.58–2.18), gap ~0.5.
+**Correction to an earlier claim:** "projections are ~2 HRR high everywhere" was
+overstated — the severe over-projection is CONCENTRATED in the high bet-band,
+stacked-matchup boom-or-bust plays; the broad population is only mildly high (~0.5).
+
+**Caveat:** the 85+ real-line sample (the plays we actually bet) is thin here —
+lines weren't pulling for high plays — so this is DIRECTIONAL on the mechanism,
+not proven on the bet bands. Gated on clean forward data before shipping.
+
+**Plan (do both once clean data confirms):**
+1. **Recenter / calibration** — subtract the constant offset (the cheaper fix the
+   data supports), NOT the bigger matchup-response rebuild. Rewrite calibration.py:
+   drop the `actual > 0` filter, bin by projection, clean-window data, auto-activate
+   on sample.
+2. **Negative-edge filter** — skip projection < line plays, layered ON TOP of the
+   85+ rating filter (not standalone — the broad population never clears breakeven).
+
+---
+
 ## 2026-07-22 — Boom-or-bust penalty: tried, then removed (UNSUPPORTED, not disproven)
 
 **What:** Added then removed a rating penalty that docked plays whose projection
