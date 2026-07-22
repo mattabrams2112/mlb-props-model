@@ -75,8 +75,11 @@ def log_play(player: str, team: str, rating: int, grade: str,
     r30g = the player's live 30-game HRR baseline (for boom_delta analysis)."""
     df    = load_all()
     today = game_date or today_str_et()
+    # Key on date + player + vs_pitcher so doubleheader games each get a row
+    _vp = str(vs_pitcher).strip()
     existing = (not df.empty and
-                ((df['date'].astype(str) == today) & (df['player'] == player)))
+                ((df['date'].astype(str) == today) & (df['player'] == player) &
+                 (df['vs_pitcher'].astype(str).str.strip() == _vp)))
     if existing.any():
         idx = df[existing].index[0]
         # Only update if today (ET), game hasn't started yet, and no actual recorded

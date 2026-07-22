@@ -103,7 +103,10 @@ def update_rating_if_exists(player_name: str, game_date: str, rating, grade: str
     """Update an existing tracker entry's rating if no actual has been recorded yet.
     Does NOT add new entries — only updates. Returns True if a row was updated."""
     df = load()
-    mask = (df['date'] == game_date) & (df['player'] == player_name)
+    # Match the specific doubleheader game via vs_pitcher, not just date+player
+    _vp = str(vs_pitcher).strip()
+    mask = ((df['date'] == game_date) & (df['player'] == player_name) &
+            (df['vs_pitcher'].astype(str).str.strip() == _vp))
     if not mask.any():
         return False
     idx = df[mask].index[0]
@@ -123,7 +126,12 @@ def add_predictions(new_rows: list, game_date: str = None) -> int:
     today = game_date or today_str_et()
     added = 0
     for row in new_rows:
-        mask = (df['date'] == today) & (df['player'] == row['player'])
+        # Key on date + player + vs_pitcher so doubleheader games (same player,
+        # same day, different starters) each get their own row instead of the
+        # second overwriting the first.
+        _vp = str(row.get('vs_pitcher', '')).strip()
+        mask = ((df['date'] == today) & (df['player'] == row['player']) &
+                (df['vs_pitcher'].astype(str).str.strip() == _vp))
         if mask.any():
             # Update existing pre-game entry if no actual recorded yet
             idx = df[mask].index[0]
