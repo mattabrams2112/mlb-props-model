@@ -354,6 +354,52 @@ with st.expander('🔧 boom_delta Reconstruction (API pull) — find the win/los
                 st.dataframe(_rec.sort_values('boom_delta', ascending=False),
                              hide_index=True, use_container_width=True)
 
+
+# ── Edge diagnostic ───────────────────────────────────────────────────────────
+# Two checks before touching calibration (test the story vs outcomes):
+#   1) Does the projection track the matchup (the line), or stay flat?
+#   2) Does higher Edge actually win more (offset → recenter) or is it noise?
+with st.expander('🔬 Edge Diagnostic — is Edge real, a constant offset, or noise?', expanded=False):
+    st.caption("Real-line decided plays only, respects the date filter. NOTE: historical "
+               "data is partly polluted, so read this as directional — the clean forward "
+               "data is the real verdict.")
+    _ed = df[df['result'].isin(['W', 'L']) & df['line'].notna() & df['projected'].notna()].copy()
+    _ed = _ed[_ed['line'] > 0]
+    if _ed.empty:
+        st.info('No real-line decided plays in this range.')
+    else:
+        _ed['edge'] = _ed['projected'] - _ed['line']
+
+        st.markdown('**Check 1 — does the projection track the matchup (the line)?**')
+        _lb = [(0, 1.25, '1.0'), (1.25, 1.75, '1.5'), (1.75, 2.25, '2.0'),
+               (2.25, 2.75, '2.5'), (2.75, 99, '3.0+')]
+        _r1 = []
+        for _lo, _hi, _lab in _lb:
+            _s = _ed[(_ed['line'] >= _lo) & (_ed['line'] < _hi)]
+            if len(_s):
+                _r1.append({'Line': _lab, 'Plays': len(_s),
+                            'Avg Proj': round(_s['projected'].mean(), 2),
+                            'Avg Actual': round(_s['actual'].mean(), 2) if _s['actual'].notna().any() else None})
+        st.dataframe(pd.DataFrame(_r1), hide_index=True, use_container_width=True)
+        st.caption('If Avg Proj stays ~flat while the book moves the line (and Avg Actual '
+                   'tracks the line), the projection is ignoring the matchup — systemic, not '
+                   'one-pitcher noise.')
+
+        st.markdown('**Check 2 — does higher Edge actually win more?**')
+        _eb = [(-99, 0, '<0'), (0, 0.5, '0–0.5'), (0.5, 1.0, '0.5–1.0'),
+               (1.0, 1.5, '1.0–1.5'), (1.5, 2.0, '1.5–2.0'), (2.0, 99, '2.0+')]
+        _r2 = []
+        for _lo, _hi, _lab in _eb:
+            _s = _ed[(_ed['edge'] >= _lo) & (_ed['edge'] < _hi)]
+            _w = int((_s['result'] == 'W').sum()); _l = int((_s['result'] == 'L').sum())
+            if _w + _l > 0:
+                _r2.append({'Edge': _lab, 'Plays': _w + _l,
+                            'Win %': round(_w / (_w + _l) * 100, 1), 'W-L': f'{_w}-{_l}'})
+        st.dataframe(pd.DataFrame(_r2), hide_index=True, use_container_width=True)
+        st.caption('Win% RISES with Edge → the Edge ranks correctly and is just shifted up; '
+                   'fix = subtract a constant (recenter). Win% FLAT/INVERTED → the Edge is '
+                   'noise and needs the deeper matchup-response fix, not just recentering.')
+
 # ── Overall record ────────────────────────────────────────────────────────────
 
 st.markdown('---')
