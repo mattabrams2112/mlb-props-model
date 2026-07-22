@@ -10,7 +10,7 @@ import pandas as pd
 from datetime import datetime
 from full_tracker import load_all, update_actuals, save_all, log_play
 from eastern_time import today_et, today_str_et
-from bet_config import qualifies_mask, units_for, EXPANSION_DATE, UNIT_DOLLARS
+from bet_config import qualifies_mask, units_for, EXPANSION_DATE, UNIT_DOLLARS, CAP_DATE
 from shared_styles import inject_styles
 
 st.set_page_config(page_title="Daily Results | MLB Props", page_icon="📅", layout="wide")
@@ -230,8 +230,9 @@ def play_units_pl(rating, result):
 
 st.markdown('### Staking Guide')
 st.caption(f'Tiered stakes · ${UNIT:.0f}/unit at {ODDS} odds (break-even: 55.6%)')
-st.caption(f'🆕 80-84 plays (0.5u / $4) are tracked starting **{EXPANSION_DATE}** — '
-           f'earlier days stay 85+ only, so past records are unchanged.')
+st.caption(f'🆕 80-84 plays (0.5u / $4) tracked from **{EXPANSION_DATE}**. '
+           f'🚫 90+ dropped from **{CAP_DATE}** (boom-or-bust fade). '
+           f'Earlier days are unchanged.')
 
 stake_html = f'''<table style="width:100%;border-collapse:collapse;font-family:monospace;">
 <thead><tr style="background:#1e3a5f;color:#38bdf8;font-size:13px;">

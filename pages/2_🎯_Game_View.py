@@ -241,6 +241,11 @@ def run_prediction(player_id: int, pitcher_id, is_home: bool, park_team: str,
 
     return {
         'proj':     round(proj, 2),
+        # Realistic projection ceiling for this player (1.8× recent form). The
+        # post-XGBoost multipliers (pitcher × matchup × context × calibration)
+        # stack past this and manufacture 5+ HRR projections, so the final
+        # displayed/logged projection is re-capped here in the render loop.
+        'proj_ceiling': round(ceiling, 2),
         'r7g':      round(float(hrr7), 2),
         'r30g':     round(float(hrr30), 2),
         'savg':     round(float(dc['total_season_avg'].iloc[-1]), 2)
@@ -607,6 +612,9 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
                 _pass1     = _rate(_base_proj, None, None)
                 _calib     = get_correction_factor(_pass1['total'])
                 _disp_proj = round(max(0.5, _base_proj * _calib * (1 + _pass1.get('matchup_pct', 0.0))), 2)
+                # Re-cap at the player's realistic ceiling so stacked multipliers
+                # can't manufacture a 5+ HRR projection (keeps Edge honest)
+                _disp_proj = round(min(_disp_proj, res.get('proj_ceiling', _disp_proj)), 2)
                 r_data     = _rate(_disp_proj, None, None)
                 st.session_state[session_key] = (r_data['total'], r_data['grade'], _disp_proj)
                 if game_date and opp_p_name != 'TBD':
@@ -621,6 +629,9 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
                 _pass1     = _rate(_base_proj, book_line, book_odds)
                 _calib     = get_correction_factor(_pass1['total'])
                 _disp_proj = round(max(0.5, _base_proj * _calib * (1 + _pass1.get('matchup_pct', 0.0))), 2)
+                # Re-cap at the player's realistic ceiling so stacked multipliers
+                # can't manufacture a 5+ HRR projection (keeps Edge honest)
+                _disp_proj = round(min(_disp_proj, res.get('proj_ceiling', _disp_proj)), 2)
                 r_data     = _rate(_disp_proj, book_line, book_odds)
                 # Lock in session state immediately
                 st.session_state[session_key] = (r_data['total'], r_data['grade'], _disp_proj)

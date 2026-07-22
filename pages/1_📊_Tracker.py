@@ -13,7 +13,7 @@ import requests
 from datetime import datetime
 from eastern_time import today_str_et
 from bet_config import (qualifies, qualifies_mask, bet_label,
-                        EXPANSION_DATE, TIER2_MIN, TIER1_MIN)
+                        EXPANSION_DATE, TIER2_MIN, TIER1_MIN, CAP_DATE)
 from tracker import load, save, recalc_results, add_predictions
 from full_tracker import log_play as _log_play_ft, load_all as _load_all_ft
 from odds_api import get_todays_event_ids, get_hrr_lines, ODDS_API_KEY
@@ -253,8 +253,10 @@ if 'tracker_lines_filled' not in st.session_state:
 _hdr, _btn = st.columns([5, 1])
 with _hdr:
     st.markdown('## 📊 Prediction Tracker')
-    st.caption(f'Criteria: 85+ = 1u · 80-84 = 0.5u (from {EXPANSION_DATE}) · Actuals fetched automatically')
-    st.caption(f'🆕 80-84 plays (0.5u / $4) are tracked starting **{EXPANSION_DATE}** — earlier days are 85+ only and unchanged.')
+    st.caption(f'Criteria: 85-89 = 1u · 80-84 = 0.5u (from {EXPANSION_DATE}) · Actuals fetched automatically')
+    st.caption(f'🆕 80-84 plays (0.5u / $4) tracked from **{EXPANSION_DATE}**. '
+               f'🚫 90+ plays dropped from **{CAP_DATE}** (boom-or-bust fade). '
+               f'Earlier days are unchanged.')
     from odds_api import render_api_status
     render_api_status()
 with _btn:
