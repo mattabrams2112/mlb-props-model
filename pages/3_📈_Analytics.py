@@ -226,7 +226,8 @@ with st.expander('🔬 Rating Band Diagnostic — why a band wins or loses', exp
                'Projection: a big negative gap means the model over-projects this band '
                '(inflated ratings → fake edge → losses).')
     _bands = {'95+': (95, 101), '90-94': (90, 95), '85-89': (85, 90),
-              '80-84': (80, 85), '75-79': (75, 80), '70-74': (70, 75)}
+              '80-84': (80, 85), '75-79': (75, 80), '70-74': (70, 75),
+              '65-69': (65, 70), '60-64': (60, 65)}
     _sb = st.selectbox('Rating band', list(_bands.keys()), index=1, key='band_diag_sel')
     _blo, _bhi = _bands[_sb]
     _bd = df[(df['rating'] >= _blo) & (df['rating'] < _bhi)].copy()
