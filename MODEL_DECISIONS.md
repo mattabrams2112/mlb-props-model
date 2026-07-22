@@ -18,9 +18,21 @@ the 90-94 band, June 18→Jul 22, **n=17**, window=10:
   no knee. The two most over-projected plays were both **wins**.
 - So the signal is not predictive **at this sample**, and worse, mildly backwards.
 
-**Important caveat:** 17 plays reconstructed from API calls is thin. Read this as
-**"unsupported so far,"** NOT "proven wrong forever." Only window=10 was tested;
-a longer baseline (20/30g) was not yet checked when it was pulled.
+**Three-window confirmation (baseline window sensitivity):** re-ran the
+reconstruction at windows 10 / 20 / 30 to rule out a too-noisy short baseline —
+| window | wins | losses | separation (L−W) |
+|--------|------|--------|------------------|
+| 10     | +1.72| +0.95  | −0.77            |
+| 20     | +2.31| +1.66  | −0.64            |
+| 30     | +2.43| +1.83  | −0.61            |
+All three are weak AND inverted (wins more over-projected than losses), and the
+separation converges to ~−0.6 rather than trending toward a flip. Table stays
+interleaved at every window. Cross-check: Corey Seager's baseline went 1.9 (w10)
+→ 1.4 (w20), i.e. a real multi-week slump, not a short-window blip — so the
+baselines are stable and the null result is not a windowing artifact.
+
+**Important caveat:** 17 plays reconstructed from API calls is still thin. Read
+this as **"unsupported across windows at n=17,"** NOT "proven wrong forever."
 
 **Why pulled from production anyway:** an unvalidated penalty was actively shaving
 points off live 85-89 / 95+ bets. Testing a hypothesis and betting real units on

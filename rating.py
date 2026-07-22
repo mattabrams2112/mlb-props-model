@@ -358,10 +358,11 @@ def compute_rating(
 
     # NOTE: a "boom-or-bust" penalty (docking plays whose projection sits far
     # above the batter's recent baseline) was tried and REMOVED. The boom_delta
-    # reconstruction over 90-94 (n=17) did not separate wins from losses — wins
-    # were actually slightly MORE over-projected. Read that as UNSUPPORTED at a
-    # tiny sample, not disproven forever: r30g is now logged with each play to
-    # re-test on a much larger clean sample. See MODEL_DECISIONS.md.
+    # reconstruction over 90-94 (n=17) did not separate wins from losses across
+    # baseline windows 10/20/30 — wins were consistently MORE over-projected
+    # (separation converged to ~-0.6). Read that as UNSUPPORTED at a tiny sample,
+    # not disproven forever: r30g is now logged with each play to re-test on a
+    # much larger clean sample. See MODEL_DECISIONS.md.
 
     total = round(min(100, max(0, normalized)))
 
