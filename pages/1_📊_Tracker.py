@@ -186,8 +186,11 @@ def sync_from_ratings_cache():
     fpl = _load_all_ft()
     fpl_keys = set()
     if not fpl.empty:
+        _fpl_vp = (fpl['vs_pitcher'].astype(str).str.strip()
+                   if 'vs_pitcher' in fpl.columns else '')
         fpl_keys = set(
             fpl['date'].astype(str).str[:10] + '|' + fpl['player'].astype(str)
+            + '|' + _fpl_vp
         )
 
     total_added = 0
@@ -208,7 +211,7 @@ def sync_from_ratings_cache():
             # Collect rows missing from full play log for batch write
             date_str = str(game_date)[:10]
             for r in rows:
-                key = f"{date_str}|{r['player']}"
+                key = f"{date_str}|{r['player']}|{str(r.get('vs_pitcher','')).strip()}"
                 if key not in fpl_keys:
                     new_fpl_rows.append({
                         'date': date_str, 'player': r['player'],
