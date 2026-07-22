@@ -370,7 +370,10 @@ with st.expander('🔬 Edge Diagnostic — is Edge real, a constant offset, or n
     else:
         _ed['edge'] = _ed['projected'] - _ed['line']
 
-        st.markdown('**Check 1 — does the projection track the matchup (the line)?**')
+        st.markdown('**Check 1 — projection flat while rating swings with matchup?**')
+        st.caption('The line is a composite matchup proxy (pitcher + bullpen + park + weather, '
+                   'as the book prices it) — cleaner than raw pitcher ERA. Harder matchup = '
+                   'lower line. Does the rating drop with it while the projection stays put?')
         _lb = [(0, 1.25, '1.0'), (1.25, 1.75, '1.5'), (1.75, 2.25, '2.0'),
                (2.25, 2.75, '2.5'), (2.75, 99, '3.0+')]
         _r1 = []
@@ -379,11 +382,13 @@ with st.expander('🔬 Edge Diagnostic — is Edge real, a constant offset, or n
             if len(_s):
                 _r1.append({'Line': _lab, 'Plays': len(_s),
                             'Avg Proj': round(_s['projected'].mean(), 2),
+                            'Avg Rating': round(pd.to_numeric(_s['rating'], errors='coerce').mean(), 1),
                             'Avg Actual': round(_s['actual'].mean(), 2) if _s['actual'].notna().any() else None})
         st.dataframe(pd.DataFrame(_r1), hide_index=True, use_container_width=True)
-        st.caption('If Avg Proj stays ~flat while the book moves the line (and Avg Actual '
-                   'tracks the line), the projection is ignoring the matchup — systemic, not '
-                   'one-pitcher noise.')
+        st.caption('If Avg Rating moves across line buckets but Avg Proj stays ~flat, the '
+                   'rating is absorbing the matchup while the projection ignores it — systemic, '
+                   'not one-pitcher noise. (Avg Actual tracking the line confirms the line is a '
+                   'fair matchup proxy.)')
 
         st.markdown('**Check 2 — does higher Edge actually win more?**')
         _eb = [(-99, 0, '<0'), (0, 0.5, '0–0.5'), (0.5, 1.0, '0.5–1.0'),
