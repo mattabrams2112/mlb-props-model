@@ -14,7 +14,9 @@ from eastern_time import today_str_et
 LOG_FILE     = data_path('full_play_log.csv')
 DATABASE_URL = os.environ.get('DATABASE_URL', '')
 COLS = ['date', 'player', 'team', 'rating', 'grade', 'projected', 'base_proj',
-        'line', 'over_odds', 'actual', 'result', 'vs_pitcher', 'is_home', 'pitcher_throws']
+        'line', 'over_odds', 'actual', 'result', 'vs_pitcher', 'is_home', 'pitcher_throws',
+        'r30g']   # r30g = player's live 30-game HRR baseline at play time (clean,
+                  # no leakage); boom_delta = projected - r30g is derived at read time
 
 
 def _get_engine():
@@ -68,8 +70,9 @@ def log_play(player: str, team: str, rating: int, grade: str,
              line: float = None, over_odds: int = None,
              vs_pitcher: str = '', is_home: bool = True,
              game_date: str = None, game_started: bool = False,
-             pitcher_throws: str = ''):
-    """Log a play. Updates rating/projection only if game hasn't started yet."""
+             pitcher_throws: str = '', r30g: float = None):
+    """Log a play. Updates rating/projection only if game hasn't started yet.
+    r30g = the player's live 30-game HRR baseline (for boom_delta analysis)."""
     df    = load_all()
     today = game_date or today_str_et()
     existing = (not df.empty and
@@ -84,6 +87,9 @@ def log_play(player: str, team: str, rating: int, grade: str,
             df.at[idx, 'projected']  = projected
             df.at[idx, 'base_proj']  = base_proj if base_proj is not None else ''
             df.at[idx, 'vs_pitcher'] = vs_pitcher
+            # Backfill the baseline whenever it's provided and still missing
+            if r30g is not None and str(df.at[idx, 'r30g']).strip() in ('', 'nan'):
+                df.at[idx, 'r30g'] = r30g
             save_all(df)
         return
     new_row = pd.DataFrame([{
@@ -101,6 +107,7 @@ def log_play(player: str, team: str, rating: int, grade: str,
         'vs_pitcher':     vs_pitcher,
         'is_home':        int(is_home),
         'pitcher_throws': pitcher_throws,
+        'r30g':           r30g if r30g is not None else '',
     }])
     df = pd.concat([df, new_row], ignore_index=True)
     save_all(df)

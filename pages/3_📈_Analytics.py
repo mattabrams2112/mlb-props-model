@@ -264,6 +264,96 @@ with st.expander('🔬 Rating Band Diagnostic — why a band wins or loses', exp
         _show = _show.sort_values('date_str', ascending=False)
         st.dataframe(_show, hide_index=True, use_container_width=True)
 
+
+@st.cache_data(show_spinner=False, ttl=3600)
+def _recon_player_hrr(name: str, season: int):
+    """Pull a player's real game-by-game HRR from the MLB API (cached)."""
+    try:
+        import statsapi as _sa
+        from data_collector import get_game_logs
+        matches = _sa.lookup_player(name)
+        if not matches:
+            return None
+        g = get_game_logs(int(matches[0]['id']), [season])
+        if g.empty:
+            return None
+        g = g[['date', 'h', 'r', 'rbi']].copy()
+        g['hrr'] = g['h'] + g['r'] + g['rbi']
+        return g[['date', 'hrr']]
+    except Exception:
+        return None
+
+
+# ── boom_delta reconstruction ─────────────────────────────────────────────────
+# Pull each player's REAL game logs (MLB API) to compute a clean trailing HRR
+# baseline, then boom_delta = projected - baseline. Reveals whether over-
+# projection separates wins from losses so we can fit the penalty threshold.
+with st.expander('🔧 boom_delta Reconstruction (API pull) — find the win/loss knee', expanded=False):
+    st.caption("Rebuilds each play's baseline from the player's real game logs, so it's "
+               "immune to the polluted actuals in the log. boom_delta = projected − trailing "
+               "HRR. If losses cluster at higher boom_delta than wins, over-projection is the "
+               "separator — set the penalty threshold near the split.")
+    _rbands = {'95+': (95, 101), '90-94': (90, 95), '85-89': (85, 90),
+               '80-84': (80, 85), '75-79': (75, 80), '70-74': (70, 75)}
+    _rc1, _rc2 = st.columns([2, 2])
+    with _rc1:
+        _rband = st.selectbox('Rating band', list(_rbands.keys()), index=1, key='boom_recon_band')
+    with _rc2:
+        _winN = st.slider('Baseline window (games)', 10, 30, 20, key='boom_recon_win')
+    _rlo, _rhi = _rbands[_rband]
+    _rset = df[(df['rating'] >= _rlo) & (df['rating'] < _rhi) &
+               df['result'].isin(['W', 'L'])].copy()
+    _nplayers = _rset['player'].nunique()
+    st.caption(f'{len(_rset)} decided plays · {_nplayers} unique players to pull'
+               + (' — this may take a moment' if _nplayers > 30 else ''))
+    if st.button('Run reconstruction', key='boom_recon_run', type='primary'):
+        if _rset.empty:
+            st.info('No decided plays in this band for the selected period.')
+        else:
+            _logs, _prog = {}, st.progress(0.0)
+            _players = list(_rset['player'].unique())
+            for _i, _pname in enumerate(_players):
+                _season = int(str(_rset[_rset['player'] == _pname]['date_str'].iloc[0])[:4])
+                _logs[_pname] = _recon_player_hrr(_pname, _season)
+                _prog.progress((_i + 1) / len(_players))
+            _prog.empty()
+            _rows = []
+            for _, _r in _rset.iterrows():
+                _g = _logs.get(_r['player'])
+                _proj = _r['projected']
+                if _g is None or _g.empty or pd.isna(_proj):
+                    continue
+                _pdate = pd.to_datetime(_r['date_str'])
+                _prior = _g[_g['date'] < _pdate].tail(_winN)
+                if len(_prior) < 10:
+                    continue
+                _base = _prior['hrr'].mean()
+                _rows.append({'date': _r['date_str'], 'player': _r['player'],
+                              'rating': int(_r['rating']), 'projected': round(float(_proj), 2),
+                              'baseline': round(float(_base), 2),
+                              'boom_delta': round(float(_proj) - float(_base), 2),
+                              'result': _r['result']})
+            if not _rows:
+                st.warning('Not enough game-log history (need ≥10 prior games per play) to reconstruct.')
+            else:
+                _rec = pd.DataFrame(_rows)
+                _wd = _rec[_rec['result'] == 'W']['boom_delta']
+                _ld = _rec[_rec['result'] == 'L']['boom_delta']
+                m1, m2, m3 = st.columns(3)
+                m1.metric('Wins — avg boom_delta',
+                          f'{_wd.mean():+.2f}' if not _wd.empty else '—',
+                          f'{len(_wd)} plays', delta_color='off')
+                m2.metric('Losses — avg boom_delta',
+                          f'{_ld.mean():+.2f}' if not _ld.empty else '—',
+                          f'{len(_ld)} plays', delta_color='off')
+                _sep = (_ld.mean() - _wd.mean()) if (not _wd.empty and not _ld.empty) else 0.0
+                m3.metric('Separation (L − W)', f'{_sep:+.2f}',
+                          'losses more inflated' if _sep > 0.3 else 'weak split', delta_color='off')
+                st.caption(f'{len(_rec)} of {len(_rset)} plays had enough history. '
+                           'Sorted by boom_delta — scan where W flips to L.')
+                st.dataframe(_rec.sort_values('boom_delta', ascending=False),
+                             hide_index=True, use_container_width=True)
+
 # ── Overall record ────────────────────────────────────────────────────────────
 
 st.markdown('---')

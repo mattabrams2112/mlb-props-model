@@ -655,6 +655,7 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
                         game_date=game_date,
                         game_started=not _pre_game,
                         pitcher_throws=p_throws,
+                        r30g=res.get('r30g'),   # clean 30g HRR baseline for boom_delta
                     )
                 except Exception:
                     pass
