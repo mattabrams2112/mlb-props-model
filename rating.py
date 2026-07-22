@@ -356,20 +356,12 @@ def compute_rating(
         elif projection < 1.75:
             normalized = min(normalized, 65)
 
-    # ── Boom-or-bust penalty (small) ─────────────────────────────────────────
-    # When the projection sits far above the batter's own recent baseline, the
-    # rating is being driven by matchup stacking rather than the hitter — those
-    # plays bust to 0 far more often. Small dock so they rate a touch lower;
-    # they're still bettable, just nudged down.
-    if projection is not None and (recent_7g > 0 or recent_30g > 0):
-        _baseline = max(0.5, 0.5 * recent_7g + 0.5 * recent_30g)
-        _proj_ratio = projection / _baseline
-        if _proj_ratio >= 2.2:
-            normalized -= 4.0
-        elif _proj_ratio >= 1.8:
-            normalized -= 2.5
-        elif _proj_ratio >= 1.5:
-            normalized -= 1.0
+    # NOTE: a "boom-or-bust" penalty (docking plays whose projection sits far
+    # above the batter's recent baseline) was tried and REMOVED — the boom_delta
+    # reconstruction showed it does not separate wins from losses in the 90-94
+    # band (wins were actually slightly MORE over-projected than losses), so the
+    # signal is not predictive. r30g is now logged with each play to re-test on
+    # clean forward data before any projection-vs-baseline adjustment is added.
 
     total = round(min(100, max(0, normalized)))
 
