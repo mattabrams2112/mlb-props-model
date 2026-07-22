@@ -218,6 +218,51 @@ if _period != 'All Time':
 
 decided = df[df['result'].isin(['W','L'])]
 
+# ── Rating band diagnostic ────────────────────────────────────────────────────
+# Inspect the plays behind a band to see WHY it wins or loses: is the projection
+# inflated for this band, are the lines too high, or is it just variance?
+with st.expander('🔬 Rating Band Diagnostic — why a band wins or loses', expanded=False):
+    st.caption('Respects the date filter above. The key tell is Avg Actual vs Avg '
+               'Projection: a big negative gap means the model over-projects this band '
+               '(inflated ratings → fake edge → losses).')
+    _bands = {'95+': (95, 101), '90-94': (90, 95), '85-89': (85, 90),
+              '80-84': (80, 85), '75-79': (75, 80), '70-74': (70, 75)}
+    _sb = st.selectbox('Rating band', list(_bands.keys()), index=1, key='band_diag_sel')
+    _blo, _bhi = _bands[_sb]
+    _bd = df[(df['rating'] >= _blo) & (df['rating'] < _bhi)].copy()
+    _bd_dec = _bd[_bd['result'].isin(['W', 'L'])]
+    if _bd_dec.empty:
+        st.info('No decided plays in this band for the selected period.')
+    else:
+        _w  = int((_bd_dec['result'] == 'W').sum())
+        _l  = int((_bd_dec['result'] == 'L').sum())
+        _wr = round(_w / (_w + _l) * 100, 1)
+        _avg_proj = _bd_dec['projected'].mean()
+        _avg_act  = _bd_dec['actual'].mean()
+        _avg_line = _bd_dec['line'].mean()
+        _bias     = _avg_act - _avg_proj
+        _n_line   = int(_bd_dec['line'].notna().sum())
+
+        d1, d2, d3, d4 = st.columns(4)
+        d1.metric('Record', f'{_w}-{_l}', f'{_wr}%', delta_color='off')
+        d2.metric('Avg Projection', f'{_avg_proj:.2f}')
+        d3.metric('Avg Actual', f'{_avg_act:.2f}', f'{_bias:+.2f} vs proj',
+                  delta_color='normal' if _bias >= 0 else 'inverse')
+        d4.metric('Avg Line', f'{_avg_line:.2f}' if pd.notna(_avg_line) else '—',
+                  f'{_n_line}/{_w + _l} real lines', delta_color='off')
+
+        _wins   = _bd_dec[_bd_dec['result'] == 'W']
+        _losses = _bd_dec[_bd_dec['result'] == 'L']
+        st.caption(
+            f"**Wins** ({_w}): avg proj {_wins['projected'].mean():.2f} · avg actual {_wins['actual'].mean():.2f}  |  "
+            f"**Losses** ({_l}): avg proj {_losses['projected'].mean():.2f} · avg actual {_losses['actual'].mean():.2f}"
+        )
+
+        _show = _bd_dec[['date_str', 'player', 'rating', 'projected', 'line', 'actual', 'result', 'vs_pitcher']].copy()
+        _show['edge'] = (_show['projected'] - _show['line']).round(2)
+        _show = _show.sort_values('date_str', ascending=False)
+        st.dataframe(_show, hide_index=True, use_container_width=True)
+
 # ── Overall record ────────────────────────────────────────────────────────────
 
 st.markdown('---')
