@@ -74,15 +74,13 @@ def _sync_tracker_to_fpl():
         def _blank(v):
             return str(v).strip() in ('', 'nan', 'None')
 
-        # Map date|player|vs_pitcher -> full_play_log index for backfilling.
-        # vs_pitcher is included so doubleheader games (same player+day, two
-        # starters) each map to their own row instead of collapsing into one.
-        _fpl_vp = (fpl['vs_pitcher'].astype(str).str.strip()
-                   if not fpl.empty and 'vs_pitcher' in fpl.columns else None)
+        # Backfill match on date|player (robust — a pitcher-string mismatch
+        # between the tracker and the log must NOT block grade backfill).
+        # Doubleheader separation is handled upstream (log_play / ratings-cache
+        # sync / tracker add), so this sync only needs the lenient key.
         idx_by_key = {}
         if not fpl.empty:
-            _keys = (fpl['date'].astype(str).str[:10] + '|' + fpl['player'].astype(str)
-                     + '|' + (_fpl_vp if _fpl_vp is not None else ''))
+            _keys = fpl['date'].astype(str).str[:10] + '|' + fpl['player'].astype(str)
             for _i, _k in zip(fpl.index, _keys):
                 idx_by_key.setdefault(_k, _i)
 
@@ -90,8 +88,7 @@ def _sync_tracker_to_fpl():
         new_rows = []
         for _, row in tracker_df.iterrows():
             _row_date = str(row['date'])[:10]
-            _row_vp   = str(row.get('vs_pitcher', '')).strip()
-            key = f"{_row_date}|{row['player']}|{_row_vp}"
+            key = f"{_row_date}|{row['player']}"
             if key in idx_by_key:
                 i = idx_by_key[key]
                 # Backfill line / odds from tracker when full_play_log is missing them
