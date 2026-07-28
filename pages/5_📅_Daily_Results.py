@@ -248,13 +248,13 @@ stake_html = f'''<table style="width:100%;border-collapse:collapse;font-family:m
   <td style="padding:8px 12px;color:#22c55e;font-weight:700;">85+</td>
   <td style="padding:8px 12px;text-align:center;color:#fbbf24;font-weight:800;">1u</td>
   <td style="padding:8px 12px;text-align:center;color:#e0f2fe;font-weight:700;">${UNIT_DOLLARS:.0f}</td>
-  <td style="padding:8px 12px;color:#94a3b8;font-size:12px;">Core play</td>
+  <td style="padding:8px 12px;color:#94a3b8;font-size:12px;">Core play (includes 95+)</td>
 </tr>
 <tr>
-  <td style="padding:8px 12px;color:#38bdf8;font-weight:700;">80-84</td>
-  <td style="padding:8px 12px;text-align:center;color:#fbbf24;font-weight:800;">0.5u</td>
-  <td style="padding:8px 12px;text-align:center;color:#e0f2fe;font-weight:700;">${UNIT_DOLLARS*0.5:.0f}</td>
-  <td style="padding:8px 12px;color:#94a3b8;font-size:12px;">Half stake — from {EXPANSION_DATE}</td>
+  <td style="padding:8px 12px;color:#64748b;font-weight:700;">80-84</td>
+  <td style="padding:8px 12px;text-align:center;color:#64748b;">—</td>
+  <td style="padding:8px 12px;text-align:center;color:#64748b;">—</td>
+  <td style="padding:8px 12px;color:#64748b;font-size:12px;">Dropped {TIER2_END} (tracked {EXPANSION_DATE}–{TIER2_END} only)</td>
 </tr>
 </tbody></table>'''
 st.markdown(stake_html, unsafe_allow_html=True)
