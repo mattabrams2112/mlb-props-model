@@ -15,8 +15,11 @@ To change the go-live date or the tiers, edit the constants here — every page
 
 UNIT_DOLLARS   = 8.0          # $ per 1.0 unit
 EXPANSION_DATE = '2026-07-21' # day 80-84 (0.5u) bets went live
+TIER2_END      = '2026-07-27' # day 80-84 was dropped again (poor early results).
+                              # 80-84 counts only for EXPANSION_DATE <= date < TIER2_END;
+                              # the 7/21–7/26 history is kept, forward is untracked.
 TIER1_MIN      = 85           # 1.0u
-TIER2_MIN      = 80           # 0.5u — only counts on/after EXPANSION_DATE
+TIER2_MIN      = 80           # 0.5u — counts only in [EXPANSION_DATE, TIER2_END)
 
 # The 90-94 band is boom-or-bust (it over-projects and busts to 0 ~60% of the
 # time), so from CAP_DATE forward those plays are NO LONGER tracked bets. 95+ is
@@ -56,7 +59,7 @@ def qualifies(rating, date_str) -> bool:
     """
     Is this play a tracked bet for its date?
       85-89 → always
-      80-84 → only on/after EXPANSION_DATE
+      80-84 → only in [EXPANSION_DATE, TIER2_END) — dropped again from TIER2_END on
       90-94 → only BEFORE CAP_DATE (dropped as a bet from CAP_DATE forward)
       95+   → always
     """
@@ -70,7 +73,8 @@ def qualifies(rating, date_str) -> bool:
         return False
     if r >= TIER1_MIN:
         return True
-    return r >= TIER2_MIN and d >= EXPANSION_DATE
+    # 80-84 only counts in its live window [EXPANSION_DATE, TIER2_END)
+    return r >= TIER2_MIN and EXPANSION_DATE <= d < TIER2_END
 
 
 def qualifies_mask(df, rating_col: str = 'rating', date_col: str = 'date_str'):
@@ -84,6 +88,6 @@ def qualifies_mask(df, rating_col: str = 'rating', date_col: str = 'date_str'):
         d = df[date_col].astype(str).str[:10]
     else:
         d = df['date'].astype(str).str[:10]
-    base     = (r >= TIER1_MIN) | ((r >= TIER2_MIN) & (d >= EXPANSION_DATE))
+    base     = (r >= TIER1_MIN) | ((r >= TIER2_MIN) & (d >= EXPANSION_DATE) & (d < TIER2_END))
     excluded = (r >= FADE_LO) & (r < FADE_HI) & (d >= CAP_DATE)
     return base & ~excluded

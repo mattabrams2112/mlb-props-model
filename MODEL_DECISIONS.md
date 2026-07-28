@@ -5,6 +5,22 @@ so decisions don't get re-litigated from scratch. Newest first. Dates are ET.
 
 ---
 
+## 2026-07-27 — 80-84 tier dropped again (poor early results, small sample)
+
+Pulled 80-84 from tracked bets from 2026-07-27 forward — it looked bad over its
+short live window. `bet_config.TIER2_END = 2026-07-27`; 80-84 now counts only in
+`[EXPANSION_DATE, TIER2_END)` = 7/21–7/26. The 6-day history is KEPT (documents
+the experiment); forward is untracked. 85-89 and 95+ unchanged.
+
+**Honest caveat:** this is ~6 days / a small sample, decided on results not a
+diagnosed mechanism (unlike the 90-94 fade). Could be variance. Justified because
+80-84 was always the marginal, half-staked *experimental* tier — cheap to pull,
+trivial to re-add (just move/remove TIER2_END) if a larger clean sample later
+shows it's fine. Worth re-checking the 80-84 band diagnostic on the clean window
+before any re-add.
+
+---
+
 ## 2026-07-22 — Edge diagnostic: recenter, not rebuild (directional, pending clean data)
 
 **What:** Before rebuilding the projection formula, tested the "Edge is fake" story
