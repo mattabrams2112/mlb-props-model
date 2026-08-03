@@ -5,6 +5,41 @@ so decisions don't get re-litigated from scratch. Newest first. Dates are ET.
 
 ---
 
+## 2026-08-03 — Projection ceiling loosened 1.8x -> 2.0x (volume starvation)
+
+**What:** `PROJ_CEILING_MULT` in Game View's `run_prediction` raised 1.8 -> 2.0.
+
+**Why:** at 1.8 the cap over-suppressed the top of the scale. In the 12 days
+since the cap went in (7/22 -> 8/3) the Analytics band table showed:
+- **85-89: only 6 decided plays** (~0.5/day, down from ~1.5/day pre-cap)
+- **95+: ZERO plays**
+- 90-94: 1 play (faded anyway)
+
+That's not selectivity, it's starvation — there was no volume left to even
+measure whether the band still performs. The mechanism: the cap pulls a
+matchup-inflated projection down, which lowers the rating's projection
+component (0-25, saturates at proj 3.5), which drops plays out of 85-89.
+
+**Why 2.0 is still safe:** it kills the fantasy projections that started all
+this (a 1.2-recent-form hitter caps at 2.4, not the 5.09 we saw), so the Edge
+column stays honest. It only admits borderline plays back.
+
+**Honest note:** the multiplier was ALWAYS an arbitrary guess (see the cap's
+introduction) — it's a volume/quality knob, not a fitted number. Tuning it for
+volume preference is not overfitting to results the way changing it on 6 plays
+of W/L would be. Deliberately NOT touching the 90-94 fade or the 80-84 drop.
+
+**How to judge it:** watch whether the newly-admitted 85-89 plays win at a
+reasonable rate. Holds ~60%+ at better volume -> keep 2.0. Clearly drags the
+band down -> revert to 1.8 (one constant). Superseded entirely once calibration
+lands, which centers projections properly instead of clipping them.
+
+**Supporting data from the same 7/22->8/3 table:** 80-84 at 27 plays / 44.4%
+(proj>=1.5) — validates the 7/27 drop of that tier with real volume. 70-74 at
+94 plays / 30.9% — badly inverted, but unbet, so filed not fixed.
+
+---
+
 ## 2026-07-27 — 80-84 tier dropped again (poor early results, small sample)
 
 Pulled 80-84 from tracked bets from 2026-07-27 forward — it looked bad over its

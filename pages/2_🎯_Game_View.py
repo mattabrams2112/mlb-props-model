@@ -168,8 +168,15 @@ def run_prediction(player_id: int, pitcher_id, is_home: bool, park_team: str,
     floor = max(season_avg_val * 0.30, r30_avg * 0.30)
     proj  = max(proj, floor)
 
-    # Ceiling — scales with the player's actual averages, no hard cap
-    ceiling = max(r30_avg * 1.8, season_avg_val * 1.8, 2.0)
+    # Ceiling — scales with the player's actual averages, no hard cap.
+    # Multiplier loosened 1.8 -> 2.0 on 2026-08-03: at 1.8 the cap starved the
+    # top of the scale (only 6 plays at 85-89 and ZERO at 95+ in 12 days), so
+    # there was no volume left to measure. 2.0 still kills the fantasy 5+ HRR
+    # projections (a 1.2-form hitter caps at 2.4, not 5.0) and keeps Edge
+    # honest, it just admits some borderline plays back into 85-89.
+    # Revert to 1.8 if the newly-admitted plays underperform. See MODEL_DECISIONS.md.
+    PROJ_CEILING_MULT = 2.0
+    ceiling = max(r30_avg * PROJ_CEILING_MULT, season_avg_val * PROJ_CEILING_MULT, 2.0)
     proj    = min(proj, ceiling)
 
     # ── Pitcher + matchup quality adjustment ─────────────────────────────────
@@ -241,7 +248,7 @@ def run_prediction(player_id: int, pitcher_id, is_home: bool, park_team: str,
 
     return {
         'proj':     round(proj, 2),
-        # Realistic projection ceiling for this player (1.8× recent form). The
+        # Realistic projection ceiling for this player (2.0× recent form). The
         # post-XGBoost multipliers (pitcher × matchup × context × calibration)
         # stack past this and manufacture 5+ HRR projections, so the final
         # displayed/logged projection is re-capped here in the render loop.
