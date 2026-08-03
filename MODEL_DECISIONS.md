@@ -34,6 +34,23 @@ reasonable rate. Holds ~60%+ at better volume -> keep 2.0. Clearly drags the
 band down -> revert to 1.8 (one constant). Superseded entirely once calibration
 lands, which centers projections properly instead of clipping them.
 
+**Decision confirmed 2026-08-03: HOLD at 2.0 and evaluate in ~2 weeks.**
+Considered objection: "an 84 that wasn't hitting will now show as an 85." Partly
+valid — the marginal plays entering the band ARE below the band's average, so
+expect the 85-89 rate to come down from its (n=6) high. But those plays were not
+organically 84s; the 1.8 cap was *evicting* plays that qualified as 85-89 under
+the original settings (part of the 47-play / 61.7% sample). Also note the 27-play
+/ 44.4% 80-84 figure is a BLEND of genuinely-mediocre plays and the good ones the
+cap knocked down — it does not establish that the evicted plays were bad.
+
+Trade accepted: ~60-65% on ~1-1.5 plays/day (measurable, above the 55.6%
+breakeven) over ~70% on ~0.5 plays/day (unmeasurable — cannot distinguish 70%
+from 50% at n=6).
+
+**Explicit revert trigger:** if the newly-admitted 85-89 plays hit below ~55%,
+revert to 1.8 immediately. Evaluate via the band diagnostic once 85-89 has
+~20-25 decided plays.
+
 **Supporting data from the same 7/22->8/3 table:** 80-84 at 27 plays / 44.4%
 (proj>=1.5) — validates the 7/27 drop of that tier with real volume. 70-74 at
 94 plays / 30.9% — badly inverted, but unbet, so filed not fixed.
