@@ -373,10 +373,73 @@ def cv(v, high, med):
     return '#22c55e' if v >= high else '#eab308' if v >= med else '#ef4444'
 
 
+# 5-stop rating gradient (red -> amber -> yellow -> lime -> green) instead of a
+# hard 3-bucket threshold — richer color signal across the full 0-100 range.
+_RATING_STOPS = [
+    (0,   (239, 68,  68)),   # red    #ef4444
+    (55,  (245, 158, 11)),   # amber  #f59e0b
+    (70,  (234, 179, 8)),    # yellow #eab308
+    (85,  (163, 230, 53)),   # lime   #a3e635
+    (100, (74,  222, 128)),  # mint   #4ade80
+]
+
+
+def rating_color(v):
+    v = max(0.0, min(100.0, float(v)))
+    for (lo_v, lo_c), (hi_v, hi_c) in zip(_RATING_STOPS, _RATING_STOPS[1:]):
+        if lo_v <= v <= hi_v:
+            t = (v - lo_v) / (hi_v - lo_v)
+            r, g, b = (round(lo_c[i] + (hi_c[i] - lo_c[i]) * t) for i in range(3))
+            return f'#{r:02x}{g:02x}{b:02x}'
+    return '#22c55e'
+
+
+def _render_line_inputs(fetched, date_key, game_pk):
+    starters_with_data = [(idx, pid, pname, res) for idx, pid, pname, _, res, is_s, _, _, _
+                          in fetched if is_s and res]
+    if starters_with_data:
+        with st.expander('📥 Enter Sportsbook Lines', expanded=False):
+            st.caption('Enter the H+R+RBI line for each player. Check "Override" to force this '
+                       'line even when a real sportsbook line is already loaded.')
+            cols = st.columns(3)
+            for i, (_, pid, pname, res) in enumerate(starters_with_data):
+                line_key = f'line_{date_key}_{game_pk}_{pid}'
+                override_key = f'override_{line_key}'
+                with cols[i % 3]:
+                    val = st.number_input(
+                        pname, min_value=0.5, max_value=6.0,
+                        step=0.5, value=float(st.session_state.get(line_key, 1.5)),
+                        key=f'input_{line_key}',
+                    )
+                    st.session_state[line_key] = val
+                    st.checkbox('Override real line', key=override_key)
+
+
 def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
                   opp_team, park_team, weather, game_label, opp_p_name,
                   date_key: str, batter_team: str = '', game_date: str = '',
-                  event_id: str = '', game_pk: str = ''):
+                  event_id: str = '', game_pk: str = '', is_stable: bool = False,
+                  status: str = ''):
+
+    # Status is part of the key so a Preview -> In Progress -> Final transition
+    # re-renders once (which re-runs log_play / tracker_add) instead of serving
+    # a stale cached table for the rest of the session.
+    _render_cache_key = f'gv_rendered_{date_key}_{game_pk}_{int(is_home)}_{status}'
+    _fetch_cache_key   = f'gv_fetch_{date_key}_{game_pk}_{int(is_home)}'
+    _any_override = any(
+        st.session_state.get(f'override_line_{date_key}_{game_pk}_{pid}', False)
+        for pid in batter_ids
+    )
+
+    # Fast path — lineup is official/final and no line override is being tested,
+    # so the rating/edge numbers can't have changed. Redraw the last render
+    # instead of recomputing every player (avoids the "reload" feel on revisit).
+    if (is_stable and not _any_override
+            and _render_cache_key in st.session_state
+            and _fetch_cache_key in st.session_state):
+        container.markdown(st.session_state[_render_cache_key], unsafe_allow_html=True)
+        _render_line_inputs(st.session_state[_fetch_cache_key], date_key, game_pk)
+        return
 
     season      = datetime.now().year
     p_std       = get_pitcher_season_stats(opp_pitcher_id) if opp_pitcher_id else {}
@@ -402,38 +465,39 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
     os_t  = p_sc.get('pitcher_os_thrown_pct', 0)
 
     pitcher_bar = (
-        f'<div style="background:#1e293b;border-radius:6px;padding:8px 12px;'
+        f'<div style="background:#0d1420;border:1px solid #1e293b;border-radius:6px;padding:8px 12px;'
         f'margin-bottom:4px;font-size:12px;color:#7dd3fc;">'
         f'⚾ <b style="color:#38bdf8;">{opp_p_name}</b>'
         f' &nbsp;ERA {era} &nbsp;WHIP {whip} &nbsp;K% {kpct}'
-        f'<span style="margin-left:14px;color:#94a3b8;">'
+        f'<span style="margin-left:14px;color:#5b7a94;text-transform:uppercase;letter-spacing:0.04em;font-size:10px;">'
         f'Pitch mix → FB {fb_t:.0%} BK {bk_t:.0%} OS {os_t:.0%}</span>'
         f'</div>'
-        f'<div style="background:#0f172a;border-radius:6px;padding:5px 12px;'
-        f'margin-bottom:6px;font-size:11px;color:#94a3b8;">'
+        f'<div style="background:#080c14;border:1px solid #1e293b;border-radius:6px;padding:5px 12px;'
+        f'margin-bottom:6px;font-size:11px;color:#5b7a94;">'
         f'Bullpen ERA {bp_era:.2f} · WHIP {bp_whip:.2f} · '
-        f'<span style="color:{"#22c55e" if bp_era>=4.5 else "#eab308" if bp_era>=3.8 else "#ef4444"};">'
+        f'<span style="color:{"#4ade80" if bp_era>=4.5 else "#eab308" if bp_era>=3.8 else "#ef4444"};font-weight:600;">'
         f'{"🔥 Hitter-friendly bullpen" if bp_era>=4.5 else "⚖ Average bullpen" if bp_era>=3.8 else "🔒 Tough bullpen"}'
         f'</span></div>'
     )
 
     header = (
         '<table style="width:100%;border-collapse:collapse;font-size:12px;">'
-        '<tr style="background:#0f172a;color:#38bdf8;font-size:11px;font-weight:700;">'
+        '<tr style="background:#080c14;color:#64a8c2;font-size:10px;font-weight:700;'
+        'text-transform:uppercase;letter-spacing:0.05em;">'
     )
     for h, align in [('#','c'),('','l'),('Player','l'),('Ord','c'),
                      ('Rating','c'),('Proj','c'),('Line','c'),('Odds','c'),
                      ('Fair Odds','c'),('Edge','c'),
                      ('30g BA','c'),('7g HRR','c'),('30g HRR','c'),('Barrel % (seen)','l')]:
         a = 'left' if align == 'l' else 'center'
-        header += f'<th style="padding:5px 7px;text-align:{a};border-bottom:1px solid #1e40af;">{h}</th>'
+        header += f'<th style="padding:6px 7px;text-align:{a};border-bottom:1px solid #1e3a5f;">{h}</th>'
     header += '</tr>'
 
     placeholder = container.empty()
     placeholder.markdown(
-        pitcher_bar + header +
+        '<div class="gv-table-wrap">' + pitcher_bar + header +
         '<tr><td colspan="12" style="padding:12px;color:#475569;text-align:center;">'
-        '⏳ Fetching all batters in parallel...</td></tr></table>',
+        '⏳ Fetching all batters in parallel...</td></tr></table></div>',
         unsafe_allow_html=True
     )
 
@@ -532,9 +596,9 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
             _ctx_pct  = 0.0
         _disp_proj = res['proj'] if res else 0  # updated in each branch below
 
-        bg = '#0f172a' if row_i % 2 == 0 else '#1e293b'
+        bg = '#0a0e18' if row_i % 2 == 0 else '#0d1220'
         if not is_starter:
-            bg = '#111827'
+            bg = '#080b12'
 
         logo        = logo_img_tag(batter_team or pteam, 24)
         order_color = ('#22c55e' if spot <= 2 and is_starter else
@@ -596,7 +660,7 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
                 # Always use locked pre-game rating — never recalculate totals
                 locked_rating, locked_grade, locked_proj = cached
                 _disp_proj = locked_proj
-                _rc = '#22c55e' if locked_rating >= 85 else '#eab308' if locked_rating >= 55 else '#ef4444'
+                _rc = rating_color(locked_rating)
 
                 if res.get('_from_cache'):
                     # Loaded from DB cache — skip compute_rating entirely for speed.
@@ -685,7 +749,7 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
                 _units = _bet_units(_r)
                 _bet   = int(_units * 8)
                 _u_str = f'{_units:g}'
-                _stake_badge = (f' <span style="font-size:10px;background:#1e3a5f;color:#7dd3fc;'
+                _stake_badge = (f' <span style="font-size:10px;background:#2e1065;color:#c4b5fd;'
                                 f'border-radius:3px;padding:1px 4px;font-weight:700;">'
                                 f'{_u_str}u · ${_bet}</span>')
             if _qualifies and pname and game_date and (game_date < _today or _game_finished):
@@ -722,7 +786,7 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
             bk_s = batter_sc.get('batter_bk_seen_pct', 0)
             os_s = batter_sc.get('batter_os_seen_pct', 0)
 
-            rc = cv(r_data['total'], 75, 55)
+            rc = rating_color(r_data['total'])
             pc = cv(_disp_proj, 3.0, 2.0)
             bc = cv(res['ba30'], 0.280, 0.250)
 
@@ -852,7 +916,7 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
         except Exception:
             pass
         totals_row = (
-            f'<tr style="background:#0f172a;border-top:2px solid #1e40af;">'
+            f'<tr style="background:#080c14;border-top:2px solid #1e40af;">'
             f'<td colspan="3" style="padding:7px;color:#38bdf8;font-weight:700;">LINEUP TOTALS</td>'
             f'<td></td>'
             f'<td style="padding:7px;text-align:center;font-weight:800;color:{rc};">{avg_r} avg</td>'
@@ -860,30 +924,14 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
             f'<td colspan="6"></td></tr>'
         )
 
-    placeholder.markdown(
-        pitcher_bar + header + ''.join(rows_html) + totals_row + '</table>',
-        unsafe_allow_html=True
-    )
+    full_html = ('<div class="gv-table-wrap">' + pitcher_bar + header +
+                 ''.join(rows_html) + totals_row + '</table></div>')
+    placeholder.markdown(full_html, unsafe_allow_html=True)
+    if is_stable and not _any_override:
+        st.session_state[_render_cache_key] = full_html
 
     # ── Line inputs ───────────────────────────────────────────────────────────
-    starters_with_data = [(idx, pid, pname, res) for idx, pid, pname, _, res, is_s, _, _, _
-                          in fetched if is_s and res]
-    if starters_with_data:
-        with st.expander('📥 Enter Sportsbook Lines', expanded=False):
-            st.caption('Enter the H+R+RBI line for each player. Check "Override" to force this '
-                       'line even when a real sportsbook line is already loaded.')
-            cols = st.columns(3)
-            for i, (_, pid, pname, res) in enumerate(starters_with_data):
-                line_key = f'line_{date_key}_{game_pk}_{pid}'
-                override_key = f'override_{line_key}'
-                with cols[i % 3]:
-                    val = st.number_input(
-                        pname, min_value=0.5, max_value=6.0,
-                        step=0.5, value=float(st.session_state.get(line_key, 1.5)),
-                        key=f'input_{line_key}',
-                    )
-                    st.session_state[line_key] = val
-                    st.checkbox('Override real line', key=override_key)
+    _render_line_inputs(fetched, date_key, game_pk)
 
 
 # ── Page ──────────────────────────────────────────────────────────────────────
@@ -1037,6 +1085,10 @@ for game in games:
                 fetch_cache_key_h = f'gv_fetch_{date_key}_{_gk_str}_{int(True)}'
                 st.session_state.pop(fetch_cache_key_a, None)
                 st.session_state.pop(fetch_cache_key_h, None)
+                # Render cache keys carry a status suffix — clear by prefix
+                for _k in [k for k in st.session_state
+                           if str(k).startswith(f'gv_rendered_{date_key}_{_gk_str}_')]:
+                    st.session_state.pop(_k, None)
                 # Clear session-state locks — key includes game_pk to isolate doubleheaders
                 for pid in _all_ids:
                     st.session_state.pop(f'locked_{date_key}_{_gk_str}_{pid}', None)
@@ -1051,7 +1103,8 @@ for game in games:
                                   home, home, weather, away + ' @ ' + home,
                                   home_p, date_key, batter_team=away,
                                   game_date=selected_date.strftime('%Y-%m-%d'),
-                                  event_id=event_id, game_pk=_gk_str)
+                                  event_id=event_id, game_pk=_gk_str,
+                                  is_stable=_lineups_ready, status=status)
                 else:
                     st.info('Lineup pending.')
 
@@ -1062,7 +1115,8 @@ for game in games:
                                   away, home, weather, away + ' @ ' + home,
                                   away_p, date_key, batter_team=home,
                                   game_date=selected_date.strftime('%Y-%m-%d'),
-                                  event_id=event_id, game_pk=_gk_str)
+                                  event_id=event_id, game_pk=_gk_str,
+                                  is_stable=_lineups_ready, status=status)
                 else:
                     st.info('Lineup pending.')
 

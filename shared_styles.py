@@ -159,6 +159,18 @@ div[data-testid="stError"]   { background: rgba(239,68,68,0.07) !important;   bo
 ::-webkit-scrollbar-thumb { background: #1e3a5f; border-radius: 99px; }
 ::-webkit-scrollbar-thumb:hover { background: #2563eb; }
 
+/* ── Game View table card ────────────────────────────────────────────────── */
+.gv-table-wrap {
+  background: #06090f;
+  border: 1px solid #1e293b;
+  border-radius: 10px;
+  padding: 6px;
+  overflow: hidden;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.45);
+  transition: border-color 0.15s;
+}
+.gv-table-wrap:hover { border-color: #2563eb; }
+
 /* ── Responsive stat tiles (wrap on phone, one row on desktop) ──────────── */
 .stat-grid {
   display: grid;
@@ -214,6 +226,7 @@ div[data-testid="stError"]   { background: rgba(239,68,68,0.07) !important;   bo
     -webkit-overflow-scrolling: touch;
     white-space: nowrap;
   }
+  .gv-table-wrap { padding: 4px; border-radius: 8px; }
 }
 </style>
 """
