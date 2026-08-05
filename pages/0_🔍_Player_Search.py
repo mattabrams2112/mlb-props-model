@@ -265,7 +265,7 @@ def rating_bar_chart(components):
                          text=[f'{s}/{m}' for s, m in zip(scores, maxes)],
                          textposition='outside', cliponaxis=False))
     fig.add_trace(go.Bar(x=[m - s for s, m in zip(scores, maxes)], y=labels,
-                         orientation='h', marker_color='#1e293b', showlegend=False))
+                         orientation='h', marker_color='#10151f', showlegend=False))
     fig.update_layout(barmode='stack', height=200,
                       margin=dict(t=10, b=10, l=10, r=60),
                       xaxis=dict(range=[0, max(maxes) + 5], showticklabels=False, showgrid=False),
@@ -282,7 +282,7 @@ def render_lineup_table(rows):
         html += f'<th style="padding:9px 11px;text-align:left;border-bottom:2px solid #2563eb;">{col}</th>'
     html += '</tr>'
     for i, row in enumerate(rows):
-        bg    = '#0f1f38' if i % 2 == 0 else '#0a1628'
+        bg    = '#0d1119' if i % 2 == 0 else '#0a0e16'
         color = row['_color']
         era   = row['Opp ERA'] if isinstance(row['Opp ERA'], str) else f"{row['Opp ERA']:.2f}"
         html += f'<tr style="background:{bg};border-bottom:1px solid #1e293b;">'
@@ -496,7 +496,7 @@ else:
             away_p   = get_pitcher_name(game.get('away_pitcher_id')) if game.get('away_pitcher_id') else 'TBD'
             home_p   = get_pitcher_name(game.get('home_pitcher_id')) if game.get('home_pitcher_id') else 'TBD'
             st.markdown(
-                f'<div style="border:1px solid #1e3a5f;border-radius:10px;padding:12px 10px;text-align:center;background:#0f1f38;">'
+                f'<div style="border:1px solid #1b2636;border-radius:10px;padding:12px 10px;text-align:center;background:#0d1119;">'
                 f'<div style="font-size:13px;font-weight:700;color:#e0f2fe;">'
                 f'{logo_img_tag(away,22)}{away} @ {logo_img_tag(home,22)}{home}'
                 f'</div>'

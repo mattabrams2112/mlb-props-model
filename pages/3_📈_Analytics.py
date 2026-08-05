@@ -663,7 +663,7 @@ with _ha_cols[0]:
     _hw = int((_home_d['result'] == 'W').sum())
     _hl = int((_home_d['result'] == 'L').sum())
     st.markdown(
-        f'<div style="background:#0f1f38;border:1px solid #1e3a5f;border-radius:10px;padding:14px 18px;">'
+        f'<div style="background:#0d1119;border:1px solid #1b2636;border-radius:10px;padding:14px 18px;">'
         f'<div style="font-size:13px;color:#38bdf8;font-weight:700;margin-bottom:8px;">🏠 Home Games</div>'
         f'<div style="font-size:28px;font-weight:800;color:{color_wr(_hwr)};">'
         f'{_hwr}%</div>' if _hwr else '<div style="font-size:28px;color:#475569;">—</div>'
@@ -675,7 +675,7 @@ with _ha_cols[1]:
     _aw = int((_away_d['result'] == 'W').sum())
     _al = int((_away_d['result'] == 'L').sum())
     st.markdown(
-        f'<div style="background:#0f1f38;border:1px solid #1e3a5f;border-radius:10px;padding:14px 18px;">'
+        f'<div style="background:#0d1119;border:1px solid #1b2636;border-radius:10px;padding:14px 18px;">'
         f'<div style="font-size:13px;color:#38bdf8;font-weight:700;margin-bottom:8px;">✈️ Away Games</div>'
         f'<div style="font-size:28px;font-weight:800;color:{color_wr(_awr)};">'
         f'{_awr}%</div>' if _awr else '<div style="font-size:28px;color:#475569;">—</div>'
@@ -709,7 +709,7 @@ else:
         _w = int((_d['result'] == 'W').sum()); _l = int((_d['result'] == 'L').sum())
         with _col:
             st.markdown(
-                f'<div style="background:#0f1f38;border:1px solid #1e3a5f;border-radius:10px;padding:14px 18px;">'
+                f'<div style="background:#0d1119;border:1px solid #1b2636;border-radius:10px;padding:14px 18px;">'
                 f'<div style="font-size:13px;color:#38bdf8;font-weight:700;margin-bottom:8px;">{_label}</div>'
                 f'<div style="font-size:28px;font-weight:800;color:{color_wr(_wr)};">'
                 f'{_wr}%</div>' if _wr else '<div style="font-size:28px;color:#475569;">—</div>'

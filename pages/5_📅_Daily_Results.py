@@ -338,7 +338,7 @@ else:
         if wr >= 60:   return '#14532d'
         if wr >= 55.6: return '#1c3a1a'
         if wr > 0:     return '#450a0a'
-        return '#1e293b'
+        return '#10151f'
 
     def wr_color(wr_str):
         wr = float(wr_str.replace('%', ''))
@@ -382,7 +382,7 @@ else:
 </tr>'''
 
     total_ru_str = f'+{total_units_pl:.2f}u' if total_units_pl >= 0 else f'{total_units_pl:.2f}u'
-    html += f'''<tr style="background:#0f172a;border-top:2px solid #38bdf8;">
+    html += f'''<tr style="background:#080c14;border-top:2px solid #38bdf8;">
 <td style="padding:10px 12px;color:#38bdf8;font-weight:800;">TOTAL</td>
 <td style="padding:10px 12px;text-align:center;color:#e0f2fe;font-weight:800;">{total_w}-{total_l}</td>
 <td style="padding:10px 12px;text-align:center;color:{"#22c55e" if (total_wr or 0) >= 55.6 else "#ef4444"};font-weight:800;">{total_wr}%</td>

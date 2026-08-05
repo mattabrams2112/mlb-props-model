@@ -48,7 +48,8 @@ st.set_page_config(page_title="Game View | MLB Props", page_icon="🎯", layout=
 inject_styles()
 st.markdown("""
 <style>
-  .game-header{background:#111f38;border:1px solid #1e3a5f;border-radius:10px;
+  .game-header{background:linear-gradient(180deg,#0e131e 0%,#0a0e16 100%);
+               border:1px solid #1b2636;border-radius:10px;
                padding:12px 18px;margin-bottom:4px;}
 </style>""", unsafe_allow_html=True)
 
@@ -863,7 +864,7 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
                 for _cname, (_cscore, _cmax) in _comps.items():
                     _ccolor = '#22c55e' if _cscore >= _cmax * 0.75 else '#eab308' if _cscore >= _cmax * 0.4 else '#94a3b8'
                     _comp_parts.append(
-                        f'<span style="background:#1e293b;border:1px solid #1e3a5f;border-radius:4px;'
+                        f'<span style="background:#0d1119;border:1px solid #1b2636;border-radius:4px;'
                         f'padding:2px 6px;white-space:nowrap;">'
                         f'<span style="color:#7dd3fc;">{_cname}</span> '
                         f'<span style="color:{_ccolor};font-weight:700;">{_cscore}</span>'

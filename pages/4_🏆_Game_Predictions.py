@@ -145,7 +145,7 @@ for conf, color in conf_levels:
 </tr>'''
 
 # Total row
-conf_html += f'''<tr style="background:#0f172a;border-top:2px solid #38bdf8;">
+conf_html += f'''<tr style="background:#080c14;border-top:2px solid #38bdf8;">
 <td style="padding:10px 12px;color:#38bdf8;font-weight:800;">TOTAL</td>
 <td style="padding:10px 12px;text-align:center;color:#e0f2fe;font-weight:800;">{wins}-{losses}</td>
 <td style="padding:10px 12px;text-align:center;color:{"#22c55e" if (float(pct.strip("%")) if pct != "—" else 0) >= 55 else "#eab308" if (float(pct.strip("%")) if pct != "—" else 0) >= 50 else "#ef4444" if total > 0 else "#475569"};font-weight:800;">{pct}</td>
@@ -392,7 +392,7 @@ for row in rows:
         if not row.get('lineups_official'): _missing.append('official lineups')
         _wait_txt = ', '.join(_missing) if _missing else 'official lineups'
         st.markdown(
-            f'<div style="background:#1e293b;border:1px solid #334155;border-radius:10px;'
+            f'<div style="background:#0d1119;border:1px solid #334155;border-radius:10px;'
             f'padding:14px 18px;margin-bottom:8px;display:flex;align-items:center;gap:12px;">'
             f'{logo_img_tag(away, 28)}'
             f'<span style="color:#38bdf8;font-weight:700;">{away}</span>'
@@ -457,7 +457,7 @@ for row in rows:
                         f'{"" if _agree else " · 🔄 vs market"}</div>')
 
     st.markdown(
-        f'<div style="background:#1e293b;border:1px solid #1e40af;border-radius:10px;'
+        f'<div style="background:#0d1119;border:1px solid #1e40af;border-radius:10px;'
         f'padding:14px 18px;margin-bottom:12px;">'
 
         # Game card header
@@ -571,7 +571,7 @@ else:
     tot_wr = round(wins / total * 100, 1) if total > 0 else None
     tot_wrc = '#22c55e' if (tot_wr or 0) >= 55 else '#eab308' if (tot_wr or 0) >= 50 else '#ef4444' if total > 0 else '#475569'
     day_html += (
-        f'<tr style="background:#0f172a;border-top:2px solid #38bdf8;">'
+        f'<tr style="background:#080c14;border-top:2px solid #38bdf8;">'
         f'<td style="padding:9px 10px;color:#38bdf8;font-weight:800;">TOTAL</td>'
         f'{tot_cells}'
         f'<td style="padding:9px 10px;text-align:center;color:#e0f2fe;font-weight:800;">{wins}-{losses}</td>'

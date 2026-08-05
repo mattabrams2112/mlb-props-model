@@ -253,7 +253,7 @@ else:
         elif result == 'L':
             cls, badge = 'loss', '<span style="background:#450a0a;color:#ef4444;padding:3px 10px;border-radius:5px;font-weight:700;font-size:12px;">LOSS</span>'
         else:
-            cls, badge = 'open', '<span style="background:#1e293b;color:#94a3b8;padding:3px 10px;border-radius:5px;font-size:12px;">Pending</span>'
+            cls, badge = 'open', '<span style="background:#0d1119;color:#94a3b8;padding:3px 10px;border-radius:5px;font-size:12px;">Pending</span>'
 
         p      = play_profit(r, result) if result in ('W', 'L') else None
         pl_str = (f'<span style="color:{"#22c55e" if p >= 0 else "#ef4444"};font-weight:800;">{"+" if p >= 0 else ""}${p:.2f}</span>'
@@ -470,7 +470,7 @@ else:
                 _hp_col    = '#22c55e' if _winner == _home else '#64748b'
 
                 st.markdown(
-                    f'<div style="background:#0f1f38;border:1px solid #1e3a5f;border-radius:12px;'
+                    f'<div style="background:#0d1119;border:1px solid #1b2636;border-radius:12px;'
                     f'padding:14px 12px;margin-bottom:10px;">'
 
                     # Matchup row

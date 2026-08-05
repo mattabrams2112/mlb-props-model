@@ -168,7 +168,7 @@ s_wr = f'{round(s_w/s_n*100,1)}%' if s_n > 0 else '—'
 
 st.markdown('### 📊 Season Totals')
 st.markdown(
-    f'<div style="background:#1e293b;border:1px solid #1e40af;border-radius:10px;'
+    f'<div style="background:#0d1119;border:1px solid #1e40af;border-radius:10px;'
     f'padding:16px 18px;margin-bottom:24px;">'
     f'<div style="color:#38bdf8;font-weight:700;font-size:15px;margin-bottom:12px;">'
     f'All Weeks &nbsp;·&nbsp; '
@@ -200,7 +200,7 @@ for week_mon in weeks:
     )
 
     st.markdown(
-        f'<div style="background:#1e293b;border:1px solid #1e40af;border-radius:10px;'
+        f'<div style="background:#0d1119;border:1px solid #1e40af;border-radius:10px;'
         f'padding:16px 18px;margin-bottom:18px;">'
         f'<div style="color:#38bdf8;font-weight:700;font-size:15px;margin-bottom:12px;">'
         f'{label}{status_tag}'

@@ -3,6 +3,20 @@ import streamlit as st
 
 _CSS = """
 <style>
+/* ── Page background ─────────────────────────────────────────────────────── */
+/* Near-black base. Two very low-opacity radial washes give the page depth so
+   the lifted panels below read as elevated instead of floating on flat black.
+   Fixed attachment keeps the wash from sliding around while scrolling. */
+.stApp {
+  background-color: #06080d;
+  background-image:
+    radial-gradient(ellipse 90% 55% at 50% -12%, rgba(37,99,235,0.13), transparent 62%),
+    radial-gradient(ellipse 55% 45% at 100% 2%, rgba(56,189,248,0.05), transparent 58%);
+  background-attachment: fixed;
+}
+[data-testid="stHeader"] { background: transparent !important; }
+[data-testid="stAppViewContainer"] { background: transparent !important; }
+
 /* ── Layout ─────────────────────────────────────────────────────────────── */
 .block-container {
   padding-top: 1.1rem !important;
@@ -22,8 +36,8 @@ label, .stSelectbox label, .stSlider label,
 
 /* ── Sidebar ─────────────────────────────────────────────────────────────── */
 [data-testid="stSidebar"] {
-  background: linear-gradient(175deg, #08111f 0%, #0d1b30 55%, #0f172a 100%) !important;
-  border-right: 1px solid #1e3a5f !important;
+  background: linear-gradient(175deg, #04060a 0%, #080d16 55%, #0a0e16 100%) !important;
+  border-right: 1px solid #1b2636 !important;
 }
 [data-testid="stSidebar"] * { color: #7dd3fc !important; }
 [data-testid="stSidebarNav"] a {
@@ -44,8 +58,8 @@ label, .stSelectbox label, .stSlider label,
 
 /* ── Metric cards ─────────────────────────────────────────────────────────── */
 [data-testid="metric-container"] {
-  background: #0f1f38 !important;
-  border: 1px solid #1e3a5f !important;
+  background: #0d1119 !important;
+  border: 1px solid #1b2636 !important;
   border-radius: 10px !important;
   padding: 14px 18px !important;
   transition: border-color 0.15s !important;
@@ -80,9 +94,9 @@ label, .stSelectbox label, .stSlider label,
 
 /* ── Expanders ───────────────────────────────────────────────────────────── */
 [data-testid="stExpander"] {
-  border: 1px solid #1e3a5f !important;
+  border: 1px solid #1b2636 !important;
   border-radius: 10px !important;
-  background: #0a1628 !important;
+  background: #0a0e16 !important;
   margin-bottom: 8px !important;
 }
 .streamlit-expanderHeader {
@@ -97,8 +111,8 @@ label, .stSelectbox label, .stSlider label,
 /* ── Input fields ────────────────────────────────────────────────────────── */
 .stTextInput > div > div > input,
 .stNumberInput > div > div > input {
-  background: #0f1f38 !important;
-  border: 1px solid #1e3a5f !important;
+  background: #0d1119 !important;
+  border: 1px solid #1b2636 !important;
   border-radius: 7px !important;
   color: #e0f2fe !important;
 }
@@ -108,14 +122,14 @@ label, .stSelectbox label, .stSlider label,
   box-shadow: 0 0 0 2px rgba(14,165,233,0.15) !important;
 }
 [data-baseweb="select"] > div {
-  background: #0f1f38 !important;
-  border: 1px solid #1e3a5f !important;
+  background: #0d1119 !important;
+  border: 1px solid #1b2636 !important;
   border-radius: 7px !important;
   color: #e0f2fe !important;
 }
 
 /* ── Dividers ────────────────────────────────────────────────────────────── */
-hr { border-color: #1e3a5f !important; opacity: 0.6 !important; margin: 1.2rem 0 !important; }
+hr { border-color: #1b2636 !important; opacity: 0.8 !important; margin: 1.2rem 0 !important; }
 
 /* ── Alert / info / warning boxes ───────────────────────────────────────── */
 [data-testid="stAlert"] {
@@ -133,19 +147,19 @@ div[data-testid="stError"]   { background: rgba(239,68,68,0.07) !important;   bo
   background: linear-gradient(90deg, #0ea5e9, #38bdf8) !important;
   border-radius: 99px !important;
 }
-[data-testid="stProgressBar"] { border-radius: 99px !important; background: #1e293b !important; }
+[data-testid="stProgressBar"] { border-radius: 99px !important; background: #10151f !important; }
 
 /* ── Native dataframe ────────────────────────────────────────────────────── */
 [data-testid="stDataFrame"] {
   border-radius: 8px !important;
-  border: 1px solid #1e3a5f !important;
+  border: 1px solid #1b2636 !important;
   overflow: hidden !important;
 }
 
 /* ── Date input ──────────────────────────────────────────────────────────── */
 [data-testid="stDateInput"] input {
-  background: #0f1f38 !important;
-  border: 1px solid #1e3a5f !important;
+  background: #0d1119 !important;
+  border: 1px solid #1b2636 !important;
   border-radius: 7px !important;
   color: #e0f2fe !important;
 }
@@ -155,18 +169,18 @@ div[data-testid="stError"]   { background: rgba(239,68,68,0.07) !important;   bo
 
 /* ── Scrollbar ───────────────────────────────────────────────────────────── */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
-::-webkit-scrollbar-track { background: #0f172a; }
-::-webkit-scrollbar-thumb { background: #1e3a5f; border-radius: 99px; }
+::-webkit-scrollbar-track { background: #06080d; }
+::-webkit-scrollbar-thumb { background: #1b2636; border-radius: 99px; }
 ::-webkit-scrollbar-thumb:hover { background: #2563eb; }
 
 /* ── Game View table card ────────────────────────────────────────────────── */
 .gv-table-wrap {
-  background: #06090f;
-  border: 1px solid #1e293b;
+  background: #0a0e16;
+  border: 1px solid #1b2636;
   border-radius: 10px;
   padding: 6px;
   overflow: hidden;
-  box-shadow: 0 1px 4px rgba(0,0,0,0.45);
+  box-shadow: 0 2px 10px rgba(0,0,0,0.55);
   transition: border-color 0.15s;
 }
 .gv-table-wrap:hover { border-color: #2563eb; }
@@ -179,8 +193,8 @@ div[data-testid="stError"]   { background: rgba(239,68,68,0.07) !important;   bo
   margin: 4px 0 14px;
 }
 .stat-tile {
-  background: #0f1f38;
-  border: 1px solid #1e3a5f;
+  background: #0d1119;
+  border: 1px solid #1b2636;
   border-radius: 10px;
   padding: 12px 16px;
   min-width: 0;
@@ -199,8 +213,8 @@ div[data-testid="stError"]   { background: rgba(239,68,68,0.07) !important;   bo
   gap: 10px;
 }
 .play-card {
-  background: #0f1f38;
-  border: 1px solid #1e3a5f;
+  background: #0d1119;
+  border: 1px solid #1b2636;
   border-radius: 12px;
   padding: 12px 14px;
   min-width: 0;
@@ -227,6 +241,9 @@ div[data-testid="stError"]   { background: rgba(239,68,68,0.07) !important;   bo
     white-space: nowrap;
   }
   .gv-table-wrap { padding: 4px; border-radius: 8px; }
+  /* iOS Safari janks on fixed background attachment — let it scroll instead.
+     The base color still covers the page, only the subtle wash moves. */
+  .stApp { background-attachment: scroll; }
 }
 </style>
 """
