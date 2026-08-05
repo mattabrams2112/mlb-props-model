@@ -47,11 +47,64 @@ Bucketing by `projected / r30g`, `actual` is FLAT while projection climbs:
 | 2.00-3.00 | 237 | 2.990 | 1.658 |
 
 Everything the multiplier stack adds above `r30g` moves the projection and not the
-outcome. Suspected cause: opposing-starter quality is applied to the projection
-three times — `_pitcher_mult` (run_prediction), `Starter Matchup` via
-`matchup_pct`, and indirectly through `_ctx_pct` (teammate projections already
-carry `_pitcher_mult`). Modelled compounding: x0.58 vs an elite SP, x1.55 vs a bad
-one. Mechanism is verified in code; that it *causes* Finding 3 is still inference.
+outcome.
+
+**Finding 3a — the "pitcher counted 3x" theory was TESTED AND REFUTED.**
+Initial hypothesis: opposing-starter quality reaches the projection three times
+(`_pitcher_mult` in run_prediction, `Starter Matchup` via `matchup_pct`, and
+indirectly via `_ctx_pct`, since teammate projections already carry
+`_pitcher_mult`) — modelled compounding x0.58 vs an elite SP, x1.55 vs a bad one.
+The triple path is real in the code, but it is NOT the driver. Joining season ERA
+for all 239 opposing starters onto all 8,228 decided plays:
+
+| opp ERA | n | proj | actual | over | mult |
+|---------|----|------|--------|------|------|
+| 0.0-3.0 | 1333 | 1.877 | 1.344 | +0.533 | 0.716 |
+| 3.5-4.0 | 1897 | 2.254 | 1.651 | +0.603 | 0.732 |
+| 4.5-5.0 | 976 | 2.604 | 1.961 | +0.642 | 0.753 |
+| 5.0-6.0 | 1105 | 2.800 | 2.083 | +0.717 | 0.744 |
+| 6.0+ | 650 | 2.846 | 2.235 | +0.610 | 0.786 |
+
+**corr(opp_era, over-projection) = 0.0157** — flat. The bias is uniform across
+matchup quality, not compounding on bad pitchers. The pitcher signal itself is
+real and correctly aimed: corr(opp_era, projected) = 0.263 vs corr(opp_era,
+actual) = 0.142, i.e. the model over-responds to pitcher by roughly 2x, but that
+is mild over-weighting and not the source of a 33% inflation. Do NOT de-duplicate
+the pitcher path expecting it to fix over-projection.
+
+**Finding 3b — the real driver is recent-form extrapolation.**
+Over-projection scales with the batter's OWN 30-game form, which the pitcher cut
+ruled out:
+
+| r30g | n | proj | actual | mult |
+|------|----|------|--------|------|
+| 0.0-1.0 | 80 | 1.292 | 1.113 | 0.861 |
+| 1.5-2.0 | 1058 | 2.251 | 1.715 | 0.762 |
+| 2.0-2.5 | 687 | 2.593 | 1.789 | 0.690 |
+| 2.5-3.0 | 165 | 2.731 | 1.903 | 0.697 |
+
+The model extrapolates hot streaks instead of regressing them to the mean.
+
+**Finding 3c — the projection loses to a constant.**
+
+| forecast | MAE | corr w/ actual |
+|----------|-----|----------------|
+| model projection | 1.7186 | 0.058 |
+| `r30g` alone | 1.4922 | 0.084 |
+| **flat 1.77 for everyone** | **1.4791** | — |
+
+Predicting one number for every player beats the whole pipeline. Caveats: MAE
+rewards central predictions and single-game HRR is near-unpredictable (best MAE
+~1.48 by any method), and the r30g sample is 2,599 rows. But the correlation
+comparison points the same way — the pipeline adds nothing over `r30g`.
+
+**Finding 3d — why the rating still works anyway.**
+`proj_score = min(25, projection/3.5*25)` saturates at proj 3.5. Share of plays
+already saturated: 80-84 **61.5%**, 85-89 **68.4%**, 90+ **70.8%** (vs 8% below
+60). For most bet-band plays the Projection component contributes a flat 25 and
+does no ranking at all — the discrimination comes from the other 117 raw points.
+The cap is effectively shielding the rating from the broken projection. This is
+also why the band still wins 63% despite Findings 1-3c.
 
 **Finding 4 — the rating itself is sound and profitable.**
 
