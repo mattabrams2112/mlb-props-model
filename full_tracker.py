@@ -15,8 +15,12 @@ LOG_FILE     = data_path('full_play_log.csv')
 DATABASE_URL = os.environ.get('DATABASE_URL', '')
 COLS = ['date', 'player', 'team', 'rating', 'grade', 'projected', 'base_proj',
         'line', 'over_odds', 'actual', 'result', 'vs_pitcher', 'is_home', 'pitcher_throws',
-        'r30g']   # r30g = player's live 30-game HRR baseline at play time (clean,
-                  # no leakage); boom_delta = projected - r30g is derived at read time
+        'r30g',       # player's live 30-game HRR baseline at play time (clean, no
+                      # leakage); boom_delta = projected - r30g is derived at read time
+        'novig_prob'] # market's vig-free P(over) from the book's own two sides.
+                      # BENCHMARK ONLY - never feeds ratings, projections, or bet
+                      # selection. Gives a calibration target available pre-game,
+                      # so projection bias can be measured without waiting on results.
 
 
 def _get_engine():
@@ -70,7 +74,8 @@ def log_play(player: str, team: str, rating: int, grade: str,
              line: float = None, over_odds: int = None,
              vs_pitcher: str = '', is_home: bool = True,
              game_date: str = None, game_started: bool = False,
-             pitcher_throws: str = '', r30g: float = None):
+             pitcher_throws: str = '', r30g: float = None,
+             novig_prob: float = None):
     """Log a play. Updates rating/projection only if game hasn't started yet.
     r30g = the player's live 30-game HRR baseline (for boom_delta analysis)."""
     df    = load_all()
@@ -93,6 +98,9 @@ def log_play(player: str, team: str, rating: int, grade: str,
             # Backfill the baseline whenever it's provided and still missing
             if r30g is not None and str(df.at[idx, 'r30g']).strip() in ('', 'nan'):
                 df.at[idx, 'r30g'] = r30g
+            if (novig_prob is not None
+                    and str(df.at[idx, 'novig_prob']).strip() in ('', 'nan')):
+                df.at[idx, 'novig_prob'] = novig_prob
             save_all(df)
         return
     new_row = pd.DataFrame([{
@@ -111,6 +119,7 @@ def log_play(player: str, team: str, rating: int, grade: str,
         'is_home':        int(is_home),
         'pitcher_throws': pitcher_throws,
         'r30g':           r30g if r30g is not None else '',
+        'novig_prob':     novig_prob if novig_prob is not None else '',
     }])
     df = pd.concat([df, new_row], ignore_index=True)
     save_all(df)

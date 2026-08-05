@@ -51,6 +51,28 @@ def prob_to_american(p: float) -> int:
     return round((1 - p) / p * 100)
 
 
+def no_vig_prob(over_odds, under_odds):
+    """
+    Market's true P(over) with the book's margin removed.
+
+    Raw American odds carry vig, so the two sides sum to >100% (e.g. -125/+105
+    implies 55.6% + 48.8% = 104.3%). Normalising by that total strips the margin
+    and leaves what the market actually believes: here 53.3%.
+
+    Both sides are required — one price alone carries no information about how
+    much of it is margin. Returns None when the pair is missing or degenerate.
+    """
+    try:
+        po = american_to_prob(int(over_odds))
+        pu = american_to_prob(int(under_odds))
+    except (TypeError, ValueError):
+        return None
+    total = po + pu
+    if total <= 0 or not (0.90 < total < 1.35):   # implausible pair — bad data
+        return None
+    return round(po / total, 4)
+
+
 def edge_rating_bonus(edge: float) -> float:
     """Rating points to add/subtract based on edge (model prob - book implied prob)."""
     if edge >= 0.15:   return 12.0
@@ -170,22 +192,42 @@ def get_hrr_lines(event_id: str) -> dict:
             raw: dict = {}
             for book in data.get('bookmakers', []):
                 for mkt in book.get('markets', []):
+                    # Pair Over/Under per player at the same line WITHIN a single
+                    # book — vig can only be stripped from two sides of the same
+                    # market. Mixing books would mix margins and prices.
+                    book_sides: dict = {}
                     for outcome in mkt.get('outcomes', []):
-                        if outcome.get('name') == 'Over':
-                            player = outcome.get('description', '')
-                            line   = outcome.get('point')
-                            odds   = outcome.get('price')
-                            if player and line is not None:
-                                if player not in raw:
-                                    raw[player] = {'lines': [], 'odds': []}
-                                raw[player]['lines'].append(float(line))
-                                if odds is not None:
-                                    raw[player]['odds'].append(int(odds))
+                        side   = outcome.get('name')
+                        player = outcome.get('description', '')
+                        line   = outcome.get('point')
+                        odds   = outcome.get('price')
+                        if not player or line is None or side not in ('Over', 'Under'):
+                            continue
+                        key = (player, float(line))
+                        book_sides.setdefault(key, {})[side] = odds
+                        if side == 'Over':
+                            if player not in raw:
+                                raw[player] = {'lines': [], 'odds': [], 'novig': []}
+                            raw[player]['lines'].append(float(line))
+                            if odds is not None:
+                                raw[player]['odds'].append(int(odds))
+                    for (player, _ln), sides in book_sides.items():
+                        nv = no_vig_prob(sides.get('Over'), sides.get('Under'))
+                        if nv is not None and player in raw:
+                            raw[player]['novig'].append(nv)
             lines = {}
             for player, data_p in raw.items():
                 consensus_line = round(sum(data_p['lines']) / len(data_p['lines']) * 2) / 2
                 avg_odds = int(sum(data_p['odds']) / len(data_p['odds'])) if data_p['odds'] else -110
-                lines[player] = {'line': consensus_line, 'over_odds': avg_odds}
+                nv_list  = data_p.get('novig') or []
+                lines[player] = {
+                    'line':       consensus_line,
+                    'over_odds':  avg_odds,
+                    # Consensus no-vig P(over) across books. None when no book
+                    # returned both sides — logged as a benchmark only, never fed
+                    # into ratings, projections, or bet selection.
+                    'novig_prob': round(sum(nv_list) / len(nv_list), 4) if nv_list else None,
+                }
             if lines:
                 return lines
         except Exception:

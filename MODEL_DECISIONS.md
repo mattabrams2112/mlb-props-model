@@ -5,6 +5,99 @@ so decisions don't get re-litigated from scratch. Newest first. Dates are ET.
 
 ---
 
+## 2026-08-05 — Full-DB diagnostic: the RATING works, the PROJECTION is broken
+
+First analysis run against the live Postgres play log (14,935 rows; 8,228 decided
+plays since the 2026-06-18 model date) rather than reconstructed samples.
+
+**Finding 1 — `calibration.py`'s `actual > 0` filter inverts the answer.**
+4,781 of 14,656 decided plays (32.6%) have `actual = 0`. Dropping them doesn't
+just weaken calibration, it flips its sign:
+
+| sample | multiplier | what it tells the model |
+|--------|-----------|--------------------------|
+| all decided plays (truth) | **0.757** | over-projects by 32% |
+| `actual > 0` (what runs today) | **1.121** | *under*-projects by 12% |
+
+At `<60` it applies **1.31**, actively inflating projections that are already high.
+At 80-89 it applies 0.82 where truth is 0.62.
+
+**Finding 2 — over-projection scales monotonically with rating.**
+
+| tier | n | proj | actual | true mult |
+|------|----|------|--------|-----------|
+| 90+ | 23 | 4.374 | 1.565 | 0.358 |
+| 80-89 | 156 | 4.008 | 2.487 | 0.621 |
+| 70-79 | 580 | 3.295 | 1.895 | 0.575 |
+| 60-69 | 1929 | 2.963 | 1.982 | 0.669 |
+| <60 | 5540 | 1.964 | 1.664 | 0.847 |
+
+The broad population is only ~18% high; 90+ projects ~2.8x reality. **This
+supersedes the 2026-07-22 "recenter by a constant offset" plan** — the bias is
+multiplicative and rating-dependent, so a constant subtraction cannot fix it.
+
+**Finding 3 — projection lift above a player's own baseline is pure noise.**
+Bucketing by `projected / r30g`, `actual` is FLAT while projection climbs:
+
+| proj/r30g | n | proj | actual |
+|-----------|----|------|--------|
+| <1.00 | 851 | 1.298 | 1.673 |
+| 1.25-1.50 | 354 | 2.537 | 1.641 |
+| 1.50-2.00 | 727 | 3.061 | 1.744 |
+| 2.00-3.00 | 237 | 2.990 | 1.658 |
+
+Everything the multiplier stack adds above `r30g` moves the projection and not the
+outcome. Suspected cause: opposing-starter quality is applied to the projection
+three times — `_pitcher_mult` (run_prediction), `Starter Matchup` via
+`matchup_pct`, and indirectly through `_ctx_pct` (teammate projections already
+carry `_pitcher_mult`). Modelled compounding: x0.58 vs an elite SP, x1.55 vs a bad
+one. Mechanism is verified in code; that it *causes* Finding 3 is still inference.
+
+**Finding 4 — the rating itself is sound and profitable.**
+
+| band | n | actual HRR | win% vs real line |
+|------|----|-----------|-------------------|
+| 80-84 | 101 | 2.465 | 50.0% |
+| **85-89** | **55** | **2.527** | **63.0%** |
+| 90+ | 23 | 1.565 | 40.9% |
+| population | — | 1.770 | 44.9% |
+
+Breakeven is 52.4%. 85-89 at 63% over 54 plays validates the threshold, the 90-94
+fade, and the 80-84 drop. It also settles the 8/05 scare that 85-89 had gone 0-2
+this week: noise against a 63% base.
+
+**DECISION: change nothing on the rating/projection path right now.**
+`Projection` is the largest rating component and saturates at proj 3.5; 80-89
+plays average 4.008, pinned at the 25-point cap. Correcting the projection to its
+true ~2.5 drops that component ~7.1 raw points ~= **-6.3 rating points**, turning
+an 87 into an 81 and emptying the band that currently wins 63%. The 85+ threshold
+is calibrated *to the inflated projection*. Fixing the projection is a rescale,
+not a bug fix, and must be paired with re-deriving the threshold from data.
+Deferred until the 8/03 ceiling evaluation finishes (needs ~20-25 decided plays;
+had 2 as of 8/05).
+
+**Consequence:** Edge and Fair Odds are unreliable today (projection inflated up
+to ~2.8x at the top). Do not make decisions from the Edge column. Bet selection
+reads the rating, which is unaffected.
+
+**Shipped today (deliberately chosen because neither touches ratings):**
+1. **Retractable-roof fix** — `DOMED = {'TB','TOR','TEX','MIA'}` was wrong both
+   ways: TOR/TEX/MIA were pinned closed (never got weather on open-roof days) and
+   HOU/SEA/ARI/MIL were absent entirely (got live wind/temp with the roof shut).
+   Verified on 2026-08-04: HOU and ARI were both "Roof Closed" while being scored
+   with live wind. Now reads MLB's per-game `gameData.weather.condition`; unknown
+   resolves to neutral, since a wrong wind reading corrupts Park & Weather whereas
+   neutral merely adds nothing. Shifts ratings <=~1.7 points at those 7 parks.
+2. **No-vig market probability logged** — `odds_api` only ever read the `Over`
+   outcome, discarding the `Under` from the same response, so the book's margin
+   could never be removed. Now pairs both sides within a single book, strips the
+   vig, and stores consensus `novig_prob` on every play. **Benchmark only — never
+   feeds ratings, projections, or bet selection.** Gives a calibration target
+   available pre-game, so projection bias becomes measurable in days across
+   hundreds of plays instead of waiting on decided outcomes.
+
+---
+
 ## 2026-08-03 — Projection ceiling loosened 1.8x -> 2.0x (volume starvation)
 
 **What:** `PROJ_CEILING_MULT` in Game View's `run_prediction` raised 1.8 -> 2.0.

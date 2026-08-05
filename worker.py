@@ -399,7 +399,8 @@ def process_game(game, game_date):
     pre_game = status in ('Preview', 'Pre-Game', 'Scheduled', 'Warmup', '')
     game_started = not pre_game
 
-    weather  = get_stadium_weather(home, '' if game_started else game.get('start_time', ''))
+    weather  = get_stadium_weather(home, '' if game_started else game.get('start_time', ''),
+                                   game_pk=game_pk)
     temp_f   = weather.get('temp_f', 72)
     wind_sp  = weather.get('wind_speed', 5)
     wind_dr  = weather.get('wind_dir_code', 0)

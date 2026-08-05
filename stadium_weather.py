@@ -40,8 +40,24 @@ STADIUM_COORDS = {
     'WSH': (38.8730, -77.0074),
 }
 
-# Fully enclosed — weather has no effect
-DOMED = {'TB', 'TOR', 'TEX', 'MIA'}
+# Fully enclosed year-round — weather never has an effect.
+FIXED_DOME = {'TB'}
+
+# Retractable roofs. Whether weather matters depends on the roof's state THAT DAY,
+# so these can't be answered from a static set. MLB reports the state per game in
+# gameData.weather.condition ("Roof Closed" / "Dome" vs a real condition), which is
+# what get_roof_closed() below reads.
+#
+# Previously DOMED = {'TB','TOR','TEX','MIA'}: that treated TOR/TEX/MIA as always
+# closed (so they never got weather even on open-roof days) and omitted
+# HOU/SEA/ARI/MIL entirely (so they got live wind/temp even with the roof shut).
+# Verified against 2026-08-04: HOU and ARI were both "Roof Closed" while being
+# scored with live wind.
+RETRACTABLE = {'TOR', 'TEX', 'MIA', 'HOU', 'SEA', 'ARI', 'MIL'}
+
+# Back-compat for any caller still importing DOMED — parks where we default to
+# neutral conditions absent a per-game reading.
+DOMED = FIXED_DOME | RETRACTABLE
 
 NEUTRAL = {
     'temp_f': 72.0, 'wind_speed': 0.0,
@@ -89,13 +105,46 @@ def _weather_label(code: int) -> str:
 
 
 @st.cache_data(show_spinner=False, ttl=1800)
-def get_stadium_weather(home_team: str, game_time_utc: str = '') -> dict:
+def get_roof_closed(game_pk) -> bool:
+    """
+    Roof state for a single game, read from MLB's own report.
+    True = closed (or unreadable), False = open.
+
+    Unknown deliberately resolves to True/neutral: a wrong wind reading actively
+    corrupts the Park & Weather score, whereas neutral simply adds no signal.
+    """
+    if not game_pk:
+        return True
+    try:
+        import statsapi
+        data = statsapi.get('game', {'gamePk': int(game_pk)})
+        cond = str(data.get('gameData', {}).get('weather', {}).get('condition', '')).strip()
+        if not cond:
+            return True
+        c = cond.lower()
+        return ('roof closed' in c) or ('dome' in c)
+    except Exception:
+        return True
+
+
+@st.cache_data(show_spinner=False, ttl=1800)
+def get_stadium_weather(home_team: str, game_time_utc: str = '', game_pk=None) -> dict:
     """
     Returns weather at game time if game_time_utc is provided (ISO UTC string),
     otherwise returns current conditions.
+
+    Retractable-roof parks resolve per game via MLB's reported condition; without
+    a game_pk they fall back to neutral rather than guessing.
     """
-    if home_team in DOMED:
+    home_team = (home_team or '').upper()
+
+    if home_team in FIXED_DOME:
         return NEUTRAL
+
+    if home_team in RETRACTABLE:
+        if get_roof_closed(game_pk):
+            return {**NEUTRAL, 'condition': 'Roof Closed'}
+        # Roof open — fall through and score real conditions.
 
     coords = STADIUM_COORDS.get(home_team.upper())
     if not coords:

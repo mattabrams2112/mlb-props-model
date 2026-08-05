@@ -735,6 +735,11 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
                         game_started=not _pre_game,
                         pitcher_throws=p_throws,
                         r30g=res.get('r30g'),   # clean 30g HRR baseline for boom_delta
+                        # Market's vig-free P(over), benchmark only. Taken from the
+                        # real book quote, so it is skipped when a manual line
+                        # override is in force (that price isn't a market price).
+                        novig_prob=(odds_data.get('novig_prob')
+                                    if odds_data and not line_override else None),
                     )
                 except Exception:
                     pass
@@ -997,7 +1002,8 @@ for game in games:
         continue
 
     is_past       = selected_date < today_et()
-    weather       = get_stadium_weather(home, '' if is_past else game.get('start_time', ''))
+    weather       = get_stadium_weather(home, '' if is_past else game.get('start_time', ''),
+                                        game_pk=game.get('game_pk'))
     # Match event to odds API — try abbreviation, then team nickname
     TEAM_NICKNAMES = {
         'ARI':'Diamondbacks','ATL':'Braves','BAL':'Orioles','BOS':'Red Sox',
