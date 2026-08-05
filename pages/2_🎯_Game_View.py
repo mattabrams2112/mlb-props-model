@@ -542,6 +542,7 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
 
         line_key = f'line_{date_key}_{game_pk}_{pid}'
         line_val = st.session_state.get(line_key)
+        line_override = st.session_state.get(f'override_{line_key}', False)
 
         if is_starter and res:
             session_key = f'locked_{date_key}_{game_pk}_{pid}'
@@ -605,8 +606,11 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
                               'color': _rc, 'components': {}, 'line_label': None}
                 else:
                     # Full res from run_prediction — compute components for breakdown
-                    book_line  = odds_data['line']      if odds_data else line_val
-                    book_odds  = odds_data['over_odds'] if odds_data else None
+                    if line_override and line_val is not None:
+                        book_line, book_odds = line_val, None
+                    else:
+                        book_line  = odds_data['line']      if odds_data else line_val
+                        book_odds  = odds_data['over_odds'] if odds_data else None
                     _r_display = _rate(locked_proj, book_line, book_odds)
                     r_data = {'total': locked_rating, 'grade': locked_grade,
                               'color': _rc,
@@ -629,8 +633,11 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
                                 _disp_proj, player_name=pname, team=batter_team,
                                 vs_pitcher=opp_p_name)
             else:
-                book_line  = odds_data['line']      if odds_data else line_val
-                book_odds  = odds_data['over_odds'] if odds_data else None
+                if line_override and line_val is not None:
+                    book_line, book_odds = line_val, None
+                else:
+                    book_line  = odds_data['line']      if odds_data else line_val
+                    book_odds  = odds_data['over_odds'] if odds_data else None
                 # Two passes: first derives rough rating + matchup adjustment,
                 # then calibration correction is applied before final rating.
                 _pass1     = _rate(_base_proj, book_line, book_odds)
@@ -720,8 +727,11 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
             bc = cv(res['ba30'], 0.280, 0.250)
 
             # Line / odds display
-            disp_line = odds_data['line'] if odds_data else line_val
-            disp_odds = odds_data['over_odds'] if odds_data else None
+            if line_override and line_val is not None:
+                disp_line, disp_odds = line_val, None
+            else:
+                disp_line = odds_data['line'] if odds_data else line_val
+                disp_odds = odds_data['over_odds'] if odds_data else None
 
             if disp_line is not None:
                 edge      = round(_disp_proj - disp_line, 2)
@@ -860,10 +870,12 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
                           in fetched if is_s and res]
     if starters_with_data:
         with st.expander('📥 Enter Sportsbook Lines', expanded=False):
-            st.caption('Enter the H+R+RBI line for each player. Ratings and Edge update automatically.')
+            st.caption('Enter the H+R+RBI line for each player. Check "Override" to force this '
+                       'line even when a real sportsbook line is already loaded.')
             cols = st.columns(3)
             for i, (_, pid, pname, res) in enumerate(starters_with_data):
                 line_key = f'line_{date_key}_{game_pk}_{pid}'
+                override_key = f'override_{line_key}'
                 with cols[i % 3]:
                     val = st.number_input(
                         pname, min_value=0.5, max_value=6.0,
@@ -871,6 +883,7 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
                         key=f'input_{line_key}',
                     )
                     st.session_state[line_key] = val
+                    st.checkbox('Override real line', key=override_key)
 
 
 # ── Page ──────────────────────────────────────────────────────────────────────
