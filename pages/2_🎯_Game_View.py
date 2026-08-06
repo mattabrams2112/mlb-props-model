@@ -420,7 +420,11 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
                   opp_team, park_team, weather, game_label, opp_p_name,
                   date_key: str, batter_team: str = '', game_date: str = '',
                   event_id: str = '', game_pk: str = '', is_stable: bool = False,
-                  status: str = ''):
+                  status: str = '', team_total: float = None):
+
+    # Market's implied run total for this batter's team tonight. Logged as a
+    # benchmark; deliberately NOT fed into any rating component yet.
+    _team_implied_total = team_total
 
     # Status is part of the key so a Preview -> In Progress -> Final transition
     # re-renders once (which re-runs log_play / tracker_add) instead of serving
@@ -740,6 +744,9 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
                         # override is in force (that price isn't a market price).
                         novig_prob=(odds_data.get('novig_prob')
                                     if odds_data and not line_override else None),
+                        # Market's implied run total for this batter's team tonight.
+                        # Benchmark only - not wired into any rating component yet.
+                        team_total=_team_implied_total,
                     )
                 except Exception:
                     pass
@@ -1018,6 +1025,13 @@ for game in games:
     nickname = TEAM_NICKNAMES.get(home, '')
     event_id = (event_map.get(home) or event_map.get(nickname) or
                 event_map.get(home.upper()) or '')
+
+    # Market implied run totals for both sides (benchmark logging only).
+    # get_game_totals() keys on full team name and last word, so look up by
+    # nickname; None whenever the market or the mapping is unavailable.
+    from odds_api import get_team_implied_total as _implied_total
+    _home_total = _implied_total(TEAM_NICKNAMES.get(home, '')) if not is_past else None
+    _away_total = _implied_total(TEAM_NICKNAMES.get(away, '')) if not is_past else None
     pf            = get_park_factor(home)
     status        = game.get('status', '')
     away_score    = game.get('away_score', '')
@@ -1111,7 +1125,8 @@ for game in games:
                                   home_p, date_key, batter_team=away,
                                   game_date=selected_date.strftime('%Y-%m-%d'),
                                   event_id=event_id, game_pk=_gk_str,
-                                  is_stable=_lineups_ready, status=status)
+                                  is_stable=_lineups_ready, status=status,
+                                  team_total=_away_total)
                 else:
                     st.info('Lineup pending.')
 
@@ -1123,7 +1138,8 @@ for game in games:
                                   away_p, date_key, batter_team=home,
                                   game_date=selected_date.strftime('%Y-%m-%d'),
                                   event_id=event_id, game_pk=_gk_str,
-                                  is_stable=_lineups_ready, status=status)
+                                  is_stable=_lineups_ready, status=status,
+                                  team_total=_home_total)
                 else:
                     st.info('Lineup pending.')
 

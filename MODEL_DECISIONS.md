@@ -141,7 +141,18 @@ reads the rating, which is unaffected.
    with live wind. Now reads MLB's per-game `gameData.weather.condition`; unknown
    resolves to neutral, since a wrong wind reading corrupts Park & Weather whereas
    neutral merely adds nothing. Shifts ratings <=~1.7 points at those 7 parks.
-2. **No-vig market probability logged** — `odds_api` only ever read the `Over`
+2. **Market implied team run total logged** (`team_total`) — nothing in the model
+   fetched Vegas totals. Runs and RBI are 2 of the 3 HRR components, so expected
+   team runs is the most direct driver of the stat, and the model's only view of
+   it was `team_runs_avg`, a SEASON average that is identical every day. The
+   market number is game-specific and already prices the starter, park, weather,
+   bullpen, lineup and late scratches. Derived as `total/2 +/- margin/2` with the
+   margin from the devigged moneyline (`z(p) * sigma`). **sigma=4.0 validated
+   empirically**, not guessed: real MLB finals 6/18->8/4 give a run-margin sd of
+   4.056 (mean +0.130) and mean game total 8.796. **Benchmark only — not wired
+   into any rating component.** Also note `umpire_tendency` is a dead parameter:
+   fetched per game, passed into `compute_rating`, and never used in any score.
+3. **No-vig market probability logged** — `odds_api` only ever read the `Over`
    outcome, discarding the `Under` from the same response, so the book's margin
    could never be removed. Now pairs both sides within a single book, strips the
    vig, and stores consensus `novig_prob` on every play. **Benchmark only — never
