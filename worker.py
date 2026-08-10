@@ -23,6 +23,9 @@ from concurrent.futures import ThreadPoolExecutor
 # feature-engineering helpers are imported there, not here.
 from projection import (run_prediction as shared_run_prediction,
                         lineup_context_pct)
+# compute_rating's inputs are assembled in exactly one place — see the module
+# docstring for what went wrong when this lived in two.
+from rating_inputs import score_batter
 from lineup_fetcher import get_todays_lineups
 from pitcher_data import (get_pitcher_season_stats, get_pitcher_name,
                           get_pitcher_throws, get_pitcher_last_n_starts,
@@ -30,7 +33,6 @@ from pitcher_data import (get_pitcher_season_stats, get_pitcher_name,
 from statcast_features import get_batter_statcast, get_pitcher_statcast
 from weather import get_park_factor
 from rating import compute_rating
-from bvp_stats import get_bvp
 from stadium_weather import get_stadium_weather
 from bullpen_data import get_bullpen_stats
 from ratings_cache import get_cached_rating, save_rating
@@ -214,118 +216,26 @@ def _get_rating(res, pid, pitcher_id, park_team, batting_order,
                 temp_f, wind_speed, wind_dir, bp_era, bp_whip,
                 is_home, p_std, p_sc, p_last3, p_rest, b_sc,
                 team_score, ump_data, opp_defense, game_date=None):
-    bvp = get_bvp(pid, pitcher_id) if pitcher_id else {}
-
-    # Days since the batter last played. Game View has always passed this; the
-    # worker did not, so it silently took compute_rating's default of 1 (the
-    # "normal rest" case) and never scored a day-after-doubleheader at -2 or a
-    # well-rested batter at +1.
-    try:
-        _game_dt = (datetime.strptime(str(game_date)[:10], '%Y-%m-%d').date()
-                    if game_date else datetime.now().date())
-        _last    = res['df']['date'].max()
-        if hasattr(_last, 'date'):
-            _last = _last.date()
-        batter_rest_days = max(0, (_game_dt - _last).days)
-    except Exception:
-        batter_rest_days = 1
-
-    return compute_rating(
-        recent_7g             = res['r7g'],
-        recent_30g            = res['r30g'],
-        season_avg            = res['savg'],
-        opp_era               = p_std.get('opp_era', 4.30),
-        opp_whip              = p_std.get('opp_whip', 1.28),
-        batter_fb_barrel      = b_sc.get('batter_fb_barrel_pct', 0.080),
-        batter_bk_barrel      = b_sc.get('batter_bk_barrel_pct', 0.040),
-        batter_os_barrel      = b_sc.get('batter_os_barrel_pct', 0.050),
-        pitcher_fb_barrel     = p_sc.get('pitcher_fb_barrel_pct', 0.080),
-        pitcher_bk_barrel     = p_sc.get('pitcher_bk_barrel_pct', 0.040),
-        pitcher_os_barrel     = p_sc.get('pitcher_os_barrel_pct', 0.050),
-        batter_fb_seen        = b_sc.get('batter_fb_seen_pct', 0.55),
-        batter_bk_seen        = b_sc.get('batter_bk_seen_pct', 0.25),
-        batter_os_seen        = b_sc.get('batter_os_seen_pct', 0.20),
-        park_factor           = get_park_factor(park_team),
-        wind_speed            = wind_speed,
-        wind_dir              = wind_dir,
-        bvp_avg               = bvp.get('bvp_avg', res['ba30']),
-        bvp_sample            = bvp.get('bvp_sample', 0),
-        batting_order         = batting_order,
-        recent_ba             = res['ba30'],
-        # These three were absent from the worker's call, so it fell back to
-        # compute_rating's defaults (OBP 0.320, SB 0.05, rest 1) while Game View
-        # passed the batter's real numbers — the two paths scored Form & Hit
-        # Rate and Batter Rest differently for the same player.
-        batter_obp            = res.get('obp30', 0.320),
-        batter_sb_rate        = res.get('sb_rate', 0.05),
-        batter_rest_days      = batter_rest_days,
-        temp_f                = temp_f,
-        projection            = res['proj'],
-        bp_era                = bp_era,
-        bp_whip               = bp_whip,
-        line                  = None,
-        over_odds             = None,
-        home_hrr              = res.get('home_hrr'),
-        away_hrr              = res.get('away_hrr'),
-        is_home               = is_home,
-        recent_20g            = res.get('r20g_venue'),
-        recent_ba_venue       = res.get('ba_venue'),
-        batter_hard_hit_pct   = b_sc.get('batter_hard_hit_pct', 0.360),
-        pitcher_hard_hit_pct  = p_sc.get('pitcher_hard_hit_pct', 0.360),
-        batter_xba            = b_sc.get('batter_xba', 0.250),
-        pitcher_xba_allowed   = p_sc.get('pitcher_xba_allowed', 0.250),
-        batter_avg_ev         = b_sc.get('batter_avg_ev', 88.0),
-        pitcher_avg_ev        = p_sc.get('pitcher_avg_ev', 88.0),
-        opp_fip               = p_std.get('opp_fip', 4.20),
-        opp_last3_era         = p_last3.get('opp_last3_era', 4.30),
-        opp_last3_whip        = p_last3.get('opp_last3_whip', 1.28),
-        pitcher_throws        = get_pitcher_throws(pitcher_id) if pitcher_id else 'R',
-        batter_xba_vs_rhp     = b_sc.get('batter_xba_vs_rhp', 0.250),
-        batter_xba_vs_lhp     = b_sc.get('batter_xba_vs_lhp', 0.250),
-        batter_hard_hit_vs_rhp= b_sc.get('batter_hard_hit_vs_rhp', 0.360),
-        batter_hard_hit_vs_lhp= b_sc.get('batter_hard_hit_vs_lhp', 0.360),
-        team_runs_avg         = team_score.get('team_runs_avg', 4.5),
-        umpire_tendency       = ump_data.get('umpire_tendency', 0.0),
-        opp_def_rating        = opp_defense.get('def_rating', 0.0),
-        pitcher_rest_factor   = p_rest.get('rest_factor', 0.0),
-        pitcher_gb_pct        = p_sc.get('pitcher_gb_pct', 0.430),
-        pitcher_fb_thrown    = p_sc.get('pitcher_fb_thrown_pct',   0.55),
-        pitcher_bk_thrown    = p_sc.get('pitcher_bk_thrown_pct',   0.25),
-        pitcher_os_thrown    = p_sc.get('pitcher_os_thrown_pct',   0.20),
-        batter_whiff_pct_fb  = b_sc.get('batter_whiff_pct_fb',    0.200),
-        batter_whiff_pct_bk  = b_sc.get('batter_whiff_pct_bk',    0.330),
-        batter_whiff_pct_os  = b_sc.get('batter_whiff_pct_os',    0.310),
-        pitcher_whiff_pct_fb = p_sc.get('pitcher_whiff_pct_fb',   0.200),
-        pitcher_whiff_pct_bk = p_sc.get('pitcher_whiff_pct_bk',   0.330),
-        pitcher_whiff_pct_os = p_sc.get('pitcher_whiff_pct_os',   0.310),
-        opp_k_pct            = p_sc.get('pitcher_k_pct',          0.222),
-        opp_bb_pct           = p_sc.get('pitcher_bb_pct',          0.083),
-        opp_babip            = p_sc.get('pitcher_babip',           0.300),
-        opp_whiff_pct        = p_sc.get('pitcher_whiff_pct',       0.245),
-        opp_k_pct_vs_lhb   = p_sc.get('pitcher_k_pct_vs_lhb',    None),
-        opp_k_pct_vs_rhb   = p_sc.get('pitcher_k_pct_vs_rhb',    None),
-        opp_babip_vs_lhb   = p_sc.get('pitcher_babip_vs_lhb',    None),
-        opp_babip_vs_rhb   = p_sc.get('pitcher_babip_vs_rhb',    None),
-        batter_k_pct        = b_sc.get('batter_k_pct',            0.222),
-        batter_bb_pct       = b_sc.get('batter_bb_pct',           0.083),
-        batter_babip        = b_sc.get('batter_babip',            0.300),
-        batter_whiff_pct    = b_sc.get('batter_whiff_pct',        0.245),
-        batter_k_pct_vs_rhp = b_sc.get('batter_k_pct_vs_rhp',    None),
-        batter_k_pct_vs_lhp = b_sc.get('batter_k_pct_vs_lhp',    None),
-        batter_babip_vs_rhp = b_sc.get('batter_babip_vs_rhp',    None),
-        batter_babip_vs_lhp = b_sc.get('batter_babip_vs_lhp',    None),
-        pitcher_last_pitch_count = get_pitcher_last_pitch_count(pitcher_id, SEASON) if pitcher_id else 0,
-        **_get_park_splits(pid, park_team),
-    )
+    """
+    Thin wrapper over rating_inputs.score_batter — the one place that decides
+    what reaches compute_rating. This used to hand-build its own ~80-argument
+    call, which is how it ended up passing a different input set than Game View
+    for the same player.
+    """
+    return score_batter(
+        res, pid, pitcher_id, park_team, batting_order,
+        temp_f, wind_speed, wind_dir,
+        bp_era=bp_era, bp_whip=bp_whip, is_home=is_home,
+        # The worker has no odds access. Both are label-only in rating.py
+        # (Line Edge is displayed, never scored), so the total is unaffected.
+        line=None, over_odds=None,
+        p_std=p_std, p_sc=p_sc, p_last3=p_last3, p_rest=p_rest, b_sc=b_sc,
+        team_score=team_score, ump_data=ump_data, opp_defense=opp_defense,
+        pitcher_throws=get_pitcher_throws(pitcher_id) if pitcher_id else 'R',
+        game_date=game_date, season=SEASON)
 
 
-def _get_park_splits(player_id: int, home_team: str) -> dict:
-    try:
-        from park_splits import get_batter_park_splits
-        ps = get_batter_park_splits(player_id, home_team)
-        return {'park_ba': ps['park_ba'], 'park_slg': ps['park_slg'], 'park_ab': ps['park_ab']}
-    except Exception:
-        return {'park_ba': 0.250, 'park_slg': 0.400, 'park_ab': 0}
+
 
 
 # ── Process one game ──────────────────────────────────────────────────────────

@@ -21,6 +21,9 @@ import requests as _req
 # feature-engineering helpers are imported there, not here.
 from projection import (run_prediction as shared_run_prediction,
                         lineup_context_pct)
+# compute_rating's inputs are assembled in exactly one place — see the module
+# docstring for what went wrong when this lived in two.
+from rating_inputs import score_batter
 from tracker import add_predictions as tracker_add
 from full_tracker import log_play
 from pitcher_data import get_pitcher_season_stats, get_pitcher_name
@@ -29,7 +32,6 @@ from weather import get_park_factor
 from rating import compute_rating
 from lineup_fetcher import get_todays_lineups
 from team_logos import get_logo, logo_img_tag
-from bvp_stats import get_bvp
 from stadium_weather import get_stadium_weather
 from bullpen_data import get_bullpen_stats
 from ratings_cache import get_cached_rating, save_rating, clear_ratings_for_players
@@ -79,16 +81,6 @@ def fetch_logs(player_id: int) -> pd.DataFrame:
     return fetch_player_logs(player_id)
 
 
-def _park_splits(player_id: int, home_team: str) -> dict:
-    """Batter's career BA/SLG/AB at this ballpark. Mirrors worker._get_park_splits."""
-    try:
-        from park_splits import get_batter_park_splits
-        ps = get_batter_park_splits(player_id, home_team)
-        return {'park_ba': ps['park_ba'], 'park_slg': ps['park_slg'], 'park_ab': ps['park_ab']}
-    except Exception:
-        return {'park_ba': 0.250, 'park_slg': 0.400, 'park_ab': 0}
-
-
 @st.cache_data(show_spinner=False, ttl=86400)
 def run_prediction(player_id: int, pitcher_id, is_home: bool, park_team: str,
                    temp_f: float, wind_speed: float, wind_dir: int,
@@ -114,109 +106,24 @@ def run_prediction(player_id: int, pitcher_id, is_home: bool, park_team: str,
 def get_rating(res, player_id, pitcher_id, park_team, batting_order,
                temp_f, wind_speed, wind_dir, bp_era=4.20, bp_whip=1.30,
                line=None, over_odds=None, is_home=True,
-               opp_fip=4.20, opp_last3_era=4.30, opp_last3_whip=1.28,
-               pitcher_throws='R',
-               batter_xba_vs_rhp=0.250, batter_xba_vs_lhp=0.250,
-               batter_hard_hit_vs_rhp=0.360, batter_hard_hit_vs_lhp=0.360,
-               team_runs_avg=4.5, umpire_tendency=0.0,
-               opp_def_rating=0.0, pitcher_rest_factor=0.0,
-               pitcher_gb_pct=0.430, batter_rest_days=1,
-               batter_obp=0.320, batter_sb_rate=0.05,
-               pitcher_last_pitch_count=0):
-    season = int(res['df']['season'].iloc[-1])
-    b_sc   = get_batter_statcast(player_id, season)
-    p_sc   = get_pitcher_statcast(pitcher_id, season) if pitcher_id else {}
-    p_std  = get_pitcher_season_stats(pitcher_id, season) if pitcher_id else {}
-    bvp    = get_bvp(player_id, pitcher_id) if pitcher_id else {}
-    return compute_rating(
-        recent_7g         = res['r7g'],
-        recent_30g        = res['r30g'],
-        season_avg        = res['savg'],
-        opp_era           = p_std.get('opp_era', 4.30),
-        opp_whip          = p_std.get('opp_whip', 1.28),
-        batter_fb_barrel  = b_sc.get('batter_fb_barrel_pct', 0.080),
-        batter_bk_barrel  = b_sc.get('batter_bk_barrel_pct', 0.040),
-        batter_os_barrel  = b_sc.get('batter_os_barrel_pct', 0.050),
-        pitcher_fb_barrel = p_sc.get('pitcher_fb_barrel_pct', 0.080),
-        pitcher_bk_barrel = p_sc.get('pitcher_bk_barrel_pct', 0.040),
-        pitcher_os_barrel = p_sc.get('pitcher_os_barrel_pct', 0.050),
-        batter_fb_seen    = b_sc.get('batter_fb_seen_pct', 0.55),
-        batter_bk_seen    = b_sc.get('batter_bk_seen_pct', 0.25),
-        batter_os_seen    = b_sc.get('batter_os_seen_pct', 0.20),
-        park_factor       = get_park_factor(park_team),
-        wind_speed        = wind_speed,
-        wind_dir          = wind_dir,
-        bvp_avg              = bvp.get('bvp_avg', 0.250),
-        bvp_sample           = bvp.get('bvp_sample', 0),
-        batting_order        = batting_order,
-        recent_ba            = res['ba30'],
-        temp_f               = temp_f,
-        projection           = res['proj'],
-        bp_era               = bp_era,
-        bp_whip              = bp_whip,
-        line                 = line,
-        over_odds            = over_odds,
-        home_hrr             = res.get('home_hrr'),
-        away_hrr             = res.get('away_hrr'),
-        is_home              = is_home,
-        recent_20g           = res.get('r20g_venue'),
-        recent_ba_venue      = res.get('ba_venue'),
-        batter_hard_hit_pct  = b_sc.get('batter_hard_hit_pct', 0.360),
-        pitcher_hard_hit_pct = p_sc.get('pitcher_hard_hit_pct', 0.360),
-        batter_xba           = b_sc.get('batter_xba', 0.250),
-        pitcher_xba_allowed  = p_sc.get('pitcher_xba_allowed', 0.250),
-        batter_avg_ev           = b_sc.get('batter_avg_ev', 88.0),
-        pitcher_avg_ev          = p_sc.get('pitcher_avg_ev', 88.0),
-        opp_fip                 = opp_fip,
-        opp_last3_era           = opp_last3_era,
-        opp_last3_whip          = opp_last3_whip,
-        pitcher_throws          = pitcher_throws,
-        batter_xba_vs_rhp       = batter_xba_vs_rhp,
-        batter_xba_vs_lhp       = batter_xba_vs_lhp,
-        batter_hard_hit_vs_rhp  = batter_hard_hit_vs_rhp,
-        batter_hard_hit_vs_lhp  = batter_hard_hit_vs_lhp,
-        team_runs_avg           = team_runs_avg,
-        umpire_tendency         = umpire_tendency,
-        opp_def_rating          = opp_def_rating,
-        pitcher_rest_factor     = pitcher_rest_factor,
-        pitcher_gb_pct          = pitcher_gb_pct,
-        batter_rest_days        = batter_rest_days,
-        batter_obp              = batter_obp,
-        batter_sb_rate          = batter_sb_rate,
-        # The worker passed this and Game View didn't, so Game View took the
-        # default of 0 and never scored a starter coming off a 110+ pitch outing.
-        pitcher_last_pitch_count = pitcher_last_pitch_count,
-        # Batter's career splits at this park. Added to rating.py and worker.py
-        # on 2026-06-02 (a561e51) but never wired into Game View, so this page
-        # scored every batter at the defaults — and park_ab=0 disables the whole
-        # park-history block, making it contribute exactly 0 for 69 days.
-        **_park_splits(player_id, park_team),
-        pitcher_fb_thrown    = p_sc.get('pitcher_fb_thrown_pct',   0.55),
-        pitcher_bk_thrown    = p_sc.get('pitcher_bk_thrown_pct',   0.25),
-        pitcher_os_thrown    = p_sc.get('pitcher_os_thrown_pct',   0.20),
-        batter_whiff_pct_fb  = b_sc.get('batter_whiff_pct_fb',    0.200),
-        batter_whiff_pct_bk  = b_sc.get('batter_whiff_pct_bk',    0.330),
-        batter_whiff_pct_os  = b_sc.get('batter_whiff_pct_os',    0.310),
-        pitcher_whiff_pct_fb = p_sc.get('pitcher_whiff_pct_fb',   0.200),
-        pitcher_whiff_pct_bk = p_sc.get('pitcher_whiff_pct_bk',   0.330),
-        pitcher_whiff_pct_os = p_sc.get('pitcher_whiff_pct_os',   0.310),
-        opp_k_pct            = p_sc.get('pitcher_k_pct',          0.222),
-        opp_bb_pct           = p_sc.get('pitcher_bb_pct',          0.083),
-        opp_babip            = p_sc.get('pitcher_babip',           0.300),
-        opp_whiff_pct        = p_sc.get('pitcher_whiff_pct',       0.245),
-        opp_k_pct_vs_lhb   = p_sc.get('pitcher_k_pct_vs_lhb',    None),
-        opp_k_pct_vs_rhb   = p_sc.get('pitcher_k_pct_vs_rhb',    None),
-        opp_babip_vs_lhb   = p_sc.get('pitcher_babip_vs_lhb',    None),
-        opp_babip_vs_rhb   = p_sc.get('pitcher_babip_vs_rhb',    None),
-        batter_k_pct        = b_sc.get('batter_k_pct',            0.222),
-        batter_bb_pct       = b_sc.get('batter_bb_pct',           0.083),
-        batter_babip        = b_sc.get('batter_babip',            0.300),
-        batter_whiff_pct    = b_sc.get('batter_whiff_pct',        0.245),
-        batter_k_pct_vs_rhp = b_sc.get('batter_k_pct_vs_rhp',    None),
-        batter_k_pct_vs_lhp = b_sc.get('batter_k_pct_vs_lhp',    None),
-        batter_babip_vs_rhp = b_sc.get('batter_babip_vs_rhp',    None),
-        batter_babip_vs_lhp = b_sc.get('batter_babip_vs_lhp',    None),
-    )
+               pitcher_throws='R', p_std=None, p_sc=None, p_last3=None,
+               p_rest=None, team_score=None, ump_data=None, opp_defense=None,
+               game_date=None):
+    """
+    Thin wrapper over rating_inputs.score_batter — the one place that decides
+    what reaches compute_rating. This used to hand-build its own ~80-argument
+    call, which is how it ended up missing park splits and pitch count for 69
+    days without anything erroring.
+    """
+    return score_batter(
+        res, player_id, pitcher_id, park_team, batting_order,
+        temp_f, wind_speed, wind_dir,
+        bp_era=bp_era, bp_whip=bp_whip, is_home=is_home,
+        line=line, over_odds=over_odds,
+        p_std=p_std, p_sc=p_sc, p_last3=p_last3, p_rest=p_rest,
+        team_score=team_score, ump_data=ump_data, opp_defense=opp_defense,
+        pitcher_throws=pitcher_throws, game_date=game_date)
+
 
 
 def cv(v, high, med):
@@ -475,29 +382,19 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
             def _rate(proj, line, odds):
                 _ctx = dict(res)
                 _ctx['proj'] = proj
+                # Source dicts go in whole; score_batter does the extraction, so
+                # the page and the cron can't disagree about defaults again.
                 return get_rating(_ctx, pid, opp_pitcher_id, park_team, batting_order,
                                   weather['temp_f'], weather['wind_speed'],
                                   weather['wind_dir_code'],
                                   bp_era=bp_era, bp_whip=bp_whip,
                                   line=line, over_odds=odds,
                                   is_home=is_home,
-                                  opp_fip=p_std.get('opp_fip', 4.20),
-                                  opp_last3_era=p_last3.get('opp_last3_era', 4.30),
-                                  opp_last3_whip=p_last3.get('opp_last3_whip', 1.28),
                                   pitcher_throws=p_throws,
-                                  batter_xba_vs_rhp=b_sc_local.get('batter_xba_vs_rhp', 0.250),
-                                  batter_xba_vs_lhp=b_sc_local.get('batter_xba_vs_lhp', 0.250),
-                                  batter_hard_hit_vs_rhp=b_sc_local.get('batter_hard_hit_vs_rhp', 0.360),
-                                  batter_hard_hit_vs_lhp=b_sc_local.get('batter_hard_hit_vs_lhp', 0.360),
-                                  team_runs_avg=team_score.get('team_runs_avg', 4.5),
-                                  umpire_tendency=ump_data.get('umpire_tendency', 0.0),
-                                  opp_def_rating=opp_defense.get('def_rating', 0.0),
-                                  pitcher_rest_factor=p_rest.get('rest_factor', 0.0),
-                                  pitcher_gb_pct=p_sc.get('pitcher_gb_pct', 0.430),
-                                  pitcher_last_pitch_count=p_pitches,
-                                  batter_rest_days=_batter_rest,
-                                  batter_obp=res.get('obp30', 0.320),
-                                  batter_sb_rate=res.get('sb_rate', 0.05))
+                                  p_std=p_std, p_sc=p_sc, p_last3=p_last3,
+                                  p_rest=p_rest, team_score=team_score,
+                                  ump_data=ump_data, opp_defense=opp_defense,
+                                  game_date=game_date)
 
             # Try cache sources in order
             cached = (st.session_state.get(session_key) or
