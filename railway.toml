@@ -1,10 +1,24 @@
 [deploy]
 startCommand = "streamlit run app.py --server.port=$PORT --server.address=0.0.0.0 --server.maxMessageSize=200"
 
-[[cronJobs]]
-command = "python worker.py"
-schedule = "*/30 * * * *"
-
-[[cronJobs]]
-command = "python update_actuals.py"
-schedule = "0 14 * * *"
+# NOTE — cron is NOT configured here, despite what this file used to claim.
+#
+# Two `[[cronJobs]]` blocks lived here declaring `python worker.py` every 30
+# minutes and `python update_actuals.py` daily. That is not Railway's schema:
+# config-as-code exposes a single `deploy.cronSchedule` string, and there is no
+# per-job `command` field at all. Railway silently ignored both blocks.
+#
+# What actually happens on a schedule is the SERVICE'S START COMMAND. The
+# `mlb-props-model` service had a schedule set in the dashboard but no start
+# command override, so every 30 minutes it inherited the `startCommand` above
+# and booted a Streamlit web server, which never exits and never scores a
+# batter. Confirmed 2026-08-10: the cron logs contain "Uvicorn server started"
+# and zero lines of worker output, ever.
+#
+# To run the worker on a schedule, the cron service needs a Custom Start
+# Command of `python worker.py` set in the Railway dashboard
+# (service -> Settings -> Deploy -> Custom Start Command). It cannot be set
+# from this file without also overriding the web service, since both services
+# build from this same repo.
+#
+# `update_actuals.py` has never run on a schedule either, for the same reason.
