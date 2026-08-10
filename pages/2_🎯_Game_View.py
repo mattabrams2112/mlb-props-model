@@ -14,16 +14,13 @@ import numpy as np
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
 from eastern_time import today_et, today_str_et, now_et
-from xgboost import XGBRegressor
-try:
-    from lightgbm import LGBMRegressor
-    HAS_LGBM = True
-except (ImportError, OSError):
-    HAS_LGBM = False
 import statsapi
 import requests as _req
 
-from feature_engineering import build_features, get_feature_cols, TARGET_COL
+# Model training now lives entirely in projection.py — xgboost/lightgbm and the
+# feature-engineering helpers are imported there, not here.
+from projection import (run_prediction as shared_run_prediction,
+                        lineup_context_pct)
 from tracker import add_predictions as tracker_add
 from full_tracker import log_play
 from pitcher_data import get_pitcher_season_stats, get_pitcher_name
@@ -85,190 +82,22 @@ def fetch_logs(player_id: int) -> pd.DataFrame:
 def run_prediction(player_id: int, pitcher_id, is_home: bool, park_team: str,
                    temp_f: float, wind_speed: float, wind_dir: int,
                    game_date: str = ''):
-    df = fetch_logs(player_id)
-    if df.empty or len(df) < 25:
-        # Raise instead of returning None — exceptions aren't cached by st.cache_data,
-        # so a failed API fetch retries on the next page load rather than sticking for 24h.
-        raise RuntimeError('insufficient_data')
+    """
+    Thin cached wrapper over the shared pipeline in projection.py.
 
-    # Freeze ratings at pre-game state — exclude game day and later
-    if game_date:
-        try:
-            from datetime import date as date_type
-            cutoff = pd.Timestamp(game_date).date()
-            df = df[df['date'].dt.date < cutoff].copy()
-        except Exception:
-            pass
+    Game View used to carry its own copy of the scoring math, which drifted from
+    the worker's — different ceiling, no pitcher features in training, no
+    recency weighting. Both now call one implementation, so a change to the
+    model reaches the page and the cron at the same time.
 
-    if len(df) < 25:
-        raise RuntimeError('insufficient_data')
+    The shared function raises on insufficient history rather than returning
+    None, which matters here: st.cache_data does not cache exceptions, so a
+    failed API fetch retries on the next page load instead of sticking for 24h.
+    """
+    return shared_run_prediction(player_id, pitcher_id, is_home, park_team,
+                                 temp_f, wind_speed, wind_dir, game_date,
+                                 fetch_logs=fetch_logs)
 
-    df_feat = build_features(df, fetch_weather=False,
-                              override_pitcher_id=pitcher_id, fast_mode=True)
-    idx = df_feat.index[-1]
-    df_feat.at[idx, 'is_home']     = int(is_home)
-    df_feat.at[idx, 'park_factor'] = get_park_factor(park_team)
-    df_feat.at[idx, 'temp_f']      = temp_f
-    df_feat.at[idx, 'wind_speed']  = wind_speed
-    df_feat.at[idx, 'wind_dir']    = wind_dir
-
-    # Exclude pitcher features from training — fast_mode fills historical pitcher rows
-    # with league averages (zero variance), making them look like noise to the model.
-    # Pitcher quality is handled by the rating engine (Starter Matchup, Contact Quality, etc.)
-    fc = get_feature_cols(include_pitcher=False)
-    dc = df_feat.dropna(subset=fc).reset_index(drop=True)
-    if len(dc) < 20:
-        raise RuntimeError('insufficient_data')
-
-    # Train on all rows except the last — the last row is the prediction template.
-    # Its rolling features (built with shift(1)) represent stats going into that game,
-    # making it a clean out-of-sample prediction row.
-    X = dc.iloc[:-1][fc].apply(pd.to_numeric, errors='coerce').fillna(0)
-    y = dc.iloc[:-1][TARGET_COL]
-
-    xgb = XGBRegressor(n_estimators=100, learning_rate=0.08, max_depth=4,
-                        subsample=0.8, colsample_bytree=0.8, random_state=42, verbosity=0)
-    xgb.fit(X, y)
-
-    if HAS_LGBM:
-        lgb = LGBMRegressor(n_estimators=100, learning_rate=0.08, max_depth=4,
-                             subsample=0.8, colsample_bytree=0.8, random_state=42,
-                             verbose=-1)
-        lgb.fit(X, y)
-
-    latest   = dc.iloc[-1:].copy()
-    latest.at[latest.index[0], 'is_home']     = int(is_home)
-    latest.at[latest.index[0], 'park_factor'] = get_park_factor(park_team)
-    latest.at[latest.index[0], 'temp_f']      = temp_f
-    latest.at[latest.index[0], 'wind_speed']  = wind_speed
-    latest.at[latest.index[0], 'wind_dir']    = wind_dir
-    if game_date and 'days_since_last_game' in latest.columns:
-        try:
-            _pred_dt  = pd.Timestamp(game_date).date()
-            _last_dt  = df['date'].max()
-            if hasattr(_last_dt, 'date'):
-                _last_dt = _last_dt.date()
-            latest.at[latest.index[0], 'days_since_last_game'] = float(max(0, (_pred_dt - _last_dt).days))
-        except Exception:
-            pass
-
-    latest_X  = latest[fc].apply(pd.to_numeric, errors='coerce').fillna(0)
-    xgb_pred  = float(xgb.predict(latest_X)[0])
-    if HAS_LGBM:
-        lgb_pred = float(lgb.predict(latest_X)[0])
-        proj = max(0.0, (xgb_pred * 0.55 + lgb_pred * 0.45))  # slight XGBoost bias
-    else:
-        proj = max(0.0, xgb_pred)
-
-    # Projection floor — can't be less than 30% of season avg or 30% of 30g avg
-    # Prevents bad feature values from producing absurdly low projections
-    season_avg_val = float(dc['total_season_avg'].iloc[-1]) if not np.isnan(dc['total_season_avg'].iloc[-1]) else 0
-    r30_avg = float((df.tail(30)['h'] + df.tail(30)['r'] + df.tail(30)['rbi']).mean())
-
-    # Floor — can't go below 30% of recent averages
-    floor = max(season_avg_val * 0.30, r30_avg * 0.30)
-    proj  = max(proj, floor)
-
-    # Ceiling — scales with the player's actual averages, no hard cap.
-    # Multiplier loosened 1.8 -> 2.0 on 2026-08-03: at 1.8 the cap starved the
-    # top of the scale (only 6 plays at 85-89 and ZERO at 95+ in 12 days), so
-    # there was no volume left to measure. 2.0 still kills the fantasy 5+ HRR
-    # projections (a 1.2-form hitter caps at 2.4, not 5.0) and keeps Edge
-    # honest, it just admits some borderline plays back into 85-89.
-    # Revert to 1.8 if the newly-admitted plays underperform. See MODEL_DECISIONS.md.
-    PROJ_CEILING_MULT = 2.0
-    ceiling = max(r30_avg * PROJ_CEILING_MULT, season_avg_val * PROJ_CEILING_MULT, 2.0)
-    proj    = min(proj, ceiling)
-
-    # ── Pitcher + matchup quality adjustment ─────────────────────────────────
-    # XGBoost can't learn pitcher from training data (fast_mode fills history
-    # with league averages → zero variance on pitcher cols). Apply a post-hoc
-    # multiplier built from ALL available pitcher/matchup features on the
-    # prediction row. Each factor is batter-favorable when > 1.0.
-    # Weights (no BvP): ERA 28%, FIP 22%, WHIP 20%, K% 18%, BB% 12% = 100%
-    # With BvP (17%):   pitcher stats scaled to 83%, BvP fills the remaining 17%
-    _L_ERA  = 4.30   # league avg ERA
-    _L_FIP  = 4.20   # league avg FIP
-    _L_WHIP = 1.28   # league avg WHIP
-    _L_K    = 0.222  # league avg K%
-    _L_BB   = 0.083  # league avg BB%
-    try:
-        _row = dc.iloc[-1]
-
-        def _sf(col, default, floor_v=None):
-            try:
-                v = float(_row.get(col, default))
-            except (TypeError, ValueError):
-                v = default
-            if v <= 0:
-                v = default
-            return max(v, floor_v) if floor_v is not None else v
-
-        era_f  = _sf('opp_era',    _L_ERA)  / _L_ERA   # high ERA  → batter +
-        fip_f  = _sf('opp_fip',    _L_FIP)  / _L_FIP   # high FIP  → batter +
-        whip_f = _sf('opp_whip',   _L_WHIP) / _L_WHIP  # high WHIP → batter +
-        k_f    = _L_K / _sf('opp_k_pct', _L_K, 0.10)   # high K%   → batter −
-        bb_f   = _sf('opp_bb_pct', _L_BB)  / _L_BB     # high BB%  → batter +
-
-        # BvP — only trusted when ≥10 AB sample; pitcher factors scaled to 83%
-        _bvp_sample = int(_row.get('bvp_sample', 0) or 0)
-        if _bvp_sample:
-            bvp_f = _sf('bvp_avg', 0.250) / 0.250
-            _pitcher_mult = (
-                0.2324 * era_f +
-                0.1826 * fip_f +
-                0.1660 * whip_f +
-                0.1494 * k_f +
-                0.0996 * bb_f +
-                0.1700 * bvp_f
-            )
-        else:
-            _pitcher_mult = (
-                0.28 * era_f +
-                0.22 * fip_f +
-                0.20 * whip_f +
-                0.18 * k_f +
-                0.12 * bb_f
-            )
-
-        _pitcher_mult = min(1.25, max(0.75, _pitcher_mult))
-    except Exception:
-        _pitcher_mult = 1.0
-    proj = round(proj * _pitcher_mult, 2)
-
-    r7  = df.tail(7);  hrr7  = (r7['h']  + r7['r']  + r7['rbi']).mean()
-    r30 = df.tail(30); hrr30 = (r30['h'] + r30['r'] + r30['rbi']).mean()
-    ab30 = r30['ab'].sum(); h30 = r30['h'].sum(); bb30 = r30['bb'].sum()
-    sb30 = r30['sb'].sum() if 'sb' in r30.columns else 0
-
-    # Home/away splits
-    home_games = df[df['is_home'] == 1]
-    away_games = df[df['is_home'] == 0]
-    home_hrr = (home_games['h'] + home_games['r'] + home_games['rbi']).mean() if len(home_games) >= 5 else None
-    away_hrr = (away_games['h'] + away_games['r'] + away_games['rbi']).mean() if len(away_games) >= 5 else None
-
-    return {
-        'proj':     round(proj, 2),
-        # Realistic projection ceiling for this player (2.0× recent form). The
-        # post-XGBoost multipliers (pitcher × matchup × context × calibration)
-        # stack past this and manufacture 5+ HRR projections, so the final
-        # displayed/logged projection is re-capped here in the render loop.
-        'proj_ceiling': round(ceiling, 2),
-        'r7g':      round(float(hrr7), 2),
-        'r30g':     round(float(hrr30), 2),
-        'savg':     round(float(dc['total_season_avg'].iloc[-1]), 2)
-                    if not np.isnan(dc['total_season_avg'].iloc[-1]) else 0.0,
-        'ba30':     round(h30 / ab30, 3) if ab30 > 0 else 0.250,
-        'obp30':    round((h30 + bb30) / (ab30 + bb30), 3) if (ab30 + bb30) > 0 else 0.320,
-        'sb_rate':  round(sb30 / 30, 3),
-        'home_hrr': round(float(home_hrr), 2) if home_hrr else None,
-        'away_hrr': round(float(away_hrr), 2) if away_hrr else None,
-        'df':       df,
-        'r20g_venue': round(float(dc['hrr_20g_venue'].iloc[-1]), 2)
-                      if 'hrr_20g_venue' in dc.columns and not np.isnan(dc['hrr_20g_venue'].iloc[-1]) else None,
-        'ba_venue':   round(float(dc['ba_20g_venue'].iloc[-1]), 3)
-                      if 'ba_20g_venue' in dc.columns and not np.isnan(dc['ba_20g_venue'].iloc[-1]) else None,
-    }
 
 
 def get_rating(res, player_id, pitcher_id, park_team, batting_order,
@@ -574,12 +403,11 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
     fetched.sort(key=lambda x: (0 if x[5] else 1, x[6], x[7]))
 
     # ── Lineup context ────────────────────────────────────────────────────────
-    # Build team projection map: spot -> proj for all starters with results
-    _LEAGUE_AVG    = 1.8
+    # Build team projection map: spot -> proj for all starters with results.
+    # The adjustment itself is projection.lineup_context_pct, shared with the
+    # worker so both paths weigh the surrounding lineup identically.
     _starter_projs = {sp: r['proj'] for _, _, _, _, r, is_s, sp, _, _ in fetched
                       if is_s and r and r.get('proj') is not None}
-    _team_avg      = (sum(_starter_projs.values()) / len(_starter_projs)
-                      if _starter_projs else _LEAGUE_AVG)
 
     # ── Build rows ────────────────────────────────────────────────────────────
     rows_html = []
@@ -590,15 +418,8 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
         batting_order = spot if is_starter else 0
 
         # Lineup context — how strong is this player's surrounding lineup?
-        if is_starter and res and spot in _starter_projs:
-            _prev = 9 if spot == 1 else spot - 1
-            _next = 1 if spot == 9 else spot + 1
-            _nbrs = [_starter_projs[s] for s in (_prev, _next) if s in _starter_projs]
-            _nbr_avg  = sum(_nbrs) / len(_nbrs) if _nbrs else _team_avg
-            _ctx_avg  = 0.5 * _team_avg + 0.5 * _nbr_avg
-            _ctx_pct  = max(-0.12, min(0.12, (_ctx_avg - _LEAGUE_AVG) / _LEAGUE_AVG * 0.4))
-        else:
-            _ctx_pct  = 0.0
+        _ctx_pct = (lineup_context_pct(spot, _starter_projs)
+                    if is_starter and res else 0.0)
         _disp_proj = res['proj'] if res else 0  # updated in each branch below
 
         bg = '#0a0e18' if row_i % 2 == 0 else '#0d1220'

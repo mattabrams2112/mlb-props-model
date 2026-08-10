@@ -19,14 +19,10 @@ import statsapi
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
 
-from xgboost import XGBRegressor
-try:
-    from lightgbm import LGBMRegressor
-    HAS_LGBM = True
-except (ImportError, OSError):
-    HAS_LGBM = False
-
-from feature_engineering import build_features, get_feature_cols, TARGET_COL
+# Model training now lives entirely in projection.py — xgboost/lightgbm and the
+# feature-engineering helpers are imported there, not here.
+from projection import (run_prediction as shared_run_prediction,
+                        lineup_context_pct)
 from lineup_fetcher import get_todays_lineups
 from pitcher_data import (get_pitcher_season_stats, get_pitcher_name,
                           get_pitcher_throws, get_pitcher_last_n_starts,
@@ -185,158 +181,31 @@ _PRED_CACHE: dict = {}  # (player_id, pitcher_id, date_str, is_home, park_team) 
 
 def _run_prediction(player_id, pitcher_id, is_home, park_team,
                     temp_f, wind_speed, wind_dir, game_date):
+    """
+    Thin wrapper over the shared pipeline in projection.py.
+
+    The worker used to carry its own copy of this, which is how it ended up
+    running a 1.8 ceiling for a week after Game View moved to 2.0. The scoring
+    math now lives in exactly one place; this only adds the worker's own
+    per-run memo cache and converts the shared 'insufficient_data' exception
+    into the None return the calling loop expects.
+    """
     date_str  = str(game_date)[:10]
     cache_key = (player_id, pitcher_id, date_str, int(is_home), park_team)
     if cache_key in _PRED_CACHE:
         return _PRED_CACHE[cache_key]
 
-    df = _fetch_logs(player_id)
-    if df.empty or len(df) < 25:
-        return None
     try:
-        cutoff = pd.Timestamp(game_date).date()
-        df = df[df['date'].dt.date < cutoff].copy()
-    except Exception:
-        pass
-    if len(df) < 25:
+        result = shared_run_prediction(
+            player_id, pitcher_id, is_home, park_team,
+            temp_f, wind_speed, wind_dir, game_date,
+            fetch_logs=_fetch_logs)
+    except RuntimeError:
+        return None      # insufficient history for this batter
+    except Exception as e:
+        print(f'    Prediction failed for {player_id}: {e}')
         return None
 
-    df_feat = build_features(df, fetch_weather=False,
-                              override_pitcher_id=pitcher_id, fast_mode=False)
-    idx = df_feat.index[-1]
-    df_feat.at[idx, 'is_home']     = int(is_home)
-    df_feat.at[idx, 'park_factor'] = get_park_factor(park_team)
-    df_feat.at[idx, 'temp_f']      = temp_f
-    df_feat.at[idx, 'wind_speed']  = wind_speed
-    df_feat.at[idx, 'wind_dir']    = wind_dir
-
-    # Pitcher features now included — each historical row has rolling ERA/K%/WHIP
-    # from the pitcher's last 5 starts (not season averages), giving real signal.
-    fc = get_feature_cols(include_pitcher=True)
-    dc = df_feat.dropna(subset=fc).reset_index(drop=True)
-    if len(dc) < 20:
-        return None
-
-    # Train on all rows except the last — the last row is the prediction template.
-    # Its rolling features (built with shift(1)) represent stats going into that game,
-    # making it a clean out-of-sample prediction row.
-    X = dc.iloc[:-1][fc].apply(pd.to_numeric, errors='coerce').fillna(0)
-    y = dc.iloc[:-1][TARGET_COL]
-
-    # Recency weights: recent games count more than older ones
-    # exp(-days_ago / 90) → game from 3 months ago has ~37% weight of today's game
-    _today = pd.Timestamp('today').normalize()
-    _dates = pd.to_datetime(dc.iloc[:-1]['date'], errors='coerce')
-    _days_ago = (_today - _dates).dt.days.fillna(180).clip(lower=0)
-    sample_weights = np.exp(-_days_ago / 90).values
-
-    # Classify batter as power or contact based on HR rate and barrel %
-    # Power: >= 0.04 HR/AB or >= 0.08 barrel%; Contact: everything else
-    hr_rate  = (df['hr'].sum() / df['ab'].sum()) if df['ab'].sum() > 0 else 0.0
-    is_power = hr_rate >= 0.04
-
-    xgb_params = dict(learning_rate=0.08, max_depth=4, subsample=0.8,
-                      colsample_bytree=0.8, random_state=42, verbosity=0)
-    if is_power:
-        # Power hitters: deeper trees, more estimators, emphasise HR/RBI signal
-        xgb_params.update(n_estimators=120, max_depth=5)
-    else:
-        # Contact hitters: shallower trees, focus on H and run frequency
-        xgb_params.update(n_estimators=100, max_depth=4)
-
-    xgb = XGBRegressor(**xgb_params)
-    xgb.fit(X, y, sample_weight=sample_weights)
-    if HAS_LGBM:
-        lgb = LGBMRegressor(n_estimators=xgb_params['n_estimators'],
-                             learning_rate=0.08, max_depth=xgb_params['max_depth'],
-                             subsample=0.8, colsample_bytree=0.8, random_state=42, verbose=-1)
-        lgb.fit(X, y, sample_weight=sample_weights)
-
-    latest = dc.iloc[-1:].copy()
-    latest.at[latest.index[0], 'is_home']     = int(is_home)
-    latest.at[latest.index[0], 'park_factor'] = get_park_factor(park_team)
-    latest.at[latest.index[0], 'temp_f']      = temp_f
-    latest.at[latest.index[0], 'wind_speed']  = wind_speed
-    latest.at[latest.index[0], 'wind_dir']    = wind_dir
-
-    latest_X = latest[fc].apply(pd.to_numeric, errors='coerce').fillna(0)
-    xgb_pred = float(xgb.predict(latest_X)[0])
-    proj = max(0.0, (xgb_pred * 0.55 + float(lgb.predict(latest_X)[0]) * 0.45)) if HAS_LGBM else max(0.0, xgb_pred)
-
-    season_avg = float(dc['total_season_avg'].iloc[-1]) if not np.isnan(dc['total_season_avg'].iloc[-1]) else 0
-    r30_avg    = float((df.tail(30)['h'] + df.tail(30)['r'] + df.tail(30)['rbi']).mean())
-    proj       = max(proj, max(season_avg * 0.30, r30_avg * 0.30))
-
-    # Ceiling — MUST match Game View's PROJ_CEILING_MULT (pages/2_🎯_Game_View.py).
-    # This was 1.8 while Game View ran 2.0 from 2026-08-03 to 2026-08-10: the
-    # loosening was only ever applied to the Game View copy, so every rating the
-    # worker froze first silently kept the old cap. See MODEL_DECISIONS.md.
-    PROJ_CEILING_MULT = 2.0
-    ceiling = max(r30_avg * PROJ_CEILING_MULT, season_avg * PROJ_CEILING_MULT, 2.0)
-    proj    = min(proj, ceiling)
-
-    # Pitcher + matchup quality adjustment — ported from Game View's
-    # run_prediction. XGBoost can't learn pitcher from training data (fast_mode
-    # fills history with league averages -> zero variance on pitcher cols), so
-    # it is applied post-hoc. The worker omitted this entirely, meaning any
-    # rating it froze first was blind to opposing-starter quality in the
-    # Projection component. Weights (no BvP): ERA 28%, FIP 22%, WHIP 20%,
-    # K% 18%, BB% 12%. With BvP (17%): pitcher stats scaled to 83%.
-    _L_ERA, _L_FIP, _L_WHIP, _L_K, _L_BB = 4.30, 4.20, 1.28, 0.222, 0.083
-    try:
-        _row = dc.iloc[-1]
-
-        def _sf(col, default, floor_v=None):
-            try:
-                v = float(_row.get(col, default))
-            except (TypeError, ValueError):
-                v = default
-            if v <= 0:
-                v = default
-            return max(v, floor_v) if floor_v is not None else v
-
-        era_f  = _sf('opp_era',    _L_ERA)  / _L_ERA   # high ERA  -> batter +
-        fip_f  = _sf('opp_fip',    _L_FIP)  / _L_FIP   # high FIP  -> batter +
-        whip_f = _sf('opp_whip',   _L_WHIP) / _L_WHIP  # high WHIP -> batter +
-        k_f    = _L_K / _sf('opp_k_pct', _L_K, 0.10)   # high K%   -> batter -
-        bb_f   = _sf('opp_bb_pct', _L_BB)  / _L_BB     # high BB%  -> batter +
-
-        if int(_row.get('bvp_sample', 0) or 0):
-            bvp_f = _sf('bvp_avg', 0.250) / 0.250
-            _pitcher_mult = (0.2324 * era_f + 0.1826 * fip_f + 0.1660 * whip_f +
-                             0.1494 * k_f   + 0.0996 * bb_f  + 0.1700 * bvp_f)
-        else:
-            _pitcher_mult = (0.28 * era_f + 0.22 * fip_f + 0.20 * whip_f +
-                             0.18 * k_f   + 0.12 * bb_f)
-
-        _pitcher_mult = min(1.25, max(0.75, _pitcher_mult))
-    except Exception:
-        _pitcher_mult = 1.0
-    proj = round(proj * _pitcher_mult, 2)
-
-    r7  = df.tail(7);  hrr7  = (r7['h']  + r7['r']  + r7['rbi']).mean()
-    r30 = df.tail(30); hrr30 = (r30['h'] + r30['r'] + r30['rbi']).mean()
-    ab30 = r30['ab'].sum(); h30 = r30['h'].sum()
-    hg   = df[df['is_home'] == 1]; ag = df[df['is_home'] == 0]
-
-    result = {
-        'proj':       round(proj, 2),
-        # Realistic ceiling in force for this player. The post-XGBoost
-        # multipliers stack past it, so the final projection is re-capped here
-        # after calibration — same as Game View's render loop.
-        'proj_ceiling': round(ceiling, 2),
-        'r7g':        round(float(hrr7), 2),
-        'r30g':       round(float(hrr30), 2),
-        'savg':       round(season_avg, 2),
-        'ba30':       round(h30 / ab30, 3) if ab30 > 0 else 0.250,
-        'home_hrr':   round(float((hg['h'] + hg['r'] + hg['rbi']).mean()), 2) if len(hg) >= 5 else None,
-        'away_hrr':   round(float((ag['h'] + ag['r'] + ag['rbi']).mean()), 2) if len(ag) >= 5 else None,
-        'r20g_venue': round(float(dc['hrr_20g_venue'].iloc[-1]), 2)
-                      if 'hrr_20g_venue' in dc.columns and not np.isnan(dc['hrr_20g_venue'].iloc[-1]) else None,
-        'ba_venue':   round(float(dc['ba_20g_venue'].iloc[-1]), 3)
-                      if 'ba_20g_venue' in dc.columns and not np.isnan(dc['ba_20g_venue'].iloc[-1]) else None,
-        'df':         df,
-    }
     _PRED_CACHE[cache_key] = result
     return result
 
@@ -520,7 +389,7 @@ def process_game(game, game_date):
             preds = list(exe.map(predict_batter, batter_ids))
 
         # Lineup context — how strong is the batting order around this player.
-        # Ported from Game View; capped at +/-12%.
+        # The calculation itself lives in projection.lineup_context_pct.
         #
         # Cached batters are included via their frozen projection. They skip
         # _run_prediction entirely, so on the worker's second and later passes
@@ -529,7 +398,6 @@ def process_game(game, game_date):
         # else a garbage context. The frozen number is post-calibration where a
         # fresh one is pre-, so it is a proxy rather than a match, but a close
         # proxy for all nine beats an exact figure for two.
-        _LEAGUE_AVG    = 1.8
         _starter_projs = {}
         for _p in preds:
             if not _p:
@@ -539,22 +407,9 @@ def process_game(game, game_date):
                 _starter_projs[_sp] = _payload['proj']
             else:
                 _starter_projs[_sp] = _payload[2]   # frozen (rating, grade, proj)
-        _team_avg = (sum(_starter_projs.values()) / len(_starter_projs)
-                     if _starter_projs else _LEAGUE_AVG)
-
-        # Below ~5 known spots the average is too thin to describe a lineup;
-        # stay neutral rather than invent a swing off two batters.
-        _ctx_ok = len(_starter_projs) >= 5
 
         def _ctx_pct_for(spot):
-            if not _ctx_ok or spot not in _starter_projs:
-                return 0.0
-            _prev = 9 if spot == 1 else spot - 1
-            _next = 1 if spot == 9 else spot + 1
-            _nbrs = [_starter_projs[s] for s in (_prev, _next) if s in _starter_projs]
-            _nbr_avg = sum(_nbrs) / len(_nbrs) if _nbrs else _team_avg
-            _ctx_avg = 0.5 * _team_avg + 0.5 * _nbr_avg
-            return max(-0.12, min(0.12, (_ctx_avg - _LEAGUE_AVG) / _LEAGUE_AVG * 0.4))
+            return lineup_context_pct(spot, _starter_projs)
 
         def rate_batter(item):
             pid, pred = item
