@@ -27,13 +27,39 @@ def _parse_float(val, default=0.0):
         return default
 
 
+# DISABLED 2026-08-10 — this never measured ballparks.
+#
+# Verified by calling it for one batter across TOR/NYY/LAD/COL/SEA/MIA: it
+# returns byte-identical numbers for all 30 parks (ba .272, slg .434, ab 1127
+# of that player's 2396 career AB). Neither request below filters by venue —
+# they pass `opposingTeamId` with situational codes, and the source comment
+# admitted as much ("use team opponent split as proxy"). MLB ignores the
+# unsupported combination and hands back a plain career split.
+#
+# So the value is a per-player constant dressed up as park history. Left live
+# it would push a duplicate of the batter's career-average signal through
+# rating.py's park-history block (worth -1.5 to +1.5 points) under a label
+# claiming something else entirely. Returning the neutral defaults keeps
+# park_ab at 0, which is what the `if park_ab >= 20` guard needs to stay shut —
+# the same behaviour Game View has had all along.
+#
+# A correct implementation means pulling career game logs and aggregating by
+# venue id; the splits endpoint has no venue filter. Not attempted here.
+PARK_SPLITS_ENABLED = False
+
+
 def get_batter_park_splits(player_id: int, home_team: str) -> dict:
     """
     Career BA/SLG/OPS at the specific park (identified by home team abbrev).
     Returns dict with park_ba, park_slg, park_ops, park_ab.
     Falls back to neutral defaults if unavailable.
+
+    Currently returns the neutral defaults unconditionally — see the note above.
     """
     defaults = {'park_ba': 0.250, 'park_slg': 0.400, 'park_ops': 0.700, 'park_ab': 0}
+    if not PARK_SPLITS_ENABLED:
+        return defaults
+
     cache_key = f"{player_id}_{home_team}"
     if cache_key in _PARK_CACHE:
         return _PARK_CACHE[cache_key]

@@ -325,7 +325,13 @@ def get_pitcher_game_log(pitcher_id: int, season: int = None) -> pd.DataFrame:
             rows.append({
                 'date':      gi.get('gameDate', s.get('date', ''))[:10],
                 'ip':        ip,
-                'pitches':   _parse_float(stat.get('pitchesThrown'), 0),
+                # MLB's gameLog field is `numberOfPitches`. This read
+                # `pitchesThrown`, which does not exist in the response, so the
+                # column was 0 for every start since the feature landed on
+                # 2026-06-02 — get_pitcher_last_pitch_count always returned 0
+                # and the 95/110-pitch workload block in rating.py never fired.
+                'pitches':   _parse_float(stat.get('numberOfPitches',
+                                                   stat.get('pitchesThrown')), 0),
                 'era_game':  round(er * 9 / ip, 2) if ip > 0 else 0.0,
                 'whip_game': round((h + bb) / ip, 2) if ip > 0 else 0.0,
                 'k_pct':     round(k / bf, 3)        if bf > 0 else 0.0,
