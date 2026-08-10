@@ -1,0 +1,24 @@
+# Config for the CRON service (mlb-props-model) only.
+#
+# Both services build from this same repo, and Railway's config-as-code
+# overrides dashboard settings — so the root railway.toml's `streamlit run
+# app.py` was winning on the cron service too, and typing a start command into
+# the dashboard would not stick. Point the cron service at THIS file instead:
+#
+#   mlb-props-model -> Settings -> Config-as-code / Railway Config File
+#     = railway.worker.toml
+#
+# Railway runs the service's start command on the schedule, so this is what
+# makes the worker actually execute. Before this, every tick booted a Streamlit
+# server that never exits and scored nothing.
+
+[deploy]
+startCommand = "python worker.py"
+
+# Every 30 min, 13:00-23:59 and 00:00-04:59 UTC (09:00-01:00 ET) — matches the
+# schedule already set on the service, kept here so it lives in code.
+cronSchedule = "*/30 13-23,0-4 * * *"
+
+# The worker is a batch job: it should run to completion and stop, not be
+# restarted when it exits successfully.
+restartPolicyType = "NEVER"
