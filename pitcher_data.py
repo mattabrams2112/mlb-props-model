@@ -367,7 +367,14 @@ def get_rolling_pitcher_stats(pitcher_id: int, game_date, season: int,
     then to LEAGUE_AVG if still nothing.
     batter_is_home: 1 if batter is home team → pitcher pitching away; 0 → pitcher at home.
     """
-    cutoff = pd.Timestamp(game_date).date() if not isinstance(game_date, type(pd.Timestamp(0).date())) else game_date
+    # Always normalise to a plain date. The guard this replaced asked
+    # `isinstance(game_date, datetime.date)` and skipped the conversion when
+    # true — but pd.Timestamp subclasses datetime, which subclasses date, so
+    # that was true for the Timestamps this is normally called with and cutoff
+    # stayed a Timestamp. Comparing it to the .dt.date values below was merely
+    # tolerated by pandas 2; pandas 3 raises TypeError, which silently killed
+    # every projection once an unpinned rebuild picked up pandas 3.x.
+    cutoff = pd.Timestamp(game_date).date()
 
     def _recent(log, n):
         if log.empty:

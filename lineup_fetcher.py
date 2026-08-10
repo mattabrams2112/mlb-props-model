@@ -164,6 +164,27 @@ def get_game_context(game_pk: int, status: str = '',
                 result['lineups_official'] = True
             if ab:
                 result['away_batters'] = ab
+
+            # Batting-order codes, same extraction the live/final branch uses.
+            # This branch used to set the batter lists and lineups_official
+            # WITHOUT ever filling the codes, which silently disabled the
+            # worker: it identifies starters solely by `ocode % 100 == 0`, so an
+            # empty code map means every batter fails the starter test and the
+            # whole slate scores zero players. It only bit during the pre-game
+            # window where MLB has published a boxscore lineup but not yet the
+            # schedule `lineups` hydration used above — which is exactly the
+            # window the worker is meant to be filling.
+            for side, key in [(home, 'home_batter_codes'), (away, 'away_batter_codes')]:
+                if result[key]:
+                    continue
+                for _pk, pdata in side.get('players', {}).items():
+                    pid   = pdata.get('person', {}).get('id')
+                    ocode = pdata.get('battingOrder', '')
+                    if pid and ocode:
+                        try:
+                            result[key][int(pid)] = int(ocode)
+                        except (ValueError, TypeError):
+                            pass
             if not result['home_pitcher_id']:
                 hp = home.get('pitchers', [])
                 result['home_pitcher_id'] = hp[0] if hp else None

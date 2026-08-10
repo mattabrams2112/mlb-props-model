@@ -5,6 +5,66 @@ so decisions don't get re-litigated from scratch. Newest first. Dates are ET.
 
 ---
 
+## 2026-08-10b — One pipeline; and the two bugs that were actually zeroing the worker
+
+**Merged the duplicated pipeline into `projection.py`.** Game View and worker
+each had their own copy; both now import one. The merged version keeps the
+worker's modelling and Game View inherits all of it: real pitcher history
+(`fast_mode=False`), pitcher features in training, recency weighting (exp decay
+over 90 days), and power/contact hyperparameter tuning.
+
+**Pitcher multiplier switched OFF** (`APPLY_PITCHER_MULTIPLIER`). With real
+pitcher features in training it counts the opposing starter twice, on top of the
+five rating components that already read pitcher. The 8/05 diagnostic had
+already measured a ~2x over-response — corr(opp_era, projected) 0.263 vs
+corr(opp_era, actual) 0.142. The function is kept intact; it is one constant.
+
+**Root cause of "everything is messed up" — two separate bugs, neither of them
+the ceiling drift.** Reproduced locally by installing the full dependency set
+and running the worker against a real slate.
+
+1. **`pitcher_data.get_rolling_pitcher_stats` broke under pandas 3.**
+   `cutoff = ... if not isinstance(game_date, type(pd.Timestamp(0).date())) else game_date`
+   — `pd.Timestamp` subclasses `datetime`, which subclasses `date`, so the
+   isinstance test was always True for the Timestamps this is called with and
+   the conversion was skipped, leaving `cutoff` a Timestamp. pandas 2 tolerated
+   comparing that against `.dt.date` values; **pandas 3 raises TypeError**.
+   `requirements.txt` had `pandas>=2.0.0` unbounded, so the rebuild triggered by
+   today's deploy pulled pandas 3.0.5 and every projection in the worker began
+   failing — it uses `fast_mode=False`, which is the only path that reaches this
+   function. Game View was unaffected only because it still ran `fast_mode=True`;
+   merging the pipelines would have broken it too. Fixed, and pandas/numpy now
+   carry upper bounds.
+
+2. **`lineup_fetcher`'s boxscore fallback never populated batting-order codes.**
+   It set `home_batters` and `lineups_official = True` but left
+   `home_batter_codes` empty. The worker identifies starters solely via
+   `ocode % 100 == 0`, so an empty code map means every batter fails the starter
+   test and the slate scores **zero** players. It only bites in the pre-game
+   window where MLB has published a boxscore lineup but not yet the schedule
+   `lineups` hydration — exactly the window the worker exists to fill. On
+   today's slate this took the worker from 0 startable batters to 45. Pre-existing
+   and unrelated to any change here.
+
+Also fixed: `full_tracker.log_play` crashed on a completely empty log
+(`not df.empty and ...` short-circuits to a bool, which has no `.any()`).
+
+**Verified end-to-end**, worker against BOS @ TOR: 18 batters scored in 102s
+with warm caches, `base_proj` / `proj_ceiling` / `proj_src` / `r30g` all
+populating, ceiling cap confirmed active (Guerrero base 4.33 -> capped 3.87).
+
+**Watch item:** 102s per game is fine for a 30-minute cron but slow for a live
+page. Game View caches per game for 24h, so the cost is a one-off first load —
+provided `DATA_DIR` points at a mounted volume. If it does not, the pitcher
+cache is wiped every deploy and every first load pays full price.
+
+**Correction to the entry below:** it states the worker's stale 1.8 ceiling was
+freezing bet ratings. The mechanism is real, but it was never established that
+it drove the 8/03 win-rate drop, and the drop is better explained by n=10. Read
+that entry as a code-level defect, not a diagnosis.
+
+---
+
 ## 2026-08-10 — There were TWO models. The worker never got the 8/03 change.
 
 Investigating "the model feels off since 7/22". The premise turned out to be
