@@ -36,7 +36,8 @@ from ratings_cache import get_cached_rating, save_rating, clear_ratings_for_play
 from odds_api import get_todays_event_ids, get_player_line, fair_probability, american_to_prob, prob_to_american, ODDS_API_KEY
 from team_stats import get_team_recent_scoring, get_team_defense_rating
 from umpire_data import get_game_umpire
-from pitcher_data import get_pitcher_throws, get_pitcher_last_n_starts, get_pitcher_rest_days
+from pitcher_data import (get_pitcher_throws, get_pitcher_last_n_starts,
+                          get_pitcher_rest_days, get_pitcher_last_pitch_count)
 from shared_styles import inject_styles
 from calibration import get_correction_factor
 from bet_config import qualifies as _bet_qualifies, units_for as _bet_units
@@ -78,6 +79,16 @@ def fetch_logs(player_id: int) -> pd.DataFrame:
     return fetch_player_logs(player_id)
 
 
+def _park_splits(player_id: int, home_team: str) -> dict:
+    """Batter's career BA/SLG/AB at this ballpark. Mirrors worker._get_park_splits."""
+    try:
+        from park_splits import get_batter_park_splits
+        ps = get_batter_park_splits(player_id, home_team)
+        return {'park_ba': ps['park_ba'], 'park_slg': ps['park_slg'], 'park_ab': ps['park_ab']}
+    except Exception:
+        return {'park_ba': 0.250, 'park_slg': 0.400, 'park_ab': 0}
+
+
 @st.cache_data(show_spinner=False, ttl=86400)
 def run_prediction(player_id: int, pitcher_id, is_home: bool, park_team: str,
                    temp_f: float, wind_speed: float, wind_dir: int,
@@ -110,7 +121,8 @@ def get_rating(res, player_id, pitcher_id, park_team, batting_order,
                team_runs_avg=4.5, umpire_tendency=0.0,
                opp_def_rating=0.0, pitcher_rest_factor=0.0,
                pitcher_gb_pct=0.430, batter_rest_days=1,
-               batter_obp=0.320, batter_sb_rate=0.05):
+               batter_obp=0.320, batter_sb_rate=0.05,
+               pitcher_last_pitch_count=0):
     season = int(res['df']['season'].iloc[-1])
     b_sc   = get_batter_statcast(player_id, season)
     p_sc   = get_pitcher_statcast(pitcher_id, season) if pitcher_id else {}
@@ -171,6 +183,14 @@ def get_rating(res, player_id, pitcher_id, park_team, batting_order,
         batter_rest_days        = batter_rest_days,
         batter_obp              = batter_obp,
         batter_sb_rate          = batter_sb_rate,
+        # The worker passed this and Game View didn't, so Game View took the
+        # default of 0 and never scored a starter coming off a 110+ pitch outing.
+        pitcher_last_pitch_count = pitcher_last_pitch_count,
+        # Batter's career splits at this park. Added to rating.py and worker.py
+        # on 2026-06-02 (a561e51) but never wired into Game View, so this page
+        # scored every batter at the defaults — and park_ab=0 disables the whole
+        # park-history block, making it contribute exactly 0 for 69 days.
+        **_park_splits(player_id, park_team),
         pitcher_fb_thrown    = p_sc.get('pitcher_fb_thrown_pct',   0.55),
         pitcher_bk_thrown    = p_sc.get('pitcher_bk_thrown_pct',   0.25),
         pitcher_os_thrown    = p_sc.get('pitcher_os_thrown_pct',   0.20),
@@ -284,6 +304,7 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
     p_throws    = get_pitcher_throws(opp_pitcher_id) if opp_pitcher_id else 'R'
     p_last3     = get_pitcher_last_n_starts(opp_pitcher_id, 3, season) if opp_pitcher_id else {}
     p_rest      = get_pitcher_rest_days(opp_pitcher_id, season, game_date) if opp_pitcher_id else {}
+    p_pitches   = get_pitcher_last_pitch_count(opp_pitcher_id, season) if opp_pitcher_id else 0
     team_score  = get_team_recent_scoring(batter_team)
     opp_defense = get_team_defense_rating(opp_team, season)
     try:
@@ -473,6 +494,7 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
                                   opp_def_rating=opp_defense.get('def_rating', 0.0),
                                   pitcher_rest_factor=p_rest.get('rest_factor', 0.0),
                                   pitcher_gb_pct=p_sc.get('pitcher_gb_pct', 0.430),
+                                  pitcher_last_pitch_count=p_pitches,
                                   batter_rest_days=_batter_rest,
                                   batter_obp=res.get('obp30', 0.320),
                                   batter_sb_rate=res.get('sb_rate', 0.05))

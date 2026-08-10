@@ -213,8 +213,23 @@ def _run_prediction(player_id, pitcher_id, is_home, park_team,
 def _get_rating(res, pid, pitcher_id, park_team, batting_order,
                 temp_f, wind_speed, wind_dir, bp_era, bp_whip,
                 is_home, p_std, p_sc, p_last3, p_rest, b_sc,
-                team_score, ump_data, opp_defense):
+                team_score, ump_data, opp_defense, game_date=None):
     bvp = get_bvp(pid, pitcher_id) if pitcher_id else {}
+
+    # Days since the batter last played. Game View has always passed this; the
+    # worker did not, so it silently took compute_rating's default of 1 (the
+    # "normal rest" case) and never scored a day-after-doubleheader at -2 or a
+    # well-rested batter at +1.
+    try:
+        _game_dt = (datetime.strptime(str(game_date)[:10], '%Y-%m-%d').date()
+                    if game_date else datetime.now().date())
+        _last    = res['df']['date'].max()
+        if hasattr(_last, 'date'):
+            _last = _last.date()
+        batter_rest_days = max(0, (_game_dt - _last).days)
+    except Exception:
+        batter_rest_days = 1
+
     return compute_rating(
         recent_7g             = res['r7g'],
         recent_30g            = res['r30g'],
@@ -237,6 +252,13 @@ def _get_rating(res, pid, pitcher_id, park_team, batting_order,
         bvp_sample            = bvp.get('bvp_sample', 0),
         batting_order         = batting_order,
         recent_ba             = res['ba30'],
+        # These three were absent from the worker's call, so it fell back to
+        # compute_rating's defaults (OBP 0.320, SB 0.05, rest 1) while Game View
+        # passed the batter's real numbers — the two paths scored Form & Hit
+        # Rate and Batter Rest differently for the same player.
+        batter_obp            = res.get('obp30', 0.320),
+        batter_sb_rate        = res.get('sb_rate', 0.05),
+        batter_rest_days      = batter_rest_days,
         temp_f                = temp_f,
         projection            = res['proj'],
         bp_era                = bp_era,
@@ -432,7 +454,8 @@ def process_game(game, game_date):
                                        temp_f, wind_sp, wind_dr,
                                        bp_era, bp_whip, is_home,
                                        p_std, p_sc, p_last3, p_rest, b_sc,
-                                       team_sc, ump_data, opp_def)
+                                       team_sc, ump_data, opp_def,
+                                       game_date=game_date)
 
                 # Two passes, matching Game View: rate the context-adjusted
                 # projection, use THAT rating to pick the calibration factor,
