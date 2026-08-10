@@ -747,6 +747,11 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
                         # Market's implied run total for this batter's team tonight.
                         # Benchmark only - not wired into any rating component yet.
                         team_total=_team_implied_total,
+                        # Ceiling clamp in force for this player, so the
+                        # 1.8 -> 2.0 evaluation can tell plays the old cap would
+                        # have evicted from organically-qualifying ones.
+                        proj_ceiling=res.get('proj_ceiling'),
+                        proj_src='gv',
                     )
                 except Exception:
                     pass

@@ -247,6 +247,10 @@ def get_player_line(player_name: str, event_id: str) -> dict | None:
             'line':       entry['line'],
             'over_odds':  entry['over_odds'],
             'implied_prob': american_to_prob(entry['over_odds']),
+            # Forward the vig-free consensus computed in get_hrr_lines. This dict
+            # is rebuilt by hand, so a key omitted here is silently lost — that
+            # dropped novig_prob on every play from 2026-08-05 to 2026-08-10.
+            'novig_prob': entry.get('novig_prob'),
         }
     return None
 

@@ -21,10 +21,19 @@ COLS = ['date', 'player', 'team', 'rating', 'grade', 'projected', 'base_proj',
                       # Runs and RBI are 2 of the 3 HRR components, so expected team
                       # runs is the most direct driver of the stat. The model only
                       # sees a season average today. BENCHMARK ONLY for now.
-        'novig_prob'] # market's vig-free P(over) from the book's own two sides.
+        'novig_prob', # market's vig-free P(over) from the book's own two sides.
                       # BENCHMARK ONLY - never feeds ratings, projections, or bet
                       # selection. Gives a calibration target available pre-game,
                       # so projection bias can be measured without waiting on results.
+        'proj_ceiling',  # the realistic-ceiling clamp in force for this player
+                      # (PROJ_CEILING_MULT x recent form). Logged so the 2026-08-03
+                      # 1.8->2.0 evaluation can separate plays the old cap would
+                      # have evicted from organically-qualifying ones.
+        'proj_src']   # which path produced base_proj: 'gv' (Game View) or
+                      # 'worker'. The two pipelines compute DIFFERENT quantities
+                      # (see worker._run_prediction vs Game View.run_prediction),
+                      # so any calibration fit must filter to one source rather
+                      # than pooling them.
 
 
 def _get_engine():
@@ -79,7 +88,8 @@ def log_play(player: str, team: str, rating: int, grade: str,
              vs_pitcher: str = '', is_home: bool = True,
              game_date: str = None, game_started: bool = False,
              pitcher_throws: str = '', r30g: float = None,
-             novig_prob: float = None, team_total: float = None):
+             novig_prob: float = None, team_total: float = None,
+             proj_ceiling: float = None, proj_src: str = None):
     """Log a play. Updates rating/projection only if game hasn't started yet.
     r30g = the player's live 30-game HRR baseline (for boom_delta analysis)."""
     df    = load_all()
@@ -97,11 +107,23 @@ def log_play(player: str, team: str, rating: int, grade: str,
             df.at[idx, 'rating']     = rating
             df.at[idx, 'grade']      = grade
             df.at[idx, 'projected']  = projected
-            df.at[idx, 'base_proj']  = base_proj if base_proj is not None else ''
+            # Only overwrite base_proj when the caller actually has one. It used
+            # to be blanked unconditionally, so any re-log from a path that
+            # doesn't compute it (the save_rating -> full_play_log mirror, the
+            # manual Add Play forms) erased it. Because that mirror only fires
+            # for plays that QUALIFY as bets, the loss was concentrated exactly
+            # where calibration needs the data: base_proj was missing on 91% of
+            # 85-89 plays and 0% of sub-70 ones.
+            if base_proj is not None:
+                df.at[idx, 'base_proj'] = base_proj
             df.at[idx, 'vs_pitcher'] = vs_pitcher
             # Backfill the baseline whenever it's provided and still missing
             if r30g is not None and str(df.at[idx, 'r30g']).strip() in ('', 'nan'):
                 df.at[idx, 'r30g'] = r30g
+            if proj_ceiling is not None:
+                df.at[idx, 'proj_ceiling'] = proj_ceiling
+            if proj_src is not None:
+                df.at[idx, 'proj_src'] = proj_src
             if (novig_prob is not None
                     and str(df.at[idx, 'novig_prob']).strip() in ('', 'nan')):
                 df.at[idx, 'novig_prob'] = novig_prob
@@ -128,6 +150,8 @@ def log_play(player: str, team: str, rating: int, grade: str,
         'r30g':           r30g if r30g is not None else '',
         'team_total':     team_total if team_total is not None else '',
         'novig_prob':     novig_prob if novig_prob is not None else '',
+        'proj_ceiling':   proj_ceiling if proj_ceiling is not None else '',
+        'proj_src':       proj_src or '',
     }])
     df = pd.concat([df, new_row], ignore_index=True)
     save_all(df)

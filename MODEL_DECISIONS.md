@@ -5,6 +5,101 @@ so decisions don't get re-litigated from scratch. Newest first. Dates are ET.
 
 ---
 
+## 2026-08-10 — There were TWO models. The worker never got the 8/03 change.
+
+Investigating "the model feels off since 7/22". The premise turned out to be
+wrong and the real defect was structural.
+
+**The 7/22 changes are not when win% dropped.** Real-line plays, 85+:
+
+| window | n | win% |
+|--------|---|------|
+| 6/18-7/21 (pre-7/22) | 67 | 56.7% |
+| 7/22-8/02 | 7 | 71.4% |
+| **8/03-8/09** | **10** | **20.0%** |
+| population, all three windows | — | 45.2 / 43.6 / 44.4 |
+
+The 7/22 window went UP. The drop is entirely post-**8/03** — the ceiling
+loosening. Population win% is flat across all three, so nothing global broke in
+grading or data. P(<=2 wins in 10 | true 56.7%) = **2.1%**: low end of variance,
+not proof.
+
+**Finding 1 — `worker.py` and Game View were two different models.**
+Both score every batter; both write `ratings_cache`; `save_rating` is
+first-write-wins (`ratings_cache.py:106`) and Game View honors the frozen value
+without recomputing. The worker runs on a 30-minute cron, so it frequently wins
+that race. It differed from Game View in three ways:
+
+| | worker (before) | Game View |
+|---|---|---|
+| projection ceiling | **1.8x** | 2.0x |
+| pitcher-quality multiplier | **absent** | applied |
+| lineup-context adjustment | **absent** | +/-12% |
+
+So **the 8/03 loosening to 2.0 never took effect for any play the worker rated
+first** — it was only ever applied to `pages/2_🎯_Game_View.py:179`. The 8/03
+evaluation has therefore been measuring a blend of two models, and its explicit
+revert trigger cannot be read until this is fixed.
+
+The worker also rated the RAW projection while logging a CALIBRATED one, so its
+rating and the projection displayed beside it described different numbers.
+
+**Fix:** ported Game View's ceiling, pitcher multiplier, lineup context, and
+two-pass calibration ordering into the worker. Prediction and rating are now two
+pooled passes, because lineup context needs the whole lineup before any single
+batter can be rated. Cached batters contribute their frozen projection to that
+context (post- vs pre-calibration, so a proxy) — otherwise later worker passes,
+where most of the lineup is cached, would average two batters; below 5 known
+spots the context stays neutral. Constants verified identical across both files.
+
+**Not done:** the two copies still exist. Deleting one is the real fix and is
+deliberately deferred — too invasive mid-season.
+
+**Finding 2 — `base_proj` was being erased exactly where it matters.**
+`log_play`'s update path blanked `base_proj` whenever a caller didn't supply one.
+`save_rating` mirrors to `full_play_log` without it, and that mirror **only fires
+for plays that qualify as bets** — so the loss was concentrated in the bet band:
+
+| rating band | rows | base_proj missing |
+|---|---|---|
+| <70 | 3,515 | **0.0%** |
+| 80-85 | 32 | 43.8% |
+| **85-90** | **11** | **90.9%** |
+
+Now only overwritten when actually provided.
+
+**Finding 3 — the no-vig benchmark shipped 8/05 never recorded anything.**
+`get_hrr_lines` computes it correctly; `get_player_line` rebuilds the return dict
+by hand and dropped the key. **0 of 872 rows** since 8/06 had it despite 642
+having a real line. Fixed.
+
+**Finding 4 — calibration is still NOT ready to ship, for a new reason.**
+Fitting was never the blocker: 7/22->now has 3,698 decided rows with `base_proj`
+and the per-bin multipliers match the full season within ~0.06. Two real blockers:
+
+1. Fitted on the correct (pre-calibration) denominator, the bias inverts at the
+   bottom — `<60` UNDER-projects at 1.08, not the 0.76 the 8/05 entry reported
+   from post-calibration `projected`. That entry's tier table should not be used.
+2. `actual` is FLAT — 1.61 at base_proj 0.7 rising only to 2.22 at 4.65. Honest
+   calibration is "predict ~1.8 for everyone," which reproduces the 8/05 Finding
+   3c on 9,134 clean rows. Installing it collapses `proj_score` to a constant,
+   costs 80-89 plays ~6 rating points, and empties the band.
+
+Bin on `base_proj`, not rating tier: the rating-keyed fit is circular (looked up
+by pre-calibration rating, fitted on post-calibration rating) and unstable —
+80-89 swings 0.92 -> 0.57 across halves where every base_proj bin holds to ~0.1.
+
+**Gate unchanged:** ~20-25 decided 85-89 plays post-8/03. Currently **7**. That
+count now restarts in practice, since plays before today were rated by a blend
+of two models.
+
+**Also logged now:** `proj_ceiling` (so the 1.8 vs 2.0 evaluation can separate
+plays the old cap would have evicted from organic ones) and `proj_src`
+('worker' / 'gv', so a fit can prove which path produced a row rather than
+assume).
+
+---
+
 ## 2026-08-05 — Full-DB diagnostic: the RATING works, the PROJECTION is broken
 
 First analysis run against the live Postgres play log (14,935 rows; 8,228 decided

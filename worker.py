@@ -266,7 +266,53 @@ def _run_prediction(player_id, pitcher_id, is_home, park_team,
     season_avg = float(dc['total_season_avg'].iloc[-1]) if not np.isnan(dc['total_season_avg'].iloc[-1]) else 0
     r30_avg    = float((df.tail(30)['h'] + df.tail(30)['r'] + df.tail(30)['rbi']).mean())
     proj       = max(proj, max(season_avg * 0.30, r30_avg * 0.30))
-    proj       = min(proj, max(r30_avg * 1.8, season_avg * 1.8, 2.0))
+
+    # Ceiling — MUST match Game View's PROJ_CEILING_MULT (pages/2_🎯_Game_View.py).
+    # This was 1.8 while Game View ran 2.0 from 2026-08-03 to 2026-08-10: the
+    # loosening was only ever applied to the Game View copy, so every rating the
+    # worker froze first silently kept the old cap. See MODEL_DECISIONS.md.
+    PROJ_CEILING_MULT = 2.0
+    ceiling = max(r30_avg * PROJ_CEILING_MULT, season_avg * PROJ_CEILING_MULT, 2.0)
+    proj    = min(proj, ceiling)
+
+    # Pitcher + matchup quality adjustment — ported from Game View's
+    # run_prediction. XGBoost can't learn pitcher from training data (fast_mode
+    # fills history with league averages -> zero variance on pitcher cols), so
+    # it is applied post-hoc. The worker omitted this entirely, meaning any
+    # rating it froze first was blind to opposing-starter quality in the
+    # Projection component. Weights (no BvP): ERA 28%, FIP 22%, WHIP 20%,
+    # K% 18%, BB% 12%. With BvP (17%): pitcher stats scaled to 83%.
+    _L_ERA, _L_FIP, _L_WHIP, _L_K, _L_BB = 4.30, 4.20, 1.28, 0.222, 0.083
+    try:
+        _row = dc.iloc[-1]
+
+        def _sf(col, default, floor_v=None):
+            try:
+                v = float(_row.get(col, default))
+            except (TypeError, ValueError):
+                v = default
+            if v <= 0:
+                v = default
+            return max(v, floor_v) if floor_v is not None else v
+
+        era_f  = _sf('opp_era',    _L_ERA)  / _L_ERA   # high ERA  -> batter +
+        fip_f  = _sf('opp_fip',    _L_FIP)  / _L_FIP   # high FIP  -> batter +
+        whip_f = _sf('opp_whip',   _L_WHIP) / _L_WHIP  # high WHIP -> batter +
+        k_f    = _L_K / _sf('opp_k_pct', _L_K, 0.10)   # high K%   -> batter -
+        bb_f   = _sf('opp_bb_pct', _L_BB)  / _L_BB     # high BB%  -> batter +
+
+        if int(_row.get('bvp_sample', 0) or 0):
+            bvp_f = _sf('bvp_avg', 0.250) / 0.250
+            _pitcher_mult = (0.2324 * era_f + 0.1826 * fip_f + 0.1660 * whip_f +
+                             0.1494 * k_f   + 0.0996 * bb_f  + 0.1700 * bvp_f)
+        else:
+            _pitcher_mult = (0.28 * era_f + 0.22 * fip_f + 0.20 * whip_f +
+                             0.18 * k_f   + 0.12 * bb_f)
+
+        _pitcher_mult = min(1.25, max(0.75, _pitcher_mult))
+    except Exception:
+        _pitcher_mult = 1.0
+    proj = round(proj * _pitcher_mult, 2)
 
     r7  = df.tail(7);  hrr7  = (r7['h']  + r7['r']  + r7['rbi']).mean()
     r30 = df.tail(30); hrr30 = (r30['h'] + r30['r'] + r30['rbi']).mean()
@@ -275,6 +321,10 @@ def _run_prediction(player_id, pitcher_id, is_home, park_team,
 
     result = {
         'proj':       round(proj, 2),
+        # Realistic ceiling in force for this player. The post-XGBoost
+        # multipliers stack past it, so the final projection is re-capped here
+        # after calibration — same as Game View's render loop.
+        'proj_ceiling': round(ceiling, 2),
         'r7g':        round(float(hrr7), 2),
         'r30g':       round(float(hrr30), 2),
         'savg':       round(season_avg, 2),
@@ -436,7 +486,11 @@ def process_game(game, game_date):
 
         totals = []
 
-        def process_batter(pid):
+        # Prediction and rating run as two passes because lineup context needs
+        # every starter's projection before any one batter can be rated —
+        # mirroring Game View, which resolves the whole lineup before building
+        # rows. Both passes stay pooled; the expensive work is model training.
+        def predict_batter(pid):
             try:
                 ocode      = batter_codes.get(int(pid), 0)
                 is_starter = (ocode % 100 == 0) and (ocode > 0)
@@ -447,9 +501,7 @@ def process_game(game, game_date):
                 # Already cached — use frozen rating
                 cached = get_cached_rating(game_date, pid)
                 if cached:
-                    locked_rating, locked_grade, locked_proj = cached
-                    print(f'    [cached] {pid} — Rating {locked_rating} · Proj {locked_proj}')
-                    return (locked_rating, locked_proj, None, None, None)
+                    return ('cached', spot, cached)
 
                 # Game already started and no cache — skip
                 if game_started:
@@ -459,24 +511,92 @@ def process_game(game, game_date):
                                       temp_f, wind_sp, wind_dr, game_date)
                 if not res:
                     return None
+                return ('new', spot, res)
+            except Exception as e:
+                print(f'    Error predicting player {pid}: {e}')
+                return None
 
-                b_sc   = get_batter_statcast(pid, SEASON)
-                r_data = _get_rating(res, pid, opp_pid, park_team, spot,
-                                     temp_f, wind_sp, wind_dr,
-                                     bp_era, bp_whip, is_home,
-                                     p_std, p_sc, p_last3, p_rest, b_sc,
-                                     team_sc, ump_data, opp_def)
+        with ThreadPoolExecutor(max_workers=8) as exe:
+            preds = list(exe.map(predict_batter, batter_ids))
 
-                rating = r_data['total']
-                grade  = r_data['grade']
-                proj   = round(res['proj'], 2)
+        # Lineup context — how strong is the batting order around this player.
+        # Ported from Game View; capped at +/-12%.
+        #
+        # Cached batters are included via their frozen projection. They skip
+        # _run_prediction entirely, so on the worker's second and later passes
+        # of the day most of the lineup is cached — keying this off fresh
+        # predictions alone would average one or two batters and hand everyone
+        # else a garbage context. The frozen number is post-calibration where a
+        # fresh one is pre-, so it is a proxy rather than a match, but a close
+        # proxy for all nine beats an exact figure for two.
+        _LEAGUE_AVG    = 1.8
+        _starter_projs = {}
+        for _p in preds:
+            if not _p:
+                continue
+            _kind, _sp, _payload = _p
+            if _kind == 'new':
+                _starter_projs[_sp] = _payload['proj']
+            else:
+                _starter_projs[_sp] = _payload[2]   # frozen (rating, grade, proj)
+        _team_avg = (sum(_starter_projs.values()) / len(_starter_projs)
+                     if _starter_projs else _LEAGUE_AVG)
 
-                # Apply calibration correction based on historical bias for this rating tier
+        # Below ~5 known spots the average is too thin to describe a lineup;
+        # stay neutral rather than invent a swing off two batters.
+        _ctx_ok = len(_starter_projs) >= 5
+
+        def _ctx_pct_for(spot):
+            if not _ctx_ok or spot not in _starter_projs:
+                return 0.0
+            _prev = 9 if spot == 1 else spot - 1
+            _next = 1 if spot == 9 else spot + 1
+            _nbrs = [_starter_projs[s] for s in (_prev, _next) if s in _starter_projs]
+            _nbr_avg = sum(_nbrs) / len(_nbrs) if _nbrs else _team_avg
+            _ctx_avg = 0.5 * _team_avg + 0.5 * _nbr_avg
+            return max(-0.12, min(0.12, (_ctx_avg - _LEAGUE_AVG) / _LEAGUE_AVG * 0.4))
+
+        def rate_batter(item):
+            pid, pred = item
+            if pred is None:
+                return None
+            kind, spot, payload = pred
+            try:
+                if kind == 'cached':
+                    locked_rating, locked_grade, locked_proj = payload
+                    print(f'    [cached] {pid} — Rating {locked_rating} · Proj {locked_proj}')
+                    return (locked_rating, locked_proj, None, None, None, None, None, None)
+
+                res  = payload
+                b_sc = get_batter_statcast(pid, SEASON)
+
+                def _rate(p):
+                    _ctx = dict(res)
+                    _ctx['proj'] = p
+                    return _get_rating(_ctx, pid, opp_pid, park_team, spot,
+                                       temp_f, wind_sp, wind_dr,
+                                       bp_era, bp_whip, is_home,
+                                       p_std, p_sc, p_last3, p_rest, b_sc,
+                                       team_sc, ump_data, opp_def)
+
+                # Two passes, matching Game View: rate the context-adjusted
+                # projection, use THAT rating to pick the calibration factor,
+                # then re-rate the corrected projection. The worker previously
+                # rated the raw projection and separately logged a calibrated
+                # one, so the rating and the projection beside it described
+                # different numbers.
+                base_proj = round(max(0.5, res['proj'] * (1 + _ctx_pct_for(spot))), 2)
+                _pass1    = _rate(base_proj)
                 try:
                     from calibration import get_correction_factor
-                    proj = round(proj * get_correction_factor(rating), 2)
+                    _calib = get_correction_factor(_pass1['total'])
                 except Exception:
-                    pass
+                    _calib = 1.0
+                proj = max(0.5, base_proj * _calib * (1 + _pass1.get('matchup_pct', 0.0)))
+                # Re-cap at the player's realistic ceiling so stacked
+                # multipliers can't manufacture a 5+ HRR projection
+                proj   = round(min(proj, res.get('proj_ceiling', proj)), 2)
+                r_data = _rate(proj)
 
                 # Look up player name
                 try:
@@ -485,18 +605,19 @@ def process_game(game, game_date):
                 except Exception:
                     pname = str(pid)
 
-                return (rating, proj, pname, grade, r_data)
+                return (r_data['total'], proj, pname, r_data['grade'], r_data,
+                        base_proj, res.get('proj_ceiling'), res.get('r30g'))
             except Exception as e:
-                print(f'    Error on player {pid}: {e}')
+                print(f'    Error rating player {pid}: {e}')
                 return None
 
         with ThreadPoolExecutor(max_workers=8) as exe:
-            results = list(exe.map(process_batter, batter_ids))
+            results = list(exe.map(rate_batter, zip(batter_ids, preds)))
 
         for pid, result in zip(batter_ids, results):
             if result is None:
                 continue
-            rating, proj, pname, grade, r_data = result
+            rating, proj, pname, grade, r_data, base_proj, proj_ceiling, r30g = result
 
             totals.append((rating, proj))
 
@@ -510,6 +631,12 @@ def process_game(game, game_date):
             # Log to full play log
             log_play(player=pname, team=batter_team,
                      rating=rating, grade=grade, projected=proj,
+                     base_proj=base_proj, proj_ceiling=proj_ceiling,
+                     # Tag the source: worker and Game View reach base_proj by
+                     # the same route now, but a calibration fit must still be
+                     # able to prove that rather than assume it.
+                     proj_src='worker',
+                     r30g=r30g,
                      vs_pitcher=opp_p_name, is_home=is_home,
                      game_date=game_date, game_started=False)
 
