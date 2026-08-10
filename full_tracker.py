@@ -165,9 +165,25 @@ def log_play(player: str, team: str, rating: int, grade: str,
 def _get_boxscore_stats_for_date(game_date: str) -> dict:
     """
     Fetch H+R+RBI for every player who played on a given date.
-    Returns {player_name_lower: hrr} using boxscores — fast, one call per game.
+
+    Returns BOTH keyings:
+      (name_lower, opp_starter_lower) -> hrr   per-game, exact
+      name_lower                      -> hrr   fallback, single-game players only
+
+    The per-game key exists because `result[name] = hrr` silently overwrote
+    across games. Two rows share a name on a given date in two real cases —
+    a doubleheader, and two different players who happen to share a name (both
+    Max Muncys played on 2026-08-07 and 08-08) — and in both, every row ended up
+    graded against whichever game happened to be processed last. The play log
+    keys on date+player+vs_pitcher, so pairing on the opposing starter matches
+    it exactly.
+
+    Names that appear in more than one game are deliberately LEFT OUT of the
+    fallback map, so an unmatched row stays pending rather than being graded
+    against a coin flip.
     """
-    result = {}
+    per_game   = {}
+    name_hits  = {}
     try:
         date_fmt = datetime.strptime(game_date, '%Y-%m-%d').strftime('%m/%d/%Y')
         games = statsapi.schedule(date=date_fmt, sportId=1)
@@ -176,6 +192,16 @@ def _get_boxscore_stats_for_date(game_date: str) -> dict:
                 continue
             try:
                 box = statsapi.boxscore_data(game['game_id'])
+                # Opposing starter for each side = the other side's first pitcher
+                starters = {}
+                for side, other in (('home', 'away'), ('away', 'home')):
+                    plist = box.get(other, {}).get('pitchers', []) or []
+                    nm = ''
+                    if plist:
+                        pd_ = box.get(other, {}).get('players', {}).get(f'ID{plist[0]}', {})
+                        nm = pd_.get('person', {}).get('fullName', '').lower().strip()
+                    starters[side] = nm
+
                 for side in ('home', 'away'):
                     for _, pdata in box.get(side, {}).get('players', {}).items():
                         name = pdata.get('person', {}).get('fullName', '').lower().strip()
@@ -185,11 +211,18 @@ def _get_boxscore_stats_for_date(game_date: str) -> dict:
                         h   = int(stat.get('hits', 0) or 0)
                         r   = int(stat.get('runs', 0) or 0)
                         rbi = int(stat.get('rbi', 0) or 0)
-                        result[name] = h + r + rbi
+                        hrr = h + r + rbi
+                        per_game[(name, starters.get(side, ''))] = hrr
+                        name_hits.setdefault(name, []).append(hrr)
             except Exception:
                 pass
     except Exception:
         pass
+
+    result = dict(per_game)
+    for name, vals in name_hits.items():
+        if len(vals) == 1:          # unambiguous — safe to key on name alone
+            result[name] = vals[0]
     return result
 
 
@@ -241,7 +274,13 @@ def update_actuals() -> int:
                 if not player_stats:
                     continue
                 player_lower = str(row.get('player', '')).lower().strip()
-                hrr = player_stats.get(player_lower)
+                # Try the exact per-game key first (player + opposing starter).
+                # Only that key can tell a doubleheader's two games apart, or
+                # two same-named players in different games.
+                _vp  = str(row.get('vs_pitcher', '')).lower().strip()
+                hrr  = player_stats.get((player_lower, _vp))
+                if hrr is None:
+                    hrr = player_stats.get(player_lower)
                 if hrr is None:  # partial last-name fallback
                     parts = player_lower.split()
                     last  = parts[-1] if parts else ''
