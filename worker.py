@@ -224,7 +224,9 @@ class Funnel:
     # Declared skip reasons. `unknown` exists so an unattributed skip is
     # counted rather than silently absorbed — and it must always be 0.
     SKIP_REASONS = ('game_started', 'invalid_code', 'missing_player_id',
-                    'ineligible_rule', 'unknown')
+                    'ineligible_rule', 'pending_pitcher',
+                    'missed_cutoff_pending_pitcher', 'lineup_not_official',
+                    'unknown')
 
     def __init__(self):
         self._c = dict.fromkeys(self.FIELDS, 0)
@@ -427,6 +429,38 @@ def process_game(game, game_date):
         funnel.bump('expected',
                     sum(1 for _c in batter_codes.values() if _c % 100 == 0))
 
+        # ── Pending-pitcher gate ──────────────────────────────────────────
+        # No projection, no rating, and NO WRITE to either ratings_cache or
+        # full_play_log until the official lineup AND the opposing starter are
+        # both known.
+        #
+        # A rating computed against 'TBD' is not a matchup rating. Writing one
+        # froze it in ratings_cache (save_rating refuses to overwrite), and the
+        # worker's lookup was matchup-blind, so a later resolved-pitcher run
+        # could be served the TBD rating. Suppressing only the play-log write
+        # would leave that cache poisoning intact — the rating must not be
+        # calculated at all.
+        #
+        # Raw upstream caching (game logs, pitcher history) is untouched: it
+        # cannot be mistaken for a prediction.
+        _pitcher_resolved = bool(opp_pid) and str(opp_p_name).strip() not in ('', 'TBD')
+        _lineup_official  = bool(game.get('lineups_official'))
+        if not (_pitcher_resolved and _lineup_official):
+            if game_started:
+                # Past first pitch: stop retrying, and say so. This is a missed
+                # opportunity, not a pending one, and must not read as healthy.
+                _reason = 'missed_cutoff_pending_pitcher'
+            elif not _pitcher_resolved:
+                _reason = 'pending_pitcher'          # retried next cron run
+            else:
+                _reason = 'lineup_not_official'      # retried next cron run
+            funnel.bump_skip(_reason, funnel['expected'])
+            print(f'  [{_reason}] {batter_team} — pitcher='
+                  f'{opp_p_name!r} lineup_official={_lineup_official}; '
+                  f'no rating calculated, nothing written')
+            print(funnel.line(f'{batter_team} ({"home" if is_home else "away"})'))
+            continue
+
         # Prediction and rating run as two passes because lineup context needs
         # every starter's projection before any one batter can be rated —
         # mirroring Game View, which resolves the whole lineup before building
@@ -451,8 +485,16 @@ def process_game(game, game_date):
                 return None
 
             try:
-                # Already cached — use frozen rating
-                cached = get_cached_rating(game_date, pid)
+                # Already cached — use frozen rating. `opp_p_name` is passed so
+                # the lookup is MATCHUP-AWARE: without it the query is
+                # (date, player_id) only, which cannot tell a TBD-era rating
+                # apart from one computed against the real starter, and would
+                # serve whichever row came first. Confirmed live 2026-08-12:
+                # MIN held 18 ratings_cache rows for 9 players, every one with
+                # both a TBD and a resolved entry differing by up to 12 points.
+                # A mismatch now returns None, so the batter is recomputed
+                # rather than served the wrong matchup.
+                cached = get_cached_rating(game_date, pid, opp_p_name)
                 if cached:
                     funnel.bump('cached')
                     return ('cached', spot, cached)
@@ -576,6 +618,16 @@ def process_game(game, game_date):
 
             if pname is None:
                 continue  # cached — already saved
+
+            # Defence in depth. The pending-pitcher gate above already skipped
+            # this side, so this should be unreachable — but a write with an
+            # unresolved pitcher is the defect this change exists to stop, and
+            # ratings_cache freezes on first write, so a single leak is durable.
+            if str(opp_p_name).strip() in ('', 'TBD'):
+                funnel.bump('persistence_failure')
+                print(f'    [persist-blocked] {pid} — pitcher unresolved '
+                      f'({opp_p_name!r}); refusing to write')
+                continue
 
             try:
                 # Save to ratings cache (freezes the rating pre-game)
