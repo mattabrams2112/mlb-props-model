@@ -6,6 +6,8 @@ Cached by team abbreviation + season.
 import os
 import statsapi
 import pandas as pd
+
+import atomic_cache
 from datetime import datetime
 
 CURRENT_YEAR = datetime.now().year
@@ -26,24 +28,48 @@ _MEM_CACHE: dict = {}
 
 
 def _load_cache() -> dict:
+    """Returns the shared in-memory cache.
+
+    Still returned by reference, so lookups stay cheap — but every mutation
+    must go through `_put`, which holds this file's lock across the mutation,
+    the snapshot and the atomic write. Mutating the returned dict directly
+    reopens the race this replaced. See atomic_cache for the full account.
+    """
     global _MEM_CACHE
-    if _MEM_CACHE:
+    with atomic_cache.lock_for(CACHE_FILE):
+        if _MEM_CACHE:
+            return _MEM_CACHE
+        try:
+            loaded = atomic_cache.load_cache(CACHE_FILE, 'key')
+        except atomic_cache.CacheCorruptionError as e:
+            # A corrupt file is NOT a cold start. Say so, and keep whatever is
+            # already in memory rather than silently discarding every entry.
+            print(atomic_cache.describe_failure(
+                'cache-read-fail', 'bullpen_data', CACHE_FILE, e, 'refetch'))
+            return _MEM_CACHE
+        if loaded:
+            _MEM_CACHE = loaded
         return _MEM_CACHE
-    if not os.path.exists(CACHE_FILE):
-        return _MEM_CACHE
-    try:
-        df = pd.read_csv(CACHE_FILE, dtype={'key': str})
-        if not df.empty and 'key' in df.columns:
-            _MEM_CACHE = df.set_index('key').to_dict('index')
-    except Exception:
-        pass
-    return _MEM_CACHE
+
+
+def _put(key, value) -> None:
+    """Mutate + persist under one lock. The only supported way to write."""
+    global _MEM_CACHE
+    with atomic_cache.lock_for(CACHE_FILE):
+        _MEM_CACHE[key] = value
+        # Best-effort persist: the value is in memory and is returned either
+        # way, so a disk failure must not become a dropped batter.
+        atomic_cache.save_cache_best_effort(CACHE_FILE, 'key', _MEM_CACHE,
+                                            module='bullpen_data')
 
 
 def _save_cache(cache: dict):
+    """Back-compat shim: replace the whole cache, atomically."""
     global _MEM_CACHE
-    _MEM_CACHE = cache
-    pd.DataFrame([{'key': k, **v} for k, v in cache.items()]).to_csv(CACHE_FILE, index=False)
+    with atomic_cache.lock_for(CACHE_FILE):
+        _MEM_CACHE = cache
+        atomic_cache.save_cache_best_effort(CACHE_FILE, 'key', _MEM_CACHE,
+                                            module='bullpen_data')
 
 
 def get_bullpen_stats(team_abbr: str, season: int = None) -> dict:
@@ -98,6 +124,5 @@ def get_bullpen_stats(team_abbr: str, season: int = None) -> dict:
         except Exception:
             pass
 
-    cache[key] = result
-    _save_cache(cache)
+    _put(key, result)
     return result

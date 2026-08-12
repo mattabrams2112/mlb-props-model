@@ -7,6 +7,8 @@ import os
 import time
 import statsapi
 import pandas as pd
+
+import atomic_cache
 from datetime import datetime
 
 CURRENT_YEAR = datetime.now().year
@@ -35,19 +37,20 @@ def _parse_float(val, default: float) -> float:
 # ── Pitcher season stats ──────────────────────────────────────────────────────
 
 def _load_pitcher_cache() -> dict:
-    if not os.path.exists(PITCHER_STATS_CACHE):
-        return {}
+    """Fresh dict per call, so there is no shared-dict iteration race here —
+    but concurrent to_csv writers could still truncate each other, and a
+    mid-write read used to return {} and discard the whole cache."""
     try:
-        df = pd.read_csv(PITCHER_STATS_CACHE, dtype={'key': str})
-        if df.empty or 'key' not in df.columns:
-            return {}
-        return df.set_index('key').to_dict('index')
-    except Exception:
+        return atomic_cache.load_cache(PITCHER_STATS_CACHE, 'key')
+    except atomic_cache.CacheCorruptionError as e:
+        print(atomic_cache.describe_failure(
+            'cache-read-fail', 'pitcher_data', PITCHER_STATS_CACHE, e, 'refetch'))
         return {}
 
 
 def _save_pitcher_cache(cache: dict):
-    pd.DataFrame([{'key': k, **v} for k, v in cache.items()]).to_csv(PITCHER_STATS_CACHE, index=False)
+    atomic_cache.save_cache_best_effort(PITCHER_STATS_CACHE, 'key', cache,
+                                       module='pitcher_data')
 
 
 def get_pitcher_season_stats(pitcher_id: int, season: int = None) -> dict:
@@ -242,19 +245,17 @@ def get_pitcher_name(pitcher_id: int) -> str:
 # ── Starting pitcher per game ─────────────────────────────────────────────────
 
 def _load_game_pitcher_cache() -> dict:
-    if not os.path.exists(GAME_PITCHER_CACHE):
-        return {}
     try:
-        df = pd.read_csv(GAME_PITCHER_CACHE, dtype={'game_pk': str})
-        if df.empty or 'game_pk' not in df.columns:
-            return {}
-        return df.set_index('game_pk').to_dict('index')
-    except Exception:
+        return atomic_cache.load_cache(GAME_PITCHER_CACHE, 'game_pk')
+    except atomic_cache.CacheCorruptionError as e:
+        print(atomic_cache.describe_failure(
+            'cache-read-fail', 'pitcher_data', GAME_PITCHER_CACHE, e, 'refetch'))
         return {}
 
 
 def _save_game_pitcher_cache(cache: dict):
-    pd.DataFrame([{'game_pk': k, **v} for k, v in cache.items()]).to_csv(GAME_PITCHER_CACHE, index=False)
+    atomic_cache.save_cache_best_effort(GAME_PITCHER_CACHE, 'game_pk', cache,
+                                       module='pitcher_data')
 
 
 def get_starting_pitchers_for_games(game_pks: list, verbose: bool = True) -> dict:
