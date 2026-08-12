@@ -5,6 +5,98 @@ so decisions don't get re-litigated from scratch. Newest first. Dates are ET.
 
 ---
 
+## 2026-08-11b — "Not enough data" was three different things wearing one label.
+
+Triggered by a question about the Diamondbacks. Three independent causes, none
+of which is a shortage of data:
+
+**1. Failed fetches were cached as "no history" for two hours.** Every fetch in
+`game_log_fetcher.py` swallowed its exception and returned `[]`. An MLB API
+timeout, 5xx or rate-limit was therefore indistinguishable from a batter who
+has never played. Game View wraps `fetch_logs` in `st.cache_data(ttl=7200)`,
+and an empty DataFrame is a *value*, so one flaky call pinned a real hitter to
+"Not enough data" for the rest of the slate. Fetch failures now raise
+`LogFetchError`; a 200 with no splits and a 404 for an unplayed season still
+return empty. `run_prediction`'s docstring already explained this exact hazard
+— exceptions are not cached, values are — but the hole was one layer below the
+place that reasoning was applied.
+
+**2. Game View rendered players who were never in the batting order.** It
+iterated `*_batters` (every ID the API listed for the side) rather than
+`*_batter_codes` (real batting-order positions). Missing IDs fell through
+`batter_codes.get(int(pid), (idx + 1) * 100)` to a synthetic code, which
+satisfies `ocode % 100 == 0`, so they were classified as **starters** and then
+failed projection. Every game on 2026-08-11 was affected: 10 vs 9 IDs pre-game
+(the starting pitcher), and up to 17 vs 11 once relievers and pinch-hitters had
+appeared. `worker.py` was already correct here — it defaults to `0`, which
+fails its `ocode > 0` test — so this was Game View diverging from the worker,
+not a shared bug.
+
+**3. The eligibility rule was misreported.** `projection.py` announces a 25-game
+minimum but the binding constraint is `len(dc) >= 20` *after* `build_features`,
+and the 30-game rolling features (`min_periods=max(5, w//2)` = 15, plus
+`shift(1)`) blank the first 15 rows. James McCann: 31 games, 16 usable, needs
+20. There is now one authoritative rule — build features, require
+`MIN_USABLE_ROWS = 20` — and `PREFILTER_GAMES = 25` is documented as a speed
+guard that must never be reported as the requirement. `InsufficientData` carries
+the counts so the UI can say *"31 games found; 16 usable feature rows; 20
+required"* instead of a bare "Not enough data".
+
+**Deliberately NOT done: `MIN_GAMES` was not changed to 35.** The fetcher
+backfills prior-season MLB and MiLB to reach exactly `MIN_GAMES = 25`, and 25
+games can never yield 20 usable rows, so that backfill path currently cannot
+produce a projection for anyone. Raising it to 35 would "fix" that by silently
+importing ~10 more prior-season games into every sparse batter's recent form —
+which is a modeling decision, not a correctness fix. See 2026-08-11c.
+
+None of this is mid-window work: the forward cohort has not opened. These are
+pre-cohort correctness fixes. Once it opens, changing player eligibility from
+cached failures to valid projections would alter coverage and needs explicit
+protocol treatment.
+
+---
+
+## 2026-08-11c — History policy: prior seasons stabilize, they do not define form.
+
+Not implemented. Recorded so it is designed deliberately rather than falling out
+of a threshold change. Must be frozen before the cohort opens, and designed
+together with the synthetic future-row fix (08-10c item 4).
+
+Neither extreme is acceptable. Current-season-only makes call-ups unavailable
+and the model nearly unusable in April. Seamlessly appending last season makes
+old performance look like recent form and lets rolling windows cross the
+offseason — which is what `fetch_player_logs` does today, since its output is
+one undifferentiated frame.
+
+Agreed policy:
+
+- Prediction-time recent form (`r7g`, `r30g`, rolling averages): **current
+  season only**.
+- Current-season games: full weight, existing recency decay.
+- Prior-season MLB: may supplement an insufficient *training* sample only.
+  Capped count, substantially lower weight.
+- Prior-season MiLB: last resort for genuine call-ups. Separately flagged and
+  weighted below prior MLB.
+- **Rolling windows never cross a season boundary.**
+- Require a minimum of current-season MLB games (15-20) before issuing a
+  *tracked* recommendation. Below that, show "insufficient current-season data".
+- Record the source mix on every prediction: current MLB rows, prior MLB rows,
+  MiLB rows.
+
+For an August batter with 31 current-season games, those 31 define current form.
+Prior games are a training supplement, never games 32-40 of his recent form.
+
+Caps and weights to be frozen after a time-separated comparison of: current
+season only; current season plus downweighted prior MLB; current season plus
+prior MLB/MiLB fallback.
+
+**Version this as a declared `history_policy_version` inside
+`projection_version`.** Changing the history mix materially changes the model
+even when the XGBoost parameters are byte-identical, so the cohort must be able
+to name which mix produced a prediction.
+
+---
+
 ## 2026-08-11a — Calibration disabled. The zeros filter was inverting its sign.
 
 Fix order item 1 from 08-10c. `calibration.py` dropped `actual > 0` before

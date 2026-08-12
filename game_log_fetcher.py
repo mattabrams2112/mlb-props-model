@@ -21,15 +21,47 @@ AAA_SCALE = 0.85
 AA_SCALE  = 0.75
 
 
-def _fetch_mlb_rows(player_id: int, season: int) -> list:
+class LogFetchError(RuntimeError):
+    """A game-log fetch failed. Distinct from a player having no games.
+
+    Every fetch here used to swallow its exception and return [], so an MLB API
+    timeout, a 5xx or a rate-limit looked exactly like 'this batter has never
+    played'. Game View caches `fetch_logs` results for 2 hours, and an empty
+    DataFrame is a value, so one flaky call pinned a real hitter to
+    'Not enough data' for the rest of the slate. Raising keeps that out of the
+    cache — st.cache_data does not cache exceptions, so the next load retries.
+
+    A 200 carrying no splits, and a 404 for a season the player never appeared
+    in, are NOT failures: those return [] as before.
+    """
+
+
+def _get_splits(player_id: int, season: int, params: dict) -> list:
+    """GET one gameLog season. Returns [] for a genuine empty; raises otherwise."""
     try:
-        resp = _req.get(
-            f'{MLB_API}/people/{player_id}/stats',
-            params={'stats': 'gameLog', 'group': 'hitting', 'season': season},
-            timeout=15,
-        )
+        resp = _req.get(f'{MLB_API}/people/{player_id}/stats',
+                        params=params, timeout=15)
+        # No such player/season combination — a real answer, not a failure.
+        if resp.status_code == 404:
+            return []
         resp.raise_for_status()
-        splits = (resp.json().get('stats') or [{}])[0].get('splits', [])
+        payload = resp.json()
+        stats = payload.get('stats') or []
+        if not stats:
+            return []
+        return stats[0].get('splits', [])
+    except Exception as e:
+        raise LogFetchError(
+            f'game log fetch failed for player {player_id} season {season}: '
+            f'{type(e).__name__}: {e}'
+        ) from e
+
+
+def _fetch_mlb_rows(player_id: int, season: int) -> list:
+    splits = _get_splits(player_id, season,
+                         {'stats': 'gameLog', 'group': 'hitting',
+                          'season': season})
+    try:
         rows = []
         for s in splits:
             stat = s.get('stat', {}); gi = s.get('game', {})
@@ -54,22 +86,20 @@ def _fetch_mlb_rows(player_id: int, season: int) -> list:
                 'sb':  int(stat.get('stolenBases', 0)),
             })
         return rows
-    except Exception:
-        return []
+    except Exception as e:
+        raise LogFetchError(
+            f'malformed MLB game log for player {player_id} season {season}: '
+            f'{type(e).__name__}: {e}'
+        ) from e
 
 
 def _fetch_milb_rows(player_id: int, season: int,
                      sport_id: int = 11, scale: float = AAA_SCALE) -> list:
     """Fetch minor league logs and scale counting stats to MLB equivalent."""
+    splits = _get_splits(player_id, season,
+                         {'stats': 'gameLog', 'group': 'hitting',
+                          'season': season, 'sportId': sport_id})
     try:
-        resp = _req.get(
-            f'{MLB_API}/people/{player_id}/stats',
-            params={'stats': 'gameLog', 'group': 'hitting',
-                    'season': season, 'sportId': sport_id},
-            timeout=15,
-        )
-        resp.raise_for_status()
-        splits = (resp.json().get('stats') or [{}])[0].get('splits', [])
         rows = []
         for s in splits:
             stat = s.get('stat', {}); gi = s.get('game', {})
@@ -95,8 +125,11 @@ def _fetch_milb_rows(player_id: int, season: int,
                 'sb':  int(stat.get('stolenBases', 0)),
             })
         return rows
-    except Exception:
-        return []
+    except Exception as e:
+        raise LogFetchError(
+            f'malformed MiLB game log for player {player_id} season {season} '
+            f'sport {sport_id}: {type(e).__name__}: {e}'
+        ) from e
 
 
 def _to_df(rows: list) -> pd.DataFrame:

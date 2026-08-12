@@ -20,7 +20,8 @@ import requests as _req
 # Model training now lives entirely in projection.py — xgboost/lightgbm and the
 # feature-engineering helpers are imported there, not here.
 from projection import (run_prediction as shared_run_prediction,
-                        lineup_context_pct)
+                        lineup_context_pct, InsufficientData, PREFILTER_GAMES)
+from game_log_fetcher import LogFetchError
 # compute_rating's inputs are assembled in exactly one place — see the module
 # docstring for what went wrong when this lived in two.
 from rating_inputs import score_batter
@@ -152,7 +153,7 @@ def rating_color(v):
 
 
 def _render_line_inputs(fetched, date_key, game_pk):
-    starters_with_data = [(idx, pid, pname, res) for idx, pid, pname, _, res, is_s, _, _, _
+    starters_with_data = [(idx, pid, pname, res) for idx, pid, pname, _, res, is_s, _, _, _, _
                           in fetched if is_s and res]
     if starters_with_data:
         with st.expander('📥 Enter Sportsbook Lines', expanded=False):
@@ -177,6 +178,17 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
                   date_key: str, batter_team: str = '', game_date: str = '',
                   event_id: str = '', game_pk: str = '', is_stable: bool = False,
                   status: str = '', team_total: float = None):
+
+    # Render the official batting order, nothing else. `*_batters` carries every
+    # player ID the API listed for the side, which for the home team includes
+    # the starting pitcher; `*_batter_codes` holds only real batting-order
+    # positions. Without this filter the pitcher misses the codes lookup below,
+    # falls back to `(idx + 1) * 100`, satisfies `ocode % 100 == 0`, and is
+    # rendered as a starter — then shows "Not enough data" because he has no
+    # hitting logs. Guarded: when codes are missing entirely (projected lineups
+    # not posted yet) keep every ID rather than drawing an empty table.
+    if batter_codes:
+        batter_ids = [pid for pid in batter_ids if int(pid) in batter_codes]
 
     # Market's implied run total for this batter's team tonight. Logged as a
     # benchmark; deliberately NOT fed into any rating component yet.
@@ -278,6 +290,9 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
             is_starter = (ocode % 100 == 0)
             spot       = ocode // 100
             sub_idx    = ocode % 100
+            # Why this batter has no projection, in the batter's own numbers.
+            # Empty means "no reason recorded" and falls back to generic text.
+            _no_data_reason = ''
 
             # For starters already in ratings_cache, skip XGBoost entirely.
             # Just fetch game logs (cheap, cached) and build the same res dict
@@ -309,6 +324,12 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
                         }
                     else:
                         res = None
+                        _no_data_reason = (f'{len(_df)} games found; needs at least '
+                                           f'{PREFILTER_GAMES} to show recent form')
+                except LogFetchError as e:
+                    res = None
+                    _no_data_reason = 'Data temporarily unavailable — retrying on reload'
+                    print(f'    log fetch failed for {pid}: {e}')
                 except Exception:
                     res = None
             else:
@@ -316,12 +337,22 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
                     res = run_prediction(pid, opp_pitcher_id, is_home, park_team,
                                          weather['temp_f'], weather['wind_speed'],
                                          weather['wind_dir_code'], game_date=game_date)
+                except LogFetchError as e:
+                    # The MLB API failed — this is NOT a statement about the
+                    # batter's history. Say so, and don't let it look permanent.
+                    res = None
+                    _no_data_reason = 'Data temporarily unavailable — retrying on reload'
+                    print(f'    log fetch failed for {pid}: {e}')
+                except InsufficientData as e:
+                    res = None
+                    _no_data_reason = e.detail
                 except RuntimeError:
                     res = None
 
             odds_data = (get_player_line(pname, event_id)
                          if ODDS_API_KEY and event_id and not game_started else None)
-            return idx, pid, pname, pteam, res, is_starter, spot, sub_idx, odds_data
+            return (idx, pid, pname, pteam, res, is_starter, spot, sub_idx,
+                    odds_data, _no_data_reason)
 
         with ThreadPoolExecutor(max_workers=8) as exe:
             fetched = list(exe.map(fetch, enumerate(batter_ids)))
@@ -334,14 +365,15 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
     # Build team projection map: spot -> proj for all starters with results.
     # The adjustment itself is projection.lineup_context_pct, shared with the
     # worker so both paths weigh the surrounding lineup identically.
-    _starter_projs = {sp: r['proj'] for _, _, _, _, r, is_s, sp, _, _ in fetched
+    _starter_projs = {sp: r['proj'] for _, _, _, _, r, is_s, sp, _, _, _ in fetched
                       if is_s and r and r.get('proj') is not None}
 
     # ── Build rows ────────────────────────────────────────────────────────────
     rows_html = []
     totals    = []
 
-    for row_i, (idx, pid, pname, pteam, res, is_starter, spot, sub_idx, odds_data) in enumerate(fetched):
+    for row_i, (idx, pid, pname, pteam, res, is_starter, spot, sub_idx, odds_data,
+                no_data_reason) in enumerate(fetched):
         display_order = str(spot) if is_starter else f'{spot}.{sub_idx}'
         batting_order = spot if is_starter else 0
 
@@ -655,7 +687,8 @@ def render_lineup(container, batter_ids, batter_codes, is_home, opp_pitcher_id,
                 f'<td style="padding:6px 8px;color:#475569;">{display_order}</td>'
                 f'<td style="padding:6px 8px;">{logo}</td>'
                 f'<td style="color:#e0f2fe;padding:6px 8px;">{pname}</td>'
-                f'<td colspan="9" style="padding:6px 8px;color:#475569;font-size:11px;">Not enough data</td>'
+                f'<td colspan="9" style="padding:6px 8px;color:#475569;font-size:11px;">'
+                f'{no_data_reason or "Not enough data"}</td>'
                 f'</tr>'
             )
         rows_html.append(row)

@@ -139,13 +139,47 @@ def lineup_context_pct(spot: int, starter_projs: dict) -> float:
     return max(-0.12, min(0.12, (ctx_avg - LEAGUE_AVG_HRR) / LEAGUE_AVG_HRR * 0.4))
 
 
+# The one authoritative eligibility rule: build the features, then require this
+# many rows that survive `dropna` on the full feature set.
+MIN_USABLE_ROWS = 20
+
+# Cheap early-out so we don't build features for an obviously empty history.
+# This is a SPEED guard, not the eligibility rule. Passing it does not mean a
+# batter can be projected — rolling windows (30g at min_periods=15) and pitcher
+# features drop rows that no raw game count can predict. Never report this
+# number as "the requirement"; report the usable-row count instead.
+PREFILTER_GAMES = 25
+
+
+class InsufficientData(RuntimeError):
+    """Not enough history to project, carrying the counts so callers can say why.
+
+    Subclasses RuntimeError so existing broad handlers (worker.py's
+    `except RuntimeError: return None`) keep working unchanged.
+    """
+
+    def __init__(self, games, usable=None):
+        self.games    = games
+        self.usable   = usable
+        self.required = MIN_USABLE_ROWS
+        if usable is None:
+            # Failed the cheap prefilter — features were never built, so the
+            # usable-row count is genuinely unknown. Say that, don't invent it.
+            self.detail = (f'{games} games found; needs at least '
+                           f'{PREFILTER_GAMES} before a projection is attempted')
+        else:
+            self.detail = (f'{games} games found; {usable} usable feature rows; '
+                           f'{MIN_USABLE_ROWS} required')
+        super().__init__(f'insufficient_data: {self.detail}')
+
+
 def run_prediction(player_id, pitcher_id, is_home, park_team,
                    temp_f, wind_speed, wind_dir, game_date='',
                    fetch_logs=None):
     """
     Project a batter's HRR for one game.
 
-    Raises RuntimeError('insufficient_data') when there isn't enough history.
+    Raises InsufficientData (a RuntimeError) when there isn't enough history.
     Game View relies on that being an exception rather than a None return:
     st.cache_data does not cache exceptions, so a failed API fetch retries on
     the next page load instead of sticking for 24 hours.
@@ -155,8 +189,8 @@ def run_prediction(player_id, pitcher_id, is_home, park_team,
     fetch_logs = fetch_logs or _default_fetch_logs
 
     df = fetch_logs(player_id)
-    if df.empty or len(df) < 25:
-        raise RuntimeError('insufficient_data')
+    if df.empty or len(df) < PREFILTER_GAMES:
+        raise InsufficientData(len(df))
 
     # Freeze at pre-game state — exclude game day and later, so a rating never
     # sees the result of the game it is predicting.
@@ -166,8 +200,8 @@ def run_prediction(player_id, pitcher_id, is_home, park_team,
             df = df[df['date'].dt.date < cutoff].copy()
         except Exception:
             pass
-    if len(df) < 25:
-        raise RuntimeError('insufficient_data')
+    if len(df) < PREFILTER_GAMES:
+        raise InsufficientData(len(df))
 
     # fast_mode=False looks up the real starting pitcher for every historical
     # game, so the model sees genuine matchup variance instead of a constant.
@@ -184,8 +218,8 @@ def run_prediction(player_id, pitcher_id, is_home, park_team,
     # rather than the zero-variance filler Game View used to train on.
     fc = get_feature_cols(include_pitcher=True)
     dc = df_feat.dropna(subset=fc).reset_index(drop=True)
-    if len(dc) < 20:
-        raise RuntimeError('insufficient_data')
+    if len(dc) < MIN_USABLE_ROWS:
+        raise InsufficientData(len(df), usable=len(dc))
 
     # Train on all rows except the last — the last row is the prediction
     # template. Its rolling features (built with shift(1)) represent stats going
