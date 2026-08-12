@@ -21,8 +21,10 @@ from concurrent.futures import ThreadPoolExecutor
 
 # Model training now lives entirely in projection.py — xgboost/lightgbm and the
 # feature-engineering helpers are imported there, not here.
+import threading
 from projection import (run_prediction as shared_run_prediction,
-                        lineup_context_pct)
+                        lineup_context_pct, InsufficientData)
+from game_log_fetcher import LogFetchError
 # compute_rating's inputs are assembled in exactly one place — see the module
 # docstring for what went wrong when this lived in two.
 from rating_inputs import score_batter
@@ -181,8 +183,73 @@ def _fetch_logs(player_id: int) -> pd.DataFrame:
 _PRED_CACHE: dict = {}  # (player_id, pitcher_id, date_str, is_home, park_team) → result; cleared at midnight
 
 
+class Funnel:
+    """Per-side outcome counters, so a slate's totals reconcile instead of
+    being inferred from how many rating lines happened to print.
+
+    Incremented from a ThreadPoolExecutor, hence the lock.
+
+    `attempted` counts fresh projections only — a cached batter is a real
+    outcome but not an attempt, so it gets its own bucket. Two invariants:
+
+        attempted == projected + insufficient_data
+                     + upstream_failure + unexpected_failure     (outcomes)
+
+        expected  == attempted + cached + skipped                (coverage)
+
+    The second one matters as much as the first. Without a `skipped` bucket a
+    post-start run reported expected=9, cached=8, attempted=0 and still said
+    reconcile=OK — the ninth batter disappeared silently, which is precisely
+    the "attempted below the official-lineup denominator" failure this summary
+    exists to catch.
+    """
+
+    FIELDS = ('expected', 'attempted', 'projected', 'insufficient_data',
+              'upstream_failure', 'unexpected_failure', 'cached', 'skipped',
+              'persisted')
+
+    def __init__(self):
+        self._c = dict.fromkeys(self.FIELDS, 0)
+        self._lock = threading.Lock()
+
+    def bump(self, field, n=1):
+        with self._lock:
+            self._c[field] += n
+
+    def __getitem__(self, field):
+        return self._c[field]
+
+    def outcomes_reconcile(self):
+        """Every attempt landed in exactly one outcome bucket."""
+        return self['attempted'] == (self['projected']
+                                     + self['insufficient_data']
+                                     + self['upstream_failure']
+                                     + self['unexpected_failure'])
+
+    def coverage_reconciles(self):
+        """Every expected starter was attempted, cached, or explicitly skipped."""
+        return self['expected'] == (self['attempted'] + self['cached']
+                                    + self['skipped'])
+
+    def reconciles(self):
+        return self.outcomes_reconcile() and self.coverage_reconciles()
+
+    def line(self, label):
+        c = self._c
+        return (f'  [funnel] {label} '
+                + ' '.join(f'{f}={c[f]}' for f in self.FIELDS)
+                + f' outcomes={"OK" if self.outcomes_reconcile() else "MISMATCH"}'
+                + f' coverage={"OK" if self.coverage_reconciles() else "MISMATCH"}'
+                + f' reconcile={"OK" if self.reconciles() else "MISMATCH"}')
+
+
+def _bump(funnel, field, n=1):
+    if funnel is not None:
+        funnel.bump(field, n)
+
+
 def _run_prediction(player_id, pitcher_id, is_home, park_team,
-                    temp_f, wind_speed, wind_dir, game_date):
+                    temp_f, wind_speed, wind_dir, game_date, funnel=None):
     """
     Thin wrapper over the shared pipeline in projection.py.
 
@@ -197,17 +264,34 @@ def _run_prediction(player_id, pitcher_id, is_home, park_team,
     if cache_key in _PRED_CACHE:
         return _PRED_CACHE[cache_key]
 
+    _bump(funnel, 'attempted')
     try:
         result = shared_run_prediction(
             player_id, pitcher_id, is_home, park_team,
             temp_f, wind_speed, wind_dir, game_date,
             fetch_logs=_fetch_logs)
-    except RuntimeError:
-        return None      # insufficient history for this batter
+    # Order matters. LogFetchError and InsufficientData are both RuntimeError
+    # subclasses, so a bare `except RuntimeError` catches them and was reporting
+    # an MLB API outage as "insufficient history for this batter" — the exact
+    # conflation removed from Game View in e51311f, still live here until now.
+    except LogFetchError as e:
+        _bump(funnel, 'upstream_failure')
+        print(f'    [upstream] {player_id} — temporary fetch failure: {e}')
+        return None
+    except InsufficientData as e:
+        _bump(funnel, 'insufficient_data')
+        print(f'    [ineligible] {player_id} — {e.detail}')
+        return None
+    except RuntimeError as e:
+        _bump(funnel, 'unexpected_failure')
+        print(f'    [unexpected] {player_id} — {type(e).__name__}: {e}')
+        return None
     except Exception as e:
-        print(f'    Prediction failed for {player_id}: {e}')
+        _bump(funnel, 'unexpected_failure')
+        print(f'    [unexpected] {player_id} — {type(e).__name__}: {e}')
         return None
 
+    _bump(funnel, 'projected')
     _PRED_CACHE[cache_key] = result
     return result
 
@@ -287,6 +371,14 @@ def process_game(game, game_date):
 
         totals = []
 
+        # Per-side outcome funnel. `expected` is the official batting order for
+        # this side — starters carry ocode % 100 == 0 — so a shortfall in
+        # `attempted` is visible instead of having to be inferred from how many
+        # rating lines printed.
+        funnel = Funnel()
+        funnel.bump('expected',
+                    sum(1 for _c in batter_codes.values() if _c % 100 == 0))
+
         # Prediction and rating run as two passes because lineup context needs
         # every starter's projection before any one batter can be rated —
         # mirroring Game View, which resolves the whole lineup before building
@@ -302,14 +394,18 @@ def process_game(game, game_date):
                 # Already cached — use frozen rating
                 cached = get_cached_rating(game_date, pid)
                 if cached:
+                    funnel.bump('cached')
                     return ('cached', spot, cached)
 
-                # Game already started and no cache — skip
+                # Game already started and no cache — skip. Counted, so the
+                # coverage invariant can still account for this batter.
                 if game_started:
+                    funnel.bump('skipped')
                     return None
 
                 res = _run_prediction(pid, opp_pid, is_home, park_team,
-                                      temp_f, wind_sp, wind_dr, game_date)
+                                      temp_f, wind_sp, wind_dr, game_date,
+                                      funnel=funnel)
                 if not res:
                     return None
                 return ('new', spot, res)
@@ -429,6 +525,9 @@ def process_game(game, game_date):
                      game_date=game_date, game_started=False)
 
             print(f'    {pname} ({batter_team}) — {rating} {grade} · Proj {proj}')
+            funnel.bump('persisted')
+
+        print(funnel.line(f'{batter_team} ({"home" if is_home else "away"})'))
 
         team_proj = sum(p for _, p in totals)
         if is_home:
