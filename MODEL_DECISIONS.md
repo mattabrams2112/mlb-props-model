@@ -5,6 +5,209 @@ so decisions don't get re-litigated from scratch. Newest first. Dates are ET.
 
 ---
 
+## 2026-08-10c — Day zero. Agreed fix order + walk-forward cohort design.
+
+External code review of the post-merge state, verified against the code. Agreed
+plan, to execute from 2026-08-11. **Nothing below is done yet.**
+
+**Why today is day zero:** every historical result describes a system that no
+longer exists. Park splits scored exactly 0 for 69 days, pitch count never
+fired, the cron never once ran the worker, and the projection pipeline existed
+in two drifted copies. Prior performance — including the 85-89 band's 63% —
+cannot validate the current implementation.
+
+### Fix order
+
+1. **Disable or fix the active calibration.** `calibration.py:78` still filters
+   `actual > 0`, which this log recorded on 08-05 as inverting the correction's
+   sign. It is applied live at `worker.py:380` and Game View `:433/:453`. One
+   line, live impact.
+2. **Replace whole-table writes with transactional upserts.** `save_all` does
+   `to_sql(if_exists='replace')` on every call — once per batter — while the web
+   app and cron write concurrently. Read-modify-replace means the later writer
+   silently erases the earlier one. Needs permanent tables with unique
+   constraints and `INSERT ... ON CONFLICT DO UPDATE`. Silent corruption, no
+   error surface; highest actual risk on the list.
+3. **Correctness batch.**
+   - Empty-frame `.any()` crash at `worker.py:107` and `game_pred_engine.py:71`
+     (`not df.empty and ...` short-circuits to a bool). Same bug already fixed
+     in `full_tracker.py`; the siblings were missed.
+   - `worker.py:303` calls `get_cached_rating(game_date, pid)` without the
+     pitcher, so a doubleheader's Game 2 can inherit Game 1's rating. Game View
+     passes it correctly.
+   - Adopt MLB `game_pk` as the durable game identity. Fixes both
+     `worker.py:450`'s `gid = f'{away}_{home}'` colliding across doubleheaders
+     AND the play log's ~0.93% duplicate rows from probable-pitcher changes.
+   - Declare pytest in requirements; add CI. The pre-push hook is untracked and
+     therefore machine-local — currently the only automated gate.
+4. **Modeling.**
+   - **Synthetic future prediction row.** `projection.py` uses the last
+     COMPLETED game as the prediction template, and its `shift(1)` features
+     exclude that game's own result — so every projection is one game stale.
+     Append a synthetic future row whose features run through the latest
+     completed game. NOTE: the rating's `r7g`/`r30g` come from `df.tail(n)` and
+     DO include the latest game, so staleness is confined to the XGB/LGBM input.
+   - **Historical pitcher-feature leakage.** `get_pitcher_statcast(pid, season)`
+     returns season aggregates applied to every historical training row, and
+     rolling stats are blended with full-season ERA/FIP. Training rows therefore
+     see data recorded after those games. This inflates apparent model quality,
+     which is invisible from results — the most important modeling item here.
+
+**Deliberately NOT changing:** the pandas bound stays `<3.1.0`. The review reads
+this as permitting "the version that broke production," but pandas 3.0 broke it
+only via the `get_rolling_pitcher_stats` bug fixed on 08-10, and the full worker
+has since been run end-to-end on pandas 3.0.3 locally and in production.
+Pinning `<3.0.0` would revert to a configuration untested since the fix.
+
+### Walk-forward cohort
+
+Freeze code and configuration, stamp a **model version (git SHA) on every
+prediction**, pre-register metrics and thresholds here, and do not adjust the
+model until the window closes.
+
+**The probability diagnostic is a composition of two components:**
+
+    projected mean  ->  probability mapping  ->  comparison with market
+
+**Both must be frozen and versioned before any observation counts.** Changing
+either one invalidates the cohort, because a shift in the market comparison
+cannot be attributed without knowing which half moved. This is why replacing the
+Poisson mapping (below) is a cohort-ENTRY requirement rather than an improvement
+to make later — a cohort opened on a mapping known to be misspecified measures
+the mapping, not the model.
+
+**Power analysis — why W/L cannot be the only short-term diagnostic.** At
+approximately 1.1 bet-band plays per day, detecting a true 57% win rate against
+52.4% breakeven requires roughly **724 plays — about 1.8 years — assuming a
+one-sided 5% significance level and 80% power. A two-sided test would require
+approximately 920 plays.** Consequently, bet-band W/L cannot be the model's only
+short-term diagnostic, and the existing band results remain statistically noisy.
+
+| true win rate | plays (1-sided, 80% power) | time at 1.1/day |
+|---|---|---|
+| 57% | 724 | ~1.8 years |
+| 60% | 263 | ~0.7 years |
+| 63% | 134 | ~0.3 years |
+
+`novig_prob` began recording 2026-08-10 for every lined play — approximately 80
+per day, or 2,400 per month. This supplies a high-volume, pre-game market
+benchmark for measuring model-market disagreement, ranking behaviour, and
+stability within weeks. **Uncertainty will be calculated with clustering by game
+or day, because player props from the same slate are not independent** — an
+earlier draft of this entry asserted SE ≈ 0.02 with no justification; the naïve
+figure for 2,400 Bernoulli observations near 50% is about 0.010, and clustering
+will widen it by an amount to be measured rather than guessed.
+
+This benchmark accelerates diagnosis, but **only subsequent outcomes can
+establish calibration, predictive value, and betting profitability.** The market
+comparison can quickly reveal disagreement, instability, ranking problems and
+implausible calibration; it cannot prove edge. W/L remains the ultimate
+profitability test — it is simply too slow to be the only one.
+
+**Pre-registered metrics** (fill thresholds in before the window opens). Note
+the split between *what settles the question* and *what gives early warning* —
+they are different jobs and must not be conflated:
+
+*Deciding metrics — outcome-based, slow, definitive:*
+- 85+ win rate vs the 52.4% breakeven. Accumulates over seasons, not weeks;
+  report the confidence interval every time, never the bare percentage.
+- Brier score and log-loss of model probability against realised outcomes,
+  benchmarked against `novig_prob` scored the same way. Beating the market here
+  on a large sample is the real claim; nothing else substitutes for it.
+- Projection MAE vs the two baselines that already beat it — flat 1.77
+  (MAE 1.479) and `r30g` (1.492). The pipeline must clear both.
+
+*Diagnostic metrics — fast, high-volume, cannot establish edge:*
+- Model-vs-market disagreement: calibration slope and intercept of model
+  probability against `novig_prob`, with game- or day-clustered uncertainty.
+- Ranking behaviour: does model rank order track market rank order, and where
+  does it diverge most.
+- Stability: do these move between slates, which would indicate the pipeline
+  is not deterministic.
+- *Guardrail:* per-bin `actual` vs `base_proj` must stop being flat. On 9,134
+  rows it ran 1.61 at base_proj 0.7 rising only to 2.22 at 4.65.
+
+A diagnostic going wrong is grounds to stop and investigate. A diagnostic
+looking good is **not** grounds to claim edge.
+
+**Cohort rules:** correctness fixes that provably do not change scoring may land
+mid-window and must be logged. Anything touching scoring resets the cohort and
+starts a new version. No threshold or tier changes until the window closes.
+
+### Pre-window blocker: the Poisson probability mapping
+
+`odds_api.fair_probability` maps a projection to P(over) with **Poisson**. HRR is
+structurally non-Poisson: a home run contributes at least three units at once
+(a hit, a run, an RBI), so the components are strongly positively correlated and
+variance must exceed the mean. This has to be settled BEFORE the cohort opens,
+because a mis-specified mapping means the market diagnostic measures the
+distributional assumption as much as it measures the model.
+
+**Conclusion: narrow conditional bins exhibit stable structural overdispersion
+and excess zeros relative to Poisson, strongly establishing that the current
+Poisson probability mapping is unsuitable.** Binned by `r30g` — a baseline the
+model never touches, so the mixture-overdispersion artifact is avoided:
+
+| r30g bin | n | mean | var | var/mean | P0 obs | P0 Poisson |
+|---|---|---|---|---|---|---|
+| 0.0-1.25 | 482 | 1.45 | 2.95 | 2.04 | 0.382 | 0.235 |
+| 1.5-1.75 | 630 | 1.71 | 3.20 | 1.87 | 0.317 | 0.180 |
+| 1.75-2.0 | 864 | 1.73 | 3.54 | 2.04 | 0.322 | 0.177 |
+| 2.25-2.5 | 391 | 1.87 | 3.82 | 2.04 | 0.307 | 0.153 |
+| 2.5-3.0 | 213 | 1.91 | 3.99 | 2.09 | 0.291 | 0.149 |
+
+Poisson requires var/mean = 1.00. Observed is ~2.0 in every bin, and observed
+zero rates run 1.7-2x Poisson throughout.
+
+**A preliminary line-level calculation suggests approximately 7 percentage
+points of average overstatement at line 1.5, but that magnitude remains subject
+to conditional-bin weighting and time-separated validation.** Status so far, all
+at line = 1.5:
+
+| | n | empirical | Poisson | NB1 |
+|---|---|---|---|---|
+| all, pooled mean | 1,957 | 0.432 | 0.504 (+0.072) | — |
+| all, bin-weighted | 1,957 | 0.432 | 0.503 (+0.071) | 0.428 (-0.004) |
+| later-half split | 1,086 | 0.442 | 0.505 (+0.063) | 0.430 (-0.012) |
+
+Bin-weighting moved the estimate by ~0.001: the conditional means cluster in
+1.45-1.91 and the Poisson tail is near-linear across that range, so Jensen's
+inequality contributes little *here*. That is a measured result, not an
+assumption, and it may not hold at other lines.
+
+**Parameterization, recorded precisely.** A stable var/mean ≈ 2 implies an
+**NB1**-style relationship, `Var(Y|mu) = 2*mu`. In the standard negative
+binomial parameterization that is **fixed p = 0.5 with size r = mu** — the size
+varies with the conditional mean. It is *not* a single fixed-size NB2 model.
+
+**Still required before freezing a mapping:**
+1. Bin-level Poisson/NB probabilities weighted by sample counts, per line — done
+   for 1.5 only; 0.5 has n=214 and other lines are too thin.
+2. A genuine time-separated holdout. The split above validates the functional
+   form out-of-sample but **the dispersion parameter was estimated on the full
+   sample including the holdout half** — re-estimate on the earlier period only.
+3. Evaluate candidates on log loss and Brier, not calibration slope alone.
+4. Compare NB1, empirical line-specific calibration, and a direct binary
+   probability model. Caution on the last: it conditions on a line existing,
+   which drops ~25% of plays and risks learning the market rather than the sport.
+5. Freeze the selected mapping before the forward cohort opens.
+
+**Scope of the claim.** These probabilities were computed from the *empirical*
+mean per bin, not from model projections, so they establish the distributional
+shape given a correct mean — they say nothing about the model's ability to
+produce that mean, which remains the separate and weaker problem. And because
+historical projections came from an obsolete system, this analysis can show
+Poisson is structurally unsuitable but **cannot** establish that any selected
+mapping is calibrated for today's model.
+
+**Consequence to record:** the historical 1.5-line population appears inflated
+by approximately 7pp on average. Per-play bias varies with the conditional mean.
+Breakeven at -110 is 52.4%; the mapping asserted ~50.4% where the realised rate
+was 43.2%. This is a second, independent source of Edge inflation, compounding
+with the projection bias documented on 08-05.
+
+---
+
 ## 2026-08-10b — One pipeline; and the two bugs that were actually zeroing the worker
 
 **Merged the duplicated pipeline into `projection.py`.** Game View and worker
