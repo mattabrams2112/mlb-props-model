@@ -138,14 +138,94 @@ def test_coverage_catches_a_vanished_starter():
     assert 'coverage=MISMATCH' in f.line('KC (away)')
 
 
-def test_coverage_reconciles_when_skips_are_counted():
+def test_coverage_reconciles_when_skips_carry_a_reason():
     f = worker.Funnel()
     f.bump('expected', 9)
     f.bump('cached', 8)
-    f.bump('skipped', 1)            # now accounted for
+    f.bump_skip('game_started')     # accounted for, with a declared reason
     assert f.coverage_reconciles()
     assert f.reconciles()
-    assert 'coverage=OK' in f.line('KC (away)')
+    line = f.line('KC (away)')
+    assert 'coverage=OK' in line
+    assert 'skip_game_started=1' in line
+
+
+def test_skip_without_a_reason_fails_coverage():
+    """`skipped` must never be a generic bucket that hides missing work."""
+    f = worker.Funnel()
+    f.bump('expected', 9)
+    f.bump('cached', 8)
+    f.bump('skipped', 1)            # incremented directly, no reason attached
+    assert not f.skips_explained()
+    assert not f.coverage_reconciles(), 'an unattributed skip must not read as OK'
+    assert 'coverage=MISMATCH' in f.line('KC (away)')
+
+
+def test_unknown_skip_always_fails_coverage():
+    """Even fully counted, an 'unknown' skip is an unexplained omission."""
+    f = worker.Funnel()
+    f.bump('expected', 9)
+    f.bump('cached', 8)
+    f.bump_skip('unknown')
+    assert sum(f.skip(r) for r in worker.Funnel.SKIP_REASONS) == f['skipped']
+    assert not f.skips_explained(), 'unknown must never count as explained'
+    assert not f.coverage_reconciles()
+    assert 'skip_unknown=1' in f.line('KC (away)')
+
+
+def test_undeclared_reason_is_recorded_as_unknown():
+    f = worker.Funnel()
+    f.bump_skip('some_reason_nobody_declared')
+    assert f.skip('unknown') == 1
+    assert f['skipped'] == 1
+    assert not f.skips_explained()
+
+
+@pytest.mark.parametrize('reason', worker.Funnel.SKIP_REASONS)
+def test_every_declared_reason_is_countable(reason):
+    f = worker.Funnel()
+    f.bump_skip(reason)
+    assert f.skip(reason) == 1
+    assert f['skipped'] == 1
+
+
+# ── persistence: projected == persisted + persistence_failure ────────────────
+
+def test_persistence_reconciles_when_all_projected_persist():
+    f = worker.Funnel()
+    f.bump('projected', 4)
+    f.bump('persisted', 4)
+    assert f.persistence_reconciles()
+    assert 'persistence=OK' in f.line('LAD (home)')
+
+
+def test_projected_but_not_persisted_fails_without_a_recorded_failure():
+    """A batter that projects and then vanishes before the DB must show up."""
+    f = worker.Funnel()
+    f.bump('projected', 4)
+    f.bump('persisted', 3)          # one lost, nothing recorded
+    assert not f.persistence_reconciles()
+    assert 'persistence=MISMATCH' in f.line('LAD (home)')
+
+
+def test_recorded_persistence_failure_reconciles():
+    f = worker.Funnel()
+    f.bump('projected', 4)
+    f.bump('persisted', 3)
+    f.bump('persistence_failure', 1)
+    assert f.persistence_reconciles()
+    assert 'persistence=OK' in f.line('LAD (home)')
+
+
+def test_cached_batters_do_not_require_persistence():
+    """cached=8 persisted=0 is normal: they were persisted on an earlier run."""
+    f = worker.Funnel()
+    f.bump('expected', 9)
+    f.bump('cached', 8)
+    f.bump_skip('game_started')
+    assert f['projected'] == 0 and f['persisted'] == 0
+    assert f.persistence_reconciles()
+    assert f.reconciles()
 
 
 def test_both_invariants_reported_independently():

@@ -190,34 +190,65 @@ class Funnel:
     Incremented from a ThreadPoolExecutor, hence the lock.
 
     `attempted` counts fresh projections only — a cached batter is a real
-    outcome but not an attempt, so it gets its own bucket. Two invariants:
+    outcome but not an attempt, so it gets its own bucket. Three invariants:
 
         attempted == projected + insufficient_data
-                     + upstream_failure + unexpected_failure     (outcomes)
+                     + upstream_failure + unexpected_failure       (outcomes)
 
-        expected  == attempted + cached + skipped                (coverage)
+        expected  == attempted + cached + skipped                  (coverage)
+        AND every skip carries a declared reason, with skip_unknown == 0
 
-    The second one matters as much as the first. Without a `skipped` bucket a
+        projected == persisted + persistence_failure               (persistence)
+
+    Coverage matters as much as outcomes. Without a `skipped` bucket a
     post-start run reported expected=9, cached=8, attempted=0 and still said
     reconcile=OK — the ninth batter disappeared silently, which is precisely
-    the "attempted below the official-lineup denominator" failure this summary
-    exists to catch.
+    the "attempted below the official-lineup denominator" failure this exists
+    to catch.
+
+    `skipped` must never become a generic bucket that hides missing work, so
+    every skip is attributed to a declared reason and an unattributed skip
+    fails coverage rather than passing. Otherwise expected=9 cached=8 skipped=1
+    looks healthy without saying whether the ninth batter was legitimately
+    omitted.
+
+    Persistence is separate again: a batter can be projected and still never
+    reach the database, because rate_batter returns None on any rating error.
+    Without this invariant that loss is invisible.
     """
 
     FIELDS = ('expected', 'attempted', 'projected', 'insufficient_data',
               'upstream_failure', 'unexpected_failure', 'cached', 'skipped',
-              'persisted')
+              'persisted', 'persistence_failure')
+
+    # Declared skip reasons. `unknown` exists so an unattributed skip is
+    # counted rather than silently absorbed — and it must always be 0.
+    SKIP_REASONS = ('game_started', 'invalid_code', 'missing_player_id',
+                    'ineligible_rule', 'unknown')
 
     def __init__(self):
         self._c = dict.fromkeys(self.FIELDS, 0)
+        self._skips = dict.fromkeys(self.SKIP_REASONS, 0)
         self._lock = threading.Lock()
 
     def bump(self, field, n=1):
         with self._lock:
             self._c[field] += n
 
+    def bump_skip(self, reason, n=1):
+        """Record a skip against a declared reason. Unknown reasons are still
+        counted, under 'unknown', so they surface instead of vanishing."""
+        if reason not in self.SKIP_REASONS:
+            reason = 'unknown'
+        with self._lock:
+            self._c['skipped'] += n
+            self._skips[reason] += n
+
     def __getitem__(self, field):
         return self._c[field]
+
+    def skip(self, reason):
+        return self._skips[reason]
 
     def outcomes_reconcile(self):
         """Every attempt landed in exactly one outcome bucket."""
@@ -226,20 +257,37 @@ class Funnel:
                                      + self['upstream_failure']
                                      + self['unexpected_failure'])
 
+    def skips_explained(self):
+        """Every skip has a declared reason, and none is 'unknown'."""
+        return (sum(self._skips.values()) == self['skipped']
+                and self._skips['unknown'] == 0)
+
     def coverage_reconciles(self):
-        """Every expected starter was attempted, cached, or explicitly skipped."""
-        return self['expected'] == (self['attempted'] + self['cached']
-                                    + self['skipped'])
+        """Every expected starter was attempted, cached, or explicitly skipped
+        for a declared reason."""
+        return (self['expected'] == (self['attempted'] + self['cached']
+                                     + self['skipped'])
+                and self.skips_explained())
+
+    def persistence_reconciles(self):
+        """Every projected batter was persisted or recorded as a failure."""
+        return self['projected'] == (self['persisted']
+                                     + self['persistence_failure'])
 
     def reconciles(self):
-        return self.outcomes_reconcile() and self.coverage_reconciles()
+        return (self.outcomes_reconcile() and self.coverage_reconciles()
+                and self.persistence_reconciles())
 
     def line(self, label):
         c = self._c
+        skips = ' '.join(f'skip_{r}={self._skips[r]}'
+                         for r in self.SKIP_REASONS if self._skips[r])
         return (f'  [funnel] {label} '
                 + ' '.join(f'{f}={c[f]}' for f in self.FIELDS)
+                + (f' {skips}' if skips else '')
                 + f' outcomes={"OK" if self.outcomes_reconcile() else "MISMATCH"}'
                 + f' coverage={"OK" if self.coverage_reconciles() else "MISMATCH"}'
+                + f' persistence={"OK" if self.persistence_reconciles() else "MISMATCH"}'
                 + f' reconcile={"OK" if self.reconciles() else "MISMATCH"}')
 
 
@@ -384,23 +432,35 @@ def process_game(game, game_date):
         # mirroring Game View, which resolves the whole lineup before building
         # rows. Both passes stay pooled; the expensive work is model training.
         def predict_batter(pid):
+            # Resolve the batting-order code OUTSIDE the main try, so a batter
+            # who is part of `expected` can never fall into the catch-all below
+            # without first being identified as an expected starter.
             try:
-                ocode      = batter_codes.get(int(pid), 0)
-                is_starter = (ocode % 100 == 0) and (ocode > 0)
-                spot       = ocode // 100
-                if not is_starter or spot == 0:
-                    return None
+                ocode = batter_codes.get(int(pid), 0)
+            except (TypeError, ValueError):
+                # Unusable player id. Not in batter_codes either, so this batter
+                # was never counted in `expected` and needs no skip bucket.
+                print(f'    [skip:missing_player_id] {pid!r}')
+                return None
 
+            is_starter = (ocode % 100 == 0) and (ocode > 0)
+            spot       = ocode // 100
+            if not is_starter or spot == 0:
+                # Not in the official order — the starting pitcher, or a coded
+                # substitution. Neither is in `expected`, so neither is a skip.
+                return None
+
+            try:
                 # Already cached — use frozen rating
                 cached = get_cached_rating(game_date, pid)
                 if cached:
                     funnel.bump('cached')
                     return ('cached', spot, cached)
 
-                # Game already started and no cache — skip. Counted, so the
-                # coverage invariant can still account for this batter.
+                # Game already started and no cache — skip, with a reason, so
+                # the coverage invariant can account for this batter.
                 if game_started:
-                    funnel.bump('skipped')
+                    funnel.bump_skip('game_started')
                     return None
 
                 res = _run_prediction(pid, opp_pid, is_home, park_team,
@@ -410,7 +470,11 @@ def process_game(game, game_date):
                     return None
                 return ('new', spot, res)
             except Exception as e:
-                print(f'    Error predicting player {pid}: {e}')
+                # An expected starter dropped out for a reason we have not
+                # declared. Counted as 'unknown', which FAILS coverage — that
+                # is the point: an unexplained skip must not read as healthy.
+                funnel.bump_skip('unknown')
+                print(f'    [skip:unknown] {pid} — {type(e).__name__}: {e}')
                 return None
 
         with ThreadPoolExecutor(max_workers=8) as exe:
@@ -492,7 +556,12 @@ def process_game(game, game_date):
                 return (r_data['total'], proj, pname, r_data['grade'], r_data,
                         base_proj, res.get('proj_ceiling'), res.get('r30g'))
             except Exception as e:
-                print(f'    Error rating player {pid}: {e}')
+                # A batter that projected successfully but could not be rated
+                # never reaches the database. Recorded, so `projected` and
+                # `persisted` are not silently allowed to disagree.
+                if kind == 'new':
+                    funnel.bump('persistence_failure')
+                print(f'    [persist-fail] rating {pid} — {type(e).__name__}: {e}')
                 return None
 
         with ThreadPoolExecutor(max_workers=8) as exe:
@@ -508,21 +577,28 @@ def process_game(game, game_date):
             if pname is None:
                 continue  # cached — already saved
 
-            # Save to ratings cache (freezes the rating pre-game)
-            save_rating(game_date, pid, rating, grade, proj,
-                        player_name=pname, team=batter_team, vs_pitcher=opp_p_name)
+            try:
+                # Save to ratings cache (freezes the rating pre-game)
+                save_rating(game_date, pid, rating, grade, proj,
+                            player_name=pname, team=batter_team, vs_pitcher=opp_p_name)
 
-            # Log to full play log
-            log_play(player=pname, team=batter_team,
-                     rating=rating, grade=grade, projected=proj,
-                     base_proj=base_proj, proj_ceiling=proj_ceiling,
-                     # Tag the source: worker and Game View reach base_proj by
-                     # the same route now, but a calibration fit must still be
-                     # able to prove that rather than assume it.
-                     proj_src='worker',
-                     r30g=r30g,
-                     vs_pitcher=opp_p_name, is_home=is_home,
-                     game_date=game_date, game_started=False)
+                # Log to full play log
+                log_play(player=pname, team=batter_team,
+                         rating=rating, grade=grade, projected=proj,
+                         base_proj=base_proj, proj_ceiling=proj_ceiling,
+                         # Tag the source: worker and Game View reach base_proj by
+                         # the same route now, but a calibration fit must still be
+                         # able to prove that rather than assume it.
+                         proj_src='worker',
+                         r30g=r30g,
+                         vs_pitcher=opp_p_name, is_home=is_home,
+                         game_date=game_date, game_started=False)
+            except Exception as e:
+                # A write that fails must be recorded, not swallowed — otherwise
+                # persisted silently drifts below projected.
+                funnel.bump('persistence_failure')
+                print(f'    [persist-fail] saving {pid} — {type(e).__name__}: {e}')
+                continue
 
             print(f'    {pname} ({batter_team}) — {rating} {grade} · Proj {proj}')
             funnel.bump('persisted')
