@@ -20,6 +20,28 @@ _CORRECTION_CACHE: dict = {}
 _CACHE_TTL = 3600  # re-compute at most once per hour
 _LAST_COMPUTED: float = 0.0
 
+# Calibration is computed but NOT applied. `get_correction_factor` returns 1.0
+# for every rating while this is False.
+#
+# Until 2026-08-11 this shipped enabled on top of a zeros-dropping bug (see
+# below), which inverted the correction's sign for the tier holding most of the
+# population: sub-60 projections were multiplied by 1.4837 — inflated 48% — and
+# then re-rated on the inflated number, which is how a marginal play climbed
+# into a higher tier. Measured on 15,956 decided rows:
+#
+#     tier     live factor    correct factor
+#     90+         0.7484          0.4605
+#     80-89       0.8854          0.6681
+#     70-79       0.8517          0.6186
+#     60-69       0.9799          0.6957
+#     <60         1.4837          0.9757   <- sign inversion, 71% of rows
+#
+# The bug is fixed below, so the factors this module reports are now honest.
+# It stays OFF because the honest factors are the known-bad ones: ~0.46 at 90+
+# would collapse the bet band outright. Per CLAUDE.md, calibration may only be
+# re-enabled together with a re-derived rating threshold — never alone.
+CALIBRATION_ENABLED = False
+
 TIERS = [
     (90, 101, '90+'),
     (80, 90,  '80-89'),
@@ -73,9 +95,11 @@ def compute_calibration() -> dict:
     df['actual']    = pd.to_numeric(df['actual'],    errors='coerce')
     df['rating']    = pd.to_numeric(df['rating'],    errors='coerce')
 
-    # Only use rows with decided actuals
+    # Only use rows with decided actuals. A 0 IS a decided actual — the batter
+    # went 0-for. Dropping those rows was the sign-inversion bug: it discarded
+    # 32.7% of the sample, all of it on the losing side, so mean(actual) rose
+    # far above the truth and the multiplier told the model to project higher.
     decided = df.dropna(subset=['projected', 'actual', 'rating'])
-    decided = decided[decided['actual'] > 0]
 
     for lo, hi, label in TIERS:
         tier = decided[(decided['rating'] >= lo) & (decided['rating'] < hi)]
@@ -95,7 +119,14 @@ def compute_calibration() -> dict:
 
 
 def get_correction_factor(rating: float) -> float:
-    """Return the calibration multiplier for a given rating."""
+    """Return the calibration multiplier for a given rating.
+
+    Returns 1.0 unconditionally while CALIBRATION_ENABLED is False. This is the
+    single choke point for all three call sites (worker.py, Game View x2), so
+    the flag is the whole off switch — no call site needs to know.
+    """
+    if not CALIBRATION_ENABLED:
+        return 1.0
     factors = compute_calibration()
     if not factors:
         return 1.0
@@ -117,10 +148,11 @@ if __name__ == '__main__':
     df['actual']    = pd.to_numeric(df['actual'],    errors='coerce')
     df['rating']    = pd.to_numeric(df['rating'],    errors='coerce')
     decided = df.dropna(subset=['projected', 'actual', 'rating'])
-    decided = decided[decided['actual'] > 0]
 
     print(f'\n{"=" * 60}')
+    status = 'APPLIED LIVE' if CALIBRATION_ENABLED else 'COMPUTED ONLY — NOT APPLIED'
     print(f'  Projection Calibration Report  ({len(decided)} decided plays)')
+    print(f'  Status: {status}')
     print(f'{"=" * 60}')
     print(f'{"Tier":<10} {"N":>5} {"Avg Proj":>10} {"Avg Actual":>12} {"Multiplier":>12} {"Bias":>10}')
     print(f'{"-" * 60}')

@@ -5,6 +5,48 @@ so decisions don't get re-litigated from scratch. Newest first. Dates are ET.
 
 ---
 
+## 2026-08-11a — Calibration disabled. The zeros filter was inverting its sign.
+
+Fix order item 1 from 08-10c. `calibration.py` dropped `actual > 0` before
+computing `mean(actual) / mean(projected)`. A 0 is a decided outcome — the
+batter went 0-for — so this discarded 32.7% of the sample (5,222 of 15,956
+rows), all of it on the losing side.
+
+Measured, live vs corrected:
+
+| tier | n | live factor | correct factor |
+|---|---|---|---|
+| 90+ | 52 | 0.7484 | 0.4605 |
+| 80-89 | 352 | 0.8854 | 0.6681 |
+| 70-79 | 1,142 | 0.8517 | 0.6186 |
+| 60-69 | 3,118 | 0.9799 | 0.6957 |
+| **<60** | **11,292** | **1.4837** | **0.9757** |
+
+In the `<60` tier — 71% of all rows — the filter did not merely shrink the
+correction, it **reversed** it. A tier that is very nearly calibrated (0.9757)
+was being told it underprojects by 48%. Because worker.py and Game View both
+rate in two passes (rate `base_proj`, pick the factor from that rating, re-rate
+the corrected projection), the inflated projection was then *re-rated*, which is
+a live mechanism for pushing marginal plays up into higher tiers.
+
+**Two changes, deliberately separate in effect:**
+1. The zeros filter is removed, so the numbers this module reports are honest.
+2. Calibration is switched OFF behind `CALIBRATION_ENABLED = False`.
+
+It stays off because the honest factors are the known-bad ones this log has
+described since 08-05: ~0.46 at 90+ collapses the bet band outright. Per
+CLAUDE.md, calibration may only be re-enabled together with a re-derived rating
+threshold, never alone. `get_correction_factor` is the single choke point for
+all three call sites, so the flag is the entire off switch and no caller
+changed.
+
+**This changes live scoring** — projections were being multiplied by a non-1.0
+factor and now are not. That is intended: the cohort has not opened, and moving
+from a sign-inverted correction to no correction is a move toward a known state.
+Verified by running a real game (KC @ LAD, 2026-08-11) end to end.
+
+---
+
 ## 2026-08-10c — Day zero. Agreed fix order + walk-forward cohort design.
 
 External code review of the post-merge state, verified against the code. Agreed
